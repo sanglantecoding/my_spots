@@ -17,7 +17,6 @@ import 'package:my_spots/widgets/satellite_bottom_sheet.dart';
 import 'package:my_spots/widgets/navigation_overlay.dart';
 import 'package:my_spots/utils/gps_status_utils.dart';
 import 'package:my_spots/services/satellite_service.dart';
-import 'package:my_spots/services/bathymetry_overlay_service.dart';
 import 'package:my_spots/services/marine_map_service.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/help_page.dart';
@@ -145,13 +144,50 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openMarineWeather() async {
     final String weatherUrl = AppSettings.getWeatherUrl();
-    final Uri url = Uri.parse(weatherUrl);
+
+    // Vérifier si l'URL est vide
+    if (weatherUrl.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Aucun port sélectionné. Veuillez configurer un port favori dans les paramètres.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Vérifier si l'URL est valide
+    final Uri? url = Uri.tryParse(weatherUrl);
+    if (url == null || !url.hasScheme || !url.hasAuthority) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'URL météo invalide. Veuillez vérifier la configuration du port.',
+            ),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Tenter d'ouvrir l'URL
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Impossible d\'ouvrir la météo marine'),
+            content: Text(
+              'Impossible d\'ouvrir la météo marine. Vérifiez votre connexion internet.',
+            ),
             backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
           ),
         );
       }
@@ -506,6 +542,7 @@ class _MapScreenState extends State<MapScreen> {
   LatLng? _currentPosition;
   double _currentSpeed = 0.0;
   double _currentHeading = 0.0;
+  double _currentZoom = 15.0;
   bool _isLoading = true;
   bool _isFollowingUser = false;
   final TextEditingController _waypointNameController = TextEditingController();
@@ -513,23 +550,28 @@ class _MapScreenState extends State<MapScreen> {
   Waypoint? _navigationTarget; // Waypoint ciblé pour la navigation active
   String gpsStatus = 'INITIALISATION...';
   Color gpsStatusColor = Colors.orange;
+  LatLngBounds? _mapVisibleBounds;
 
-  List<Widget> _buildBathymetryOverlayLayers() {
-    if (!AppSettings.bathymetryOverlayEnabled) return const [];
+  void _onMapCameraChanged() {
+    final bounds = _mapController.camera.visibleBounds;
+    if (_mapVisibleBounds != null &&
+        _mapVisibleBounds!.isOverlapping(bounds) &&
+        _boundsNearlyEqual(_mapVisibleBounds!, bounds)) {
+      return;
+    }
+    setState(() => _mapVisibleBounds = bounds);
+  }
 
-    return BathymetryOverlayService.getLayers(
-      opacity: AppSettings.bathymetryOverlayOpacity,
-    );
+  bool _boundsNearlyEqual(LatLngBounds a, LatLngBounds b) {
+    const epsilon = 0.002;
+    return (a.north - b.north).abs() < epsilon &&
+        (a.south - b.south).abs() < epsilon &&
+        (a.east - b.east).abs() < epsilon &&
+        (a.west - b.west).abs() < epsilon;
   }
 
   void _logMapTileError(TileImage tile, Object error, StackTrace? stackTrace) {
-    debugPrint(
-      '[MapTile] erreur tuile z=${tile.coordinates.z} '
-      'x=${tile.coordinates.x} y=${tile.coordinates.y}: $error',
-    );
-    if (stackTrace != null) {
-      debugPrint(stackTrace.toString());
-    }
+    MapTileErrorLogger.logTileError(tile, error, stackTrace);
   }
 
   Widget _buildBathymetryOverlayControls() {
@@ -878,9 +920,24 @@ class _MapScreenState extends State<MapScreen> {
                   options: MapOptions(
                     initialCenter:
                         _currentPosition ?? AppSettings.getDefaultMapCenter(),
-                    initialZoom: 15.0,
+                    initialZoom: _currentZoom,
                     minZoom: AppSettings.getMapMinZoom(),
                     maxZoom: AppSettings.getMapMaxZoom(),
+                    onPositionChanged: (position, hasGesture) {
+                      // Met à jour _currentZoom seulement en cas de changement significatif
+                      if ((position.zoom - _currentZoom).abs() > 0.1) {
+                        setState(() {
+                          _currentZoom = position.zoom;
+                        });
+                      }
+                    },
+                    onMapEvent: (event) {
+                      if (event is MapEventMove ||
+                          event is MapEventRotate ||
+                          event is MapEventNonRotatedSizeChange) {
+                        _onMapCameraChanged();
+                      }
+                    },
                     onPointerDown: (event, point) {
                       // Désactiver le suivi automatique quand l'utilisateur déplace la carte manuellement
                       if (_isFollowingUser) {
@@ -891,22 +948,30 @@ class _MapScreenState extends State<MapScreen> {
                     },
                   ),
                   children: [
-                    if (AppSettings.mapType == MapType.marine)
-                      ...MarineMapService.getLayers(
-                        errorTileCallback: _logMapTileError,
-                      )
-                    else
+                    if (AppSettings.mapType == MapType.marine) ...[
+                      ...MarineMapService.getActiveMarineTileLayers(
+                        _currentZoom,
+                      ),
+                      if (AppSettings.bathymetryOverlayEnabled)
+                        ...MarineMapService.getActiveLidarLayers(
+                          _mapVisibleBounds,
+                          opacity: AppSettings.bathymetryOverlayOpacity,
+                        ),
+                    ] else
                       TileLayer(
+                        key: ValueKey('basemap_${AppSettings.mapType}'),
                         urlTemplate: AppSettings.getMapTileUrl(),
                         userAgentPackageName: MapTileCacheService.packageName,
                         minZoom: AppSettings.getMapMinZoom(),
                         minNativeZoom: AppSettings.getMapMinNativeZoom(),
                         maxNativeZoom: AppSettings.getMapMaxNativeZoom(),
                         maxZoom: AppSettings.getMapMaxZoom(),
-                        tileProvider: MapTileCacheService.baseMapTileProvider,
+                        tileProvider:
+                            MapTileCacheService.getTileProviderForMapType(
+                              AppSettings.mapType,
+                            ),
                         errorTileCallback: _logMapTileError,
                       ),
-                    ..._buildBathymetryOverlayLayers(),
                     if (_currentPosition != null && _selectedWaypoint != null)
                       PolylineLayer(
                         polylines: [

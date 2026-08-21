@@ -1,5 +1,6 @@
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:my_spots/models/fishing_port.dart';
 import 'dart:convert';
 
 enum SpeedUnit { knots, kmh }
@@ -7,13 +8,6 @@ enum SpeedUnit { knots, kmh }
 enum DistanceUnit { metric, nautical }
 
 enum MapType { standard, relief, hiking, marine }
-
-class FishingPort {
-  final String name;
-  final String url;
-
-  const FishingPort({required this.name, required this.url});
-}
 
 class AppSettings {
   static SpeedUnit speedUnit = SpeedUnit.kmh; // km/h par défaut
@@ -39,28 +33,39 @@ class AppSettings {
   static bool energySavingMode = false;
   static List<FishingPort> favoritePorts = [];
 
-  // Superposition relief sous-marin / LiDAR (Géoplateforme + SHOM)
+  // Superposition relief sous-marin / LiDAR (contrôles sur la carte)
   static bool bathymetryOverlayEnabled = false;
   static double bathymetryOverlayOpacity = 0.7;
 
-  static const Map<String, FishingPort> ports = {
-    'palavas': FishingPort(
+  /// Alias pour [bathymetryOverlayEnabled].
+  static bool get showBathymetry => bathymetryOverlayEnabled;
+
+  static set showBathymetry(bool value) => bathymetryOverlayEnabled = value;
+
+  /// Alias pour [bathymetryOverlayOpacity].
+  static double get bathymetryOpacity => bathymetryOverlayOpacity;
+
+  static set bathymetryOpacity(double value) =>
+      bathymetryOverlayOpacity = value;
+
+  static final Map<String, FishingPort> ports = {
+    'palavas': FishingPort.legacy(
       name: 'Palavas-les-Flots',
       url: 'https://meteofrance.com/meteo-marine/palavas-les-flots/570277',
     ),
-    'sete': FishingPort(
+    'sete': FishingPort.legacy(
       name: 'Sète',
       url: 'https://meteofrance.com/meteo-marine/sete/570202',
     ),
-    'carnon': FishingPort(
+    'carnon': FishingPort.legacy(
       name: 'Carnon',
       url: 'https://meteofrance.com/meteo-marine/carnon/570211',
     ),
-    'cap_agde': FishingPort(
+    'cap_agde': FishingPort.legacy(
       name: 'Cap d\'Agde',
       url: 'https://meteofrance.com/meteo-marine/cap-d-agde/570229',
     ),
-    'grau_du_roi': FishingPort(
+    'grau_du_roi': FishingPort.legacy(
       name: 'Le Grau-du-Roi / Port-Camargue',
       url: 'https://meteofrance.com/meteo-marine/le-grau-du-roi/570268',
     ),
@@ -130,7 +135,7 @@ class AppSettings {
             jsonDecode(favoritesJson) as List<dynamic>;
         favoritePorts = decoded
             .map(
-              (e) => FishingPort(
+              (e) => FishingPort.legacy(
                 name: (e['name'] ?? '') as String,
                 url: (e['url'] ?? '') as String,
               ),
@@ -276,9 +281,22 @@ class AppSettings {
   }
 
   static String getWeatherUrl() {
+    // D'abord chercher dans les ports favoris personnalisés
+    if (selectedPortKey != null) {
+      final favoritePort = favoritePorts.cast<FishingPort?>().firstWhere(
+        (port) => port?.key == selectedPortKey,
+        orElse: () => null,
+      );
+      if (favoritePort != null) {
+        return favoritePort.url;
+      }
+    }
+
+    // Ensuite chercher dans les ports prédéfinis
     if (selectedPortKey != null && ports.containsKey(selectedPortKey)) {
       return ports[selectedPortKey]!.url;
     }
+
     return defaultWeatherUrl;
   }
 
@@ -306,9 +324,9 @@ class AppSettings {
     return const LatLng(45.5017, -73.5673);
   }
 
-  /// Zoom natif min (RasterMarine : 1:1 000 000 dès le niveau 5).
+  /// Zoom natif min (RasterMarine 1M dès le niveau 3).
   static int getMapMinNativeZoom() {
-    if (mapType == MapType.marine) return 5;
+    if (mapType == MapType.marine) return 3;
     return 0;
   }
 
@@ -319,12 +337,12 @@ class AppSettings {
   }
 
   static double getMapMinZoom() {
-    if (mapType == MapType.marine) return 0;
+    if (mapType == MapType.marine) return 5.0;
     return 5;
   }
 
   static double getMapMaxZoom() {
-    if (mapType == MapType.marine) return 22;
+    if (mapType == MapType.marine) return 18;
     return 18;
   }
 

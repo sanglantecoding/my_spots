@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/waypoint.dart';
+import 'package:my_spots/models/fishing_port.dart';
+import 'package:my_spots/offline_management_screen.dart';
+import 'package:my_spots/widgets/port_search_field.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -31,8 +34,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showOtherWaypointsOnMap = AppSettings.showOtherWaypointsOnMap;
   bool _showSpeedOnMap = AppSettings.showSpeedOnMap;
   MapType _selectedMapType = AppSettings.mapType;
-  bool _bathymetryOverlayEnabled = AppSettings.bathymetryOverlayEnabled;
-  double _bathymetryOverlayOpacity = AppSettings.bathymetryOverlayOpacity;
 
   @override
   void initState() {
@@ -228,7 +229,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               (pData) => pData.containsKey('name') && pData.containsKey('url'),
             )
             .map(
-              (pData) => FishingPort(
+              (pData) => FishingPort.legacy(
                 name: pData['name'] as String? ?? '',
                 url: pData['url'] as String? ?? '',
               ),
@@ -373,7 +374,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             const SizedBox(height: 16),
             const Text(
-              'PORT FAVORI',
+              'METEO PORT FAVORI',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -419,9 +420,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: TextStyle(color: Colors.white70),
                       ),
                     ),
-                    ...AppSettings.ports.entries.map((entry) {
+                    ...AppSettings.favoritePorts.map((port) {
                       return DropdownMenuItem<String>(
-                        value: entry.key,
+                        value: port.key,
                         child: Row(
                           children: [
                             const Icon(
@@ -430,7 +431,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               size: 20,
                             ),
                             const SizedBox(width: 12),
-                            Text(entry.value.name),
+                            Text(port.name),
                           ],
                         ),
                       );
@@ -458,13 +459,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               trailing: const Icon(Icons.chevron_right, color: Colors.white54),
-              onTap: () {
-                Navigator.push(
+              onTap: () async {
+                await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (context) => const ManagePortsScreen(),
                   ),
                 );
+                // Rafraîchir l'état après retour de l'écran de gestion
+                setState(() {
+                  _selectedPortKey = AppSettings.selectedPortKey;
+                });
               },
             ),
             const SizedBox(height: 32),
@@ -736,64 +741,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   width: 1,
                 ),
               ),
-              child: Column(
-                children: [
-                  SwitchListTile(
-                    title: const Text(
-                      'Relief sous-marin / LiDAR',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                      ),
+              child: ListTile(
+                leading: const Icon(Icons.storage, color: Colors.blueAccent),
+                title: const Text(
+                  'Gestion du stockage hors-ligne',
+                  style: TextStyle(color: Colors.white, fontSize: 16),
+                ),
+                subtitle: const Text(
+                  'Télécharger ou supprimer les cartes 1:10 000 et le relief LiDAR',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: Colors.white54,
+                ),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const OfflineManagementScreen(),
                     ),
-                    subtitle: const Text(
-                      'Relief Litto3D SHOM — terre et fonds marins (Géoplateforme)',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    value: _bathymetryOverlayEnabled,
-                    activeThumbColor: Colors.blueAccent,
-                    onChanged: (value) async {
-                      setState(() => _bathymetryOverlayEnabled = value);
-                      await AppSettings.saveBathymetryOverlayEnabled(value);
-                    },
-                  ),
-                  if (_bathymetryOverlayEnabled) ...[
-                    const Divider(
-                      color: Colors.white12,
-                      height: 1,
-                      indent: 16,
-                      endIndent: 16,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Opacité : ${(_bathymetryOverlayOpacity * 100).round()} %',
-                            style: const TextStyle(color: Colors.white70),
-                          ),
-                          Slider(
-                            value: _bathymetryOverlayOpacity,
-                            min: 0,
-                            max: 1,
-                            divisions: 20,
-                            activeColor: Colors.blueAccent,
-                            label:
-                                '${(_bathymetryOverlayOpacity * 100).round()}%',
-                            onChanged: (value) async {
-                              setState(() => _bathymetryOverlayOpacity = value);
-                              await AppSettings.saveBathymetryOverlayOpacity(
-                                value,
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
+                  );
+                },
               ),
             ),
             const SizedBox(height: 32),
@@ -820,76 +789,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       letterSpacing: 1.2,
                     ),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black26,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  width: 1,
-                ),
-              ),
-              child: Column(
-                children: [
-                  SwitchListTile(
-                    title: const Text(
-                      'Relief sous-marin / LiDAR',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'Relief Litto3D SHOM — terre et fonds marins (Géoplateforme)',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    value: _bathymetryOverlayEnabled,
-                    activeThumbColor: Colors.blueAccent,
-                    onChanged: (value) async {
-                      setState(() => _bathymetryOverlayEnabled = value);
-                      await AppSettings.saveBathymetryOverlayEnabled(value);
-                    },
-                  ),
-                  if (_bathymetryOverlayEnabled) ...[
-                    const Divider(
-                      color: Colors.white12,
-                      height: 1,
-                      indent: 16,
-                      endIndent: 16,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Opacité : ${(_bathymetryOverlayOpacity * 100).round()} %',
-                            style: const TextStyle(color: Colors.white70),
-                          ),
-                          Slider(
-                            value: _bathymetryOverlayOpacity,
-                            min: 0,
-                            max: 1,
-                            divisions: 20,
-                            activeColor: Colors.blueAccent,
-                            label:
-                                '${(_bathymetryOverlayOpacity * 100).round()}%',
-                            onChanged: (value) async {
-                              setState(() => _bathymetryOverlayOpacity = value);
-                              await AppSettings.saveBathymetryOverlayOpacity(
-                                value,
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -1544,7 +1443,7 @@ class _ManagePortsScreenState extends State<ManagePortsScreen> {
     final url = _urlController.text.trim();
     if (name.isEmpty || url.isEmpty) return;
     setState(() {
-      _ports.add(FishingPort(name: name, url: url));
+      _ports.add(FishingPort.legacy(name: name, url: url));
     });
     _nameController.clear();
     _urlController.clear();
@@ -1552,10 +1451,87 @@ class _ManagePortsScreenState extends State<ManagePortsScreen> {
   }
 
   void _removePort(int index) {
+    final removedPort = _ports[index];
     setState(() {
       _ports.removeAt(index);
     });
+
+    // Si le port supprimé était le port sélectionné, réinitialiser
+    if (AppSettings.selectedPortKey == removedPort.key) {
+      AppSettings.selectedPortKey = null;
+      AppSettings.saveSelectedPort(null);
+    }
+
     _savePorts();
+  }
+
+  void _editPort(int index) {
+    final port = _ports[index];
+    _nameController.text = port.name;
+    _urlController.text = port.url;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A2F42),
+        title: const Text(
+          'Modifier le port',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            PortSearchWidget(
+              nameController: _nameController,
+              urlController: _urlController,
+              labelText: 'Nom du port',
+              hintText: 'Rechercher un port...',
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _urlController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'URL météo marine',
+                labelStyle: TextStyle(color: Colors.white70),
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              _nameController.clear();
+              _urlController.clear();
+              Navigator.of(context).pop();
+            },
+            child: const Text(
+              'Annuler',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final name = _nameController.text.trim();
+              final url = _urlController.text.trim();
+              if (name.isEmpty || url.isEmpty) return;
+
+              setState(() {
+                _ports[index] = FishingPort.legacy(name: name, url: url);
+              });
+
+              _nameController.clear();
+              _urlController.clear();
+              Navigator.of(context).pop();
+              _savePorts();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -1591,14 +1567,11 @@ class _ManagePortsScreenState extends State<ManagePortsScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  TextField(
-                    controller: _nameController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Nom du port',
-                      labelStyle: TextStyle(color: Colors.white70),
-                      border: OutlineInputBorder(),
-                    ),
+                  PortSearchWidget(
+                    nameController: _nameController,
+                    urlController: _urlController,
+                    labelText: 'Nom du port',
+                    hintText: 'Rechercher un port...',
                   ),
                   const SizedBox(height: 8),
                   TextField(
@@ -1655,12 +1628,24 @@ class _ManagePortsScreenState extends State<ManagePortsScreen> {
                               fontSize: 12,
                             ),
                           ),
-                          trailing: IconButton(
-                            icon: const Icon(
-                              Icons.delete,
-                              color: Colors.redAccent,
-                            ),
-                            onPressed: () => _removePort(index),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.edit,
+                                  color: Colors.blueAccent,
+                                ),
+                                onPressed: () => _editPort(index),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.redAccent,
+                                ),
+                                onPressed: () => _removePort(index),
+                              ),
+                            ],
                           ),
                         );
                       },
