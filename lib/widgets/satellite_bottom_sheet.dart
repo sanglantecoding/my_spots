@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/satellite_service.dart';
+import '../controllers/gps_controller.dart';
 import 'dart:async';
 
-/// ModalBottomSheet affichant les détails satellites et GPS
+/// ModalBottomSheet affichant les détails de précision GPS
 class SatelliteBottomSheet extends StatefulWidget {
   const SatelliteBottomSheet({super.key});
 
@@ -13,13 +14,14 @@ class SatelliteBottomSheet extends StatefulWidget {
 
 class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
   double? _currentAltitude;
+  double? _currentAccuracy;
   StreamSubscription<Position>? _positionSubscription;
 
   @override
   void initState() {
     super.initState();
     SatelliteService.startSatelliteTracking();
-    _startAltitudeTracking();
+    _startTracking();
   }
 
   @override
@@ -29,29 +31,27 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
     super.dispose();
   }
 
-  /// Démarre le suivi de l'altitude
-  void _startAltitudeTracking() async {
+  /// Démarre le suivi altitude et précision
+  void _startTracking() async {
     try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-      setState(() {
-        _currentAltitude = position.altitude;
-      });
+      final position = await GpsController.instance.getCurrentPosition();
+      if (position != null && mounted) {
+        setState(() {
+          _currentAltitude = position.altitude;
+          _currentAccuracy = position.accuracy;
+        });
+      }
 
-      _positionSubscription =
-          Geolocator.getPositionStream(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.high,
-              distanceFilter: 10,
-            ),
-          ).listen((Position position) {
-            setState(() {
-              _currentAltitude = position.altitude;
-            });
+      _positionSubscription = GpsController.instance.positionStream.listen((
+        Position position,
+      ) {
+        if (mounted) {
+          setState(() {
+            _currentAltitude = position.altitude;
+            _currentAccuracy = position.accuracy;
           });
+        }
+      });
     } catch (e) {
       // Erreur silencieuse si GPS indisponible
     }
@@ -78,27 +78,38 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
             ),
           ),
 
-          // En-tête
+          // En-tête avec badge "Statut Évalué"
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.satellite_alt, color: Colors.blueAccent, size: 24),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Détails GPS',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+                Row(
+                  children: [
+                    Icon(
+                      Icons.satellite_alt,
+                      color: Colors.blueAccent,
+                      size: 24,
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Détails GPS',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: Icon(Icons.close, color: Colors.grey[400]),
+                    ),
+                  ],
                 ),
-                IconButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: Icon(Icons.close, color: Colors.grey[400]),
-                ),
+                const SizedBox(height: 6),
+                _buildEstimatedBadge(),
               ],
             ),
           ),
@@ -109,6 +120,8 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
               padding: const EdgeInsets.all(20),
               child: ListView(
                 children: [
+                  _buildAccuracyCard(),
+                  const SizedBox(height: 16),
                   _buildOverviewCard(),
                   const SizedBox(height: 16),
                   _buildAltitudeCard(),
@@ -124,6 +137,138 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
     );
   }
 
+  /// Badge indiquant que le statut est estimé (pas des données NMEA réelles)
+  Widget _buildEstimatedBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.indigo.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.indigo.withValues(alpha: 0.5),
+          width: 0.5,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.info_outline, color: Colors.indigo[200], size: 12),
+          const SizedBox(width: 6),
+          Text(
+            'Statut Évalué (Basé sur la précision)',
+            style: TextStyle(
+              color: Colors.indigo[200],
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Carte principale : précision horizontale (métrique de vérité)
+  Widget _buildAccuracyCard() {
+    final accuracy = _currentAccuracy ?? SatelliteService.currentAccuracy;
+    final qualityLabel = SatelliteService.getFixQualityLabel();
+    final qualityColor = SatelliteService.getGpsStatusColor();
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            qualityColor.withValues(alpha: 0.15),
+            const Color(0xFF1A2F42),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: qualityColor.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.location_on, color: qualityColor, size: 22),
+              const SizedBox(width: 8),
+              Text(
+                'Précision horizontale',
+                style: TextStyle(
+                  color: Colors.grey[300],
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: qualityColor.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  qualityLabel,
+                  style: TextStyle(
+                    color: qualityColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                accuracy != null ? accuracy.toStringAsFixed(1) : '--',
+                style: TextStyle(
+                  color: qualityColor,
+                  fontSize: 42,
+                  fontWeight: FontWeight.bold,
+                  height: 1.0,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  'mètres',
+                  style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: SatelliteService.signalQuality,
+              minHeight: 8,
+              backgroundColor: Colors.grey[800],
+              valueColor: AlwaysStoppedAnimation<Color>(qualityColor),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Qualité du signal : ${(SatelliteService.signalQuality * 100).toInt()}%',
+            style: TextStyle(color: Colors.grey[400], fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Carte de vue d'ensemble
   Widget _buildOverviewCard() {
     return Container(
@@ -133,39 +278,48 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(
+            'Estimation de la couverture GNSS',
+            style: TextStyle(
+              color: Colors.grey[300],
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Données estimées à partir de la précision. '
+            'Le framework Geolocator ne fournit pas de flux NMEA natif.',
+            style: TextStyle(color: Colors.grey[500], fontSize: 11),
+          ),
+          const SizedBox(height: 14),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildStatItem(
-                'Satellites',
+                'Satellites (est.)',
                 '${SatelliteService.usedSatellites}/${SatelliteService.totalSatellites}',
                 SatelliteService.getGpsStatusColor(),
               ),
               _buildStatItem(
-                'Type GNSS',
+                'Constellation',
                 SatelliteService.gnssType,
                 Colors.green,
               ),
               _buildStatItem(
-                'Signal',
-                '${(SatelliteService.signalAccuracy * 100).toInt()}%',
-                _getSignalColor(SatelliteService.signalAccuracy),
+                'Fix',
+                SatelliteService.getFixQualityLabel(),
+                SatelliteService.getGpsStatusColor(),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          LinearProgressIndicator(
-            value: SatelliteService.signalAccuracy,
-            backgroundColor: Colors.grey[700],
-            valueColor: AlwaysStoppedAnimation<Color>(
-              _getSignalColor(SatelliteService.signalAccuracy),
-            ),
-          ),
-          const SizedBox(height: 8),
           Text(
             SatelliteService.getGpsStatusDescription(),
             style: TextStyle(color: Colors.grey[400], fontSize: 12),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
@@ -229,7 +383,7 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
     );
   }
 
-  /// Liste des satellites
+  /// Liste des satellites (vue estimée)
   Widget _buildSatelliteList() {
     final satellites = SatelliteService.satellites;
 
@@ -244,16 +398,47 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              'Satellites détectés',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Row(
+              children: [
+                Text(
+                  'Vue satellites (estimée)',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'Estimation',
+                    style: TextStyle(
+                      color: Colors.grey[400],
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Visualisation qualitative basée sur la précision horizontale',
+              style: TextStyle(color: Colors.grey[500], fontSize: 11),
+            ),
+          ),
+          const SizedBox(height: 8),
           Flexible(
             child: satellites.isEmpty
                 ? _buildEmptySatelliteMessage()
@@ -271,7 +456,7 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
     );
   }
 
-  /// Message quand aucun satellite n'est détecté
+  /// Message quand aucune donnée d'estimation n'est disponible
   Widget _buildEmptySatelliteMessage() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -280,7 +465,7 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
           Icon(Icons.satellite_alt, color: Colors.grey[400], size: 48),
           const SizedBox(height: 16),
           Text(
-            'Données satellites en cours de récupération\nou restreintes par le système',
+            'Données GPS en cours de récupération',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey[400], fontSize: 14),
           ),
@@ -432,14 +617,6 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
         );
       }),
     );
-  }
-
-  /// Couleur du signal
-  Color _getSignalColor(double signalAccuracy) {
-    if (signalAccuracy > 0.7) return Colors.green;
-    if (signalAccuracy > 0.5) return Colors.amber;
-    if (signalAccuracy > 0.3) return Colors.orange;
-    return Colors.red;
   }
 
   /// Couleur du type de satellite

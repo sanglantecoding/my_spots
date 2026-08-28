@@ -1,7 +1,20 @@
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:my_spots/controllers/gps_controller.dart';
 import 'package:my_spots/models/fishing_port.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:convert';
+
+/// Clé API Thunderforest — chargée depuis le fichier .env via flutter_dotenv.
+/// NE JAMAIS coder en dur cette clé dans le code source !
+/// Voir main.dart pour le chargement de dotenv avant l'initialisation de l'app.
+///
+/// ⚠️ IMPORTANT — SÉCURITÉ :
+/// L'ancienne clé (5f93b838b4134d6a8bd223c62408d2df) a été RÉVOQUÉE car exposée
+/// dans l'historique Git. Vous DEVEZ générer une nouvelle clé sur :
+/// https://www.thunderforest.com/ → compte → API keys
+/// Puis la définir dans le fichier .env (copié depuis .env.example)
+const String THUNDERFOREST_API_KEY = String.fromEnvironment('THUNDERFOREST_API_KEY', defaultValue: dotenv.env['THUNDERFOREST_API_KEY'] ?? '');
 
 enum SpeedUnit { knots, kmh }
 
@@ -79,9 +92,11 @@ class AppSettings {
 
     selectedPortKey = prefs.getString('selected_port');
 
-    final speedUnitIndex =
-        prefs.getInt('speed_unit') ?? 1; // km/h par défaut (index 1)
-    speedUnit = SpeedUnit.values[speedUnitIndex];
+    speedUnit = getEnumFromIndex(
+      SpeedUnit.values,
+      prefs.getInt('speed_unit'),
+      SpeedUnit.kmh,
+    );
 
     waypointsVisible = prefs.getBool('waypoints_visible') ?? true;
 
@@ -90,12 +105,17 @@ class AppSettings {
 
     showWaypointDateOnMap = prefs.getBool('show_waypoint_date_on_map') ?? false;
 
-    final distanceUnitIndex =
-        prefs.getInt('distance_unit') ?? 0; // metric par défaut (index 0)
-    distanceUnit = DistanceUnit.values[distanceUnitIndex];
+    distanceUnit = getEnumFromIndex(
+      DistanceUnit.values,
+      prefs.getInt('distance_unit'),
+      DistanceUnit.metric,
+    );
 
-    final mapTypeIndex = prefs.getInt('map_type') ?? 0;
-    mapType = MapType.values[mapTypeIndex];
+    mapType = getEnumFromIndex(
+      MapType.values,
+      prefs.getInt('map_type'),
+      MapType.standard,
+    );
 
     waypointLabelFontSize =
         prefs.getDouble('waypoint_label_font_size') ?? 15.0; // 15 par défaut
@@ -105,13 +125,10 @@ class AppSettings {
         prefs.getBool('show_speed_on_map') ?? false; // false par défaut
 
     proximityAlarmEnabled = prefs.getBool('proximity_alarm_enabled') ?? false;
-    proximityDistanceX = (prefs.getDouble('proximity_distance_x') ?? 100.0)
-        .clamp(10.0, 1000.0);
-    proximityDistanceY = (prefs.getDouble('proximity_distance_y') ?? 20.0)
-        .clamp(5.0, 500.0);
-    proximityDistanceZ = (prefs.getDouble('proximity_distance_z') ?? 5.0).clamp(
-      1.0,
-      100.0,
+    _applyProximityDistances(
+      prefs.getDouble('proximity_distance_x') ?? 100.0,
+      prefs.getDouble('proximity_distance_y') ?? 20.0,
+      prefs.getDouble('proximity_distance_z') ?? 5.0,
     );
 
     showFishingWaypointsOnMap =
@@ -220,6 +237,7 @@ class AppSettings {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('energy_saving_mode', enabled);
     energySavingMode = enabled;
+    await GpsController.instance.applyEnergySavingMode();
   }
 
   static Future<void> saveBathymetryOverlayEnabled(bool enabled) async {
@@ -263,21 +281,47 @@ class AppSettings {
     proximityAlarmEnabled = enabled;
   }
 
+  static T getEnumFromIndex<T>(List<T> values, int? index, T defaultValue) {
+    if (index == null || index < 0 || index >= values.length) {
+      return defaultValue;
+    }
+    return values[index];
+  }
+
+  /// Clamps each zone to its allowed range and enforces X > Y > Z.
+  static void _applyProximityDistances(double x, double y, double z) {
+    var nx = x.clamp(10.0, 1000.0);
+    var ny = y.clamp(5.0, 500.0);
+    var nz = z.clamp(1.0, 100.0);
+
+    if (ny >= nx) {
+      ny = (nx - 1).clamp(5.0, 500.0);
+    }
+    if (nz >= ny) {
+      nz = (ny - 1).clamp(1.0, 100.0);
+    }
+
+    if (nx <= ny || ny <= nz) {
+      nx = 100.0;
+      ny = 20.0;
+      nz = 5.0;
+    }
+
+    proximityDistanceX = nx;
+    proximityDistanceY = ny;
+    proximityDistanceZ = nz;
+  }
+
   static Future<void> saveProximityDistances({
     required double x,
     required double y,
     required double z,
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    final xClamp = x.clamp(10.0, 1000.0);
-    final yClamp = y.clamp(5.0, 500.0);
-    final zClamp = z.clamp(1.0, 100.0);
-    await prefs.setDouble('proximity_distance_x', xClamp);
-    await prefs.setDouble('proximity_distance_y', yClamp);
-    await prefs.setDouble('proximity_distance_z', zClamp);
-    proximityDistanceX = xClamp;
-    proximityDistanceY = yClamp;
-    proximityDistanceZ = zClamp;
+    _applyProximityDistances(x, y, z);
+    await prefs.setDouble('proximity_distance_x', proximityDistanceX);
+    await prefs.setDouble('proximity_distance_y', proximityDistanceY);
+    await prefs.setDouble('proximity_distance_z', proximityDistanceZ);
   }
 
   static String getWeatherUrl() {
@@ -307,7 +351,7 @@ class AppSettings {
       case MapType.relief:
         return 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
       case MapType.hiking:
-        return 'https://tile.thunderforest.com/outdoors/{z}/{x}/{y}.png?apikey=5f93b838b4134d6a8bd223c62408d2df';
+        return 'https://tile.thunderforest.com/outdoors/{z}/{x}/{y}.png?apikey=${THUNDERFOREST_API_KEY}';
       case MapType.marine:
         // Empilement multi-échelles via [MarineMapService] — pas d'URL unique.
         throw StateError(

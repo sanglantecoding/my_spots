@@ -244,6 +244,17 @@
 
 ## 📝 Notes de version
 
+### 🆕 v1.0.1+2 - 24 Août 2026
+- **Architecture GPS unifiée** : GpsController comme unique source de tracking GPS
+- **Service utilitaire GpsService** : Nettoyé pour ne contenir que des fonctions pures (calculs, formatage)
+- **Initialisation centralisée** : AppBootstrap pour démarrage propre de l'application
+- **Repository pattern FMTC** : TileCacheRepository pour isoler les dépendances internes
+- **Extraction widgets MapScreen** : GpsMarkerWidget, SelectedWaypointPanel, MapControlsWidget
+- **Extraction ManagePortsScreen** : Écran de gestion des ports séparé de SettingsScreen
+- **Sécurité AlarmService** : Protection contre les conditions de course GPS
+- **Réduction MapScreen** : De ~1066 à ~876 lignes
+- **Réduction SettingsScreen** : De ~1678 à ~1420 lignes
+
 ### 🆕 v1.01 - 20 Juin 2026
 - **Navigation active** : Bandeau avec distance, cap, vitesse, ETA
 - **Contrôle audio** : Bouton Mute intégré dans le bandeau
@@ -309,4 +320,4 @@ Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de
 
 **Développé avec ❤️ en Flutter pour les amateurs de plein air**
 
-*Version 1.01 - Navigation active et refactoring des alarmes*
+*Version 1.0.1+2 - Architecture unifiée et refactoring progressif*

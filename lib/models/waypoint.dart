@@ -51,14 +51,21 @@ class Waypoint {
           )
         : WaypointCategory.fishing;
 
+    DateTime createdAt;
+    try {
+      createdAt = DateTime.parse(json['createdAt']?.toString() ?? '');
+    } catch (_) {
+      createdAt = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    }
+
     return Waypoint(
-      name: json['name'] as String,
-      latitude: json['latitude'] as double,
-      longitude: json['longitude'] as double,
-      createdAt: DateTime.parse(json['createdAt'] as String),
+      name: json['name']?.toString() ?? '',
+      latitude: (json['latitude'] as num?)?.toDouble() ?? 0.0,
+      longitude: (json['longitude'] as num?)?.toDouble() ?? 0.0,
+      createdAt: createdAt,
       colorHex: json['colorHex'] as String? ?? 'FFFFEB3B',
       category: parsedCategory,
-      creationAccuracy: json['creationAccuracy'] as double?,
+      creationAccuracy: (json['creationAccuracy'] as num?)?.toDouble(),
       gpsStatus: json['gpsStatus'] as String? ?? 'Inconnu',
     );
   }
@@ -75,16 +82,28 @@ class WaypointStore {
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final waypointsJson = prefs.getString(_key);
-    if (waypointsJson != null) {
-      try {
-        final List<dynamic> decoded = jsonDecode(waypointsJson);
-        waypoints
-          ..clear()
-          ..addAll(decoded.map((json) => Waypoint.fromJson(json)));
-      } catch (e) {
-        waypoints.clear();
+    waypoints.clear();
+    if (waypointsJson == null) {
+      return;
+    }
+
+    try {
+      final decoded = jsonDecode(waypointsJson);
+      if (decoded is! List) {
+        return;
       }
-    } else {
+      for (final item in decoded) {
+        try {
+          if (item is Map) {
+            waypoints.add(
+              Waypoint.fromJson(Map<String, dynamic>.from(item)),
+            );
+          }
+        } catch (_) {
+          // Ignore a single corrupted waypoint instead of dropping the store.
+        }
+      }
+    } catch (_) {
       waypoints.clear();
     }
   }

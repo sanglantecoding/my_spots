@@ -17,7 +17,7 @@ class _OfflineManagementScreenState extends State<OfflineManagementScreen>
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
 
-  List<Shom10kRegion> _regions = Shom10kCatalog.allRegions;
+  final List<Shom10kRegion> _regions = Shom10kCatalog.allRegions;
   Map<String, ShomRegionCacheStatus> _cacheStatus = {};
   String _searchQuery = '';
 
@@ -190,7 +190,7 @@ class _OfflineManagementScreenState extends State<OfflineManagementScreen>
     final regionKey = '${region.id}_${layer.name}';
 
     try {
-      await ShomDownloadService.downloadPlans(
+      final result = await ShomDownloadService.downloadPlans(
         [
           ShomRegionDownloadPlan(
             region: region,
@@ -198,26 +198,58 @@ class _OfflineManagementScreenState extends State<OfflineManagementScreen>
             downloadLidar: layer == ShomOfflineLayer.lidar,
           ),
         ],
-        onProgress: (_, __, progress) {
+        onProgress: (_, _, progress) {
           if (!mounted) return;
           setState(() {
             _downloadProgress[regionKey] = progress.percentageProgress / 100;
           });
         },
+        shouldDownloadLayer: (downloadRegion, downloadLayer) {
+          return _downloadingRegionIds.contains(
+            '${downloadRegion.id}_${downloadLayer.name}',
+          );
+        },
       );
+      await _refreshCacheStatuses();
+      if (!mounted) return;
+
+      if (result.isSuccess) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${region.name} téléchargé.'),
+            backgroundColor: Colors.green.shade800,
+          ),
+        );
+      } else if (result.isCancelled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Téléchargement annulé pour ${region.name}. '
+              'La zone n\'est pas marquée comme téléchargée.',
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Échec du téléchargement de ${region.name}'
+              '${result.errorMessage != null ? ' : ${result.errorMessage}' : '.'} '
+              'La zone n\'est pas marquée comme téléchargée.',
+            ),
+            backgroundColor: Colors.red.shade800,
+          ),
+        );
+      }
+    } catch (error) {
       await _refreshCacheStatuses();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${region.name} téléchargé.'),
-          backgroundColor: Colors.green.shade800,
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur : $error'),
+          content: Text(
+            'Échec du téléchargement de ${region.name} : $error. '
+            'La zone n\'est pas marquée comme téléchargée.',
+          ),
           backgroundColor: Colors.red.shade800,
         ),
       );

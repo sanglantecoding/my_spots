@@ -1,10 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
-// Accès interne FMTC requis pour la purge tuile-par-tuile (API publique absente).
-import 'package:flutter_map_tile_caching/src/backend/export_internal.dart';
 import 'package:my_spots/models/litto3d_layer.dart';
 import 'package:my_spots/app_settings.dart';
+import 'package:my_spots/repositories/fmtc_tile_cache_repository.dart';
 
 /// Journalisation des erreurs tuiles — désactivée pour éviter la saturation du thread principal.
 class MapTileErrorLogger {
@@ -34,8 +33,9 @@ class MapTileCacheService {
   static const String reliefMapStore = 'reliefMapStore';
   static const String hikingMapStore = 'hikingMapStore';
 
-  /// Ancien store unique — conservé pour compatibilité des caches déjà créés.
-  static const String bathymetryStore = 'bathymetryOverlayTiles';
+  /// Ancien store unique Litto3D. Remplacé par [bathymetryStoreForLayer].
+  /// Conservé uniquement pour supprimer le cache legacy encore présent sur disque.
+  static const String _legacyBathymetryStore = 'bathymetryOverlayTiles';
 
   /// Couches Litto3D empilées dans l'overlay bathymétrie.
   static List<String> get bathymetryLayerNames =>
@@ -179,7 +179,7 @@ class MapTileCacheService {
     await const FMTCStore(baseMapStore).manage.create();
     await const FMTCStore(reliefMapStore).manage.create();
     await const FMTCStore(hikingMapStore).manage.create();
-    await const FMTCStore(bathymetryStore).manage.create();
+    await _deleteLegacyBathymetryStore();
     for (final layerName in bathymetryLayerNames) {
       await FMTCStore(bathymetryStoreForLayer(layerName)).manage.create();
     }
@@ -188,6 +188,15 @@ class MapTileCacheService {
     }
     await FMTCStore(lidarOmbrageStore).manage.create();
     _initialised = true;
+  }
+
+  /// Supprime le store bathymétrie unique d'avant le cache par couche.
+  static Future<void> _deleteLegacyBathymetryStore() async {
+    try {
+      await const FMTCStore(_legacyBathymetryStore).manage.delete();
+    } catch (_) {
+      // Absent ou déjà migré.
+    }
   }
 
   static final TileProvider baseMapTileProvider = _createProvider(
@@ -264,35 +273,14 @@ class MapTileCacheService {
   }) async {
     await initialise();
 
-    const crs = Epsg3857();
-    final northWest = bounds.northWest;
-    final southEast = bounds.southEast;
-    var touched = 0;
-
-    for (var zoomLvl = minZoom.toDouble(); zoomLvl <= maxZoom; zoomLvl++) {
-      final scaleLvl = crs.scale(zoomLvl);
-      final nw = crs.latLngToXY(northWest, scaleLvl);
-      final nwX = (nw.$1 / tileDimension).floor();
-      final nwY = (nw.$2 / tileDimension).floor();
-      final se = crs.latLngToXY(southEast, scaleLvl);
-      final seX = (se.$1 / tileDimension).ceil() - 1;
-      final seY = (se.$2 / tileDimension).ceil() - 1;
-
-      for (var x = nwX; x <= seX; x++) {
-        for (var y = nwY; y <= seY; y++) {
-          final z = zoomLvl.toInt();
-          final url = urlForTile(z, x, y);
-          // API interne FMTC — seule méthode disponible pour une purge par emprise.
-          // ignore: invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, experimental_member_use
-          final removed = await FMTCBackendAccess.internal.deleteTile(
-            storeName: storeName,
-            url: url,
-          );
-          if (removed != null) touched++;
-        }
-      }
-    }
-
-    return touched;
+    // Delegate to repository to abstract FMTC internal API
+    return FmtcTileCacheRepository.instance.purgeTilesInBounds(
+      storeName: storeName,
+      bounds: bounds,
+      minZoom: minZoom,
+      maxZoom: maxZoom,
+      urlForTile: urlForTile,
+      tileDimension: tileDimension,
+    );
   }
 }

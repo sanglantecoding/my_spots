@@ -3,7 +3,7 @@ import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/models/fishing_port.dart';
 import 'package:my_spots/offline_management_screen.dart';
-import 'package:my_spots/widgets/port_search_field.dart';
+import 'package:my_spots/views/settings/manage_ports_screen.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -169,10 +169,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         throw Exception('Aucune donnée de waypoints trouvée');
       }
 
-      final importedWaypoints = waypointsData
-          .whereType<Map<String, dynamic>>()
-          .map((wpData) => Waypoint.fromJson(wpData))
-          .toList();
+      final importedWaypoints = <Waypoint>[];
+      for (final item in waypointsData) {
+        try {
+          if (item is Map) {
+            importedWaypoints.add(
+              Waypoint.fromJson(Map<String, dynamic>.from(item)),
+            );
+          }
+        } catch (_) {
+          // Skip a single corrupted waypoint.
+        }
+      }
 
       // Remplacer les waypoints existants
       WaypointStore.waypoints.clear();
@@ -183,8 +191,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final settings = data['settings'] as Map<String, dynamic>? ?? {};
 
       // Valeurs par défaut sécurisées avec opérateur ??
-      AppSettings.speedUnit =
-          SpeedUnit.values[(settings['speedUnit'] as int?) ?? 1];
+      AppSettings.speedUnit = AppSettings.getEnumFromIndex(
+        SpeedUnit.values,
+        settings['speedUnit'] as int?,
+        SpeedUnit.kmh,
+      );
       AppSettings.selectedPortKey = settings['selectedPortKey'] as String?;
       AppSettings.waypointsVisible =
           settings['waypointsVisible'] as bool? ?? true;
@@ -192,11 +203,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           settings['showWaypointNamesOnMap'] as bool? ?? true;
       AppSettings.showWaypointDateOnMap =
           settings['showWaypointDateOnMap'] as bool? ?? false;
-      AppSettings.distanceUnit =
-          DistanceUnit.values[(settings['distanceUnit'] as int?) ?? 0];
+      AppSettings.distanceUnit = AppSettings.getEnumFromIndex(
+        DistanceUnit.values,
+        settings['distanceUnit'] as int?,
+        DistanceUnit.metric,
+      );
       AppSettings.waypointLabelFontSize =
           (settings['waypointLabelFontSize'] as num?)?.toDouble() ?? 15.0;
-      AppSettings.mapType = MapType.values[(settings['mapType'] as int?) ?? 0];
+      AppSettings.mapType = AppSettings.getEnumFromIndex(
+        MapType.values,
+        settings['mapType'] as int?,
+        MapType.standard,
+      );
       AppSettings.bathymetryOverlayEnabled =
           settings['bathymetryOverlayEnabled'] as bool? ?? false;
       AppSettings.bathymetryOverlayOpacity =
@@ -525,9 +543,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: Colors.white54),
                     ),
                     value: SpeedUnit.knots,
+                    // ignore: deprecated_member_use
                     groupValue: _selectedUnit,
                     toggleable: true,
                     activeColor: Colors.blueAccent,
+                    // ignore: deprecated_member_use
                     onChanged: (SpeedUnit? value) async {
                       if (value != null) {
                         setState(() {
@@ -557,8 +577,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: Colors.white54),
                     ),
                     value: SpeedUnit.kmh,
+                    // ignore: deprecated_member_use
                     groupValue: _selectedUnit,
                     activeColor: Colors.blueAccent,
+                    // ignore: deprecated_member_use
                     onChanged: (SpeedUnit? value) async {
                       if (value != null) {
                         setState(() {
@@ -624,8 +646,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: Colors.white54),
                     ),
                     value: MapType.standard,
+                    // ignore: deprecated_member_use
                     groupValue: _selectedMapType,
                     activeColor: Colors.blueAccent,
+                    // ignore: deprecated_member_use
                     onChanged: (MapType? value) async {
                       if (value != null) {
                         setState(() {
@@ -655,8 +679,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: Colors.white54),
                     ),
                     value: MapType.relief,
+                    // ignore: deprecated_member_use
                     groupValue: _selectedMapType,
                     activeColor: Colors.blueAccent,
+                    // ignore: deprecated_member_use
                     onChanged: (MapType? value) async {
                       if (value != null) {
                         setState(() {
@@ -686,8 +712,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: Colors.white54),
                     ),
                     value: MapType.hiking,
+                    // ignore: deprecated_member_use
                     groupValue: _selectedMapType,
                     activeColor: Colors.blueAccent,
+                    // ignore: deprecated_member_use
                     onChanged: (MapType? value) async {
                       if (value != null) {
                         setState(() {
@@ -717,8 +745,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: Colors.white54),
                     ),
                     value: MapType.marine,
+                    // ignore: deprecated_member_use
                     groupValue: _selectedMapType,
                     activeColor: Colors.blueAccent,
+                    // ignore: deprecated_member_use
                     onChanged: (MapType? value) async {
                       if (value != null) {
                         setState(() {
@@ -1214,8 +1244,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: Colors.white54),
                     ),
                     value: DistanceUnit.metric,
+                    // ignore: deprecated_member_use
                     groupValue: _distanceUnit,
                     activeColor: Colors.blueAccent,
+                    // ignore: deprecated_member_use
                     onChanged: (DistanceUnit? value) async {
                       if (value != null) {
                         setState(() {
@@ -1245,8 +1277,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: Colors.white54),
                     ),
                     value: DistanceUnit.nautical,
+                    // ignore: deprecated_member_use
                     groupValue: _distanceUnit,
                     activeColor: Colors.blueAccent,
+                    // ignore: deprecated_member_use
                     onChanged: (DistanceUnit? value) async {
                       if (value != null) {
                         setState(() {
@@ -1393,263 +1427,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class ManagePortsScreen extends StatefulWidget {
-  const ManagePortsScreen({super.key});
-
-  @override
-  State<ManagePortsScreen> createState() => _ManagePortsScreenState();
-}
-
-class _ManagePortsScreenState extends State<ManagePortsScreen> {
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _urlController = TextEditingController();
-
-  late List<FishingPort> _ports;
-
-  @override
-  void initState() {
-    super.initState();
-    _ports = List<FishingPort>.from(AppSettings.getEffectiveFavoritePorts());
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _urlController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _savePorts() async {
-    await AppSettings.saveFavoritePorts(_ports);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Ports enregistrés'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
-  void _addPort() {
-    final name = _nameController.text.trim();
-    final url = _urlController.text.trim();
-    if (name.isEmpty || url.isEmpty) return;
-    setState(() {
-      _ports.add(FishingPort.legacy(name: name, url: url));
-    });
-    _nameController.clear();
-    _urlController.clear();
-    _savePorts();
-  }
-
-  void _removePort(int index) {
-    final removedPort = _ports[index];
-    setState(() {
-      _ports.removeAt(index);
-    });
-
-    // Si le port supprimé était le port sélectionné, réinitialiser
-    if (AppSettings.selectedPortKey == removedPort.key) {
-      AppSettings.selectedPortKey = null;
-      AppSettings.saveSelectedPort(null);
-    }
-
-    _savePorts();
-  }
-
-  void _editPort(int index) {
-    final port = _ports[index];
-    _nameController.text = port.name;
-    _urlController.text = port.url;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1A2F42),
-        title: const Text(
-          'Modifier le port',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            PortSearchWidget(
-              nameController: _nameController,
-              urlController: _urlController,
-              labelText: 'Nom du port',
-              hintText: 'Rechercher un port...',
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _urlController,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: 'URL météo marine',
-                labelStyle: TextStyle(color: Colors.white70),
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              _nameController.clear();
-              _urlController.clear();
-              Navigator.of(context).pop();
-            },
-            child: const Text(
-              'Annuler',
-              style: TextStyle(color: Colors.white70),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final name = _nameController.text.trim();
-              final url = _urlController.text.trim();
-              if (name.isEmpty || url.isEmpty) return;
-
-              setState(() {
-                _ports[index] = FishingPort.legacy(name: name, url: url);
-              });
-
-              _nameController.clear();
-              _urlController.clear();
-              Navigator.of(context).pop();
-              _savePorts();
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
-            child: const Text('Enregistrer'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('GÉRER MES PORTS'),
-        backgroundColor: const Color(0xFF0A1929),
-        elevation: 0,
-      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF0A1929), Color(0xFF1A2F42)],
-          ),
-        ),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Ajouter un port',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  PortSearchWidget(
-                    nameController: _nameController,
-                    urlController: _urlController,
-                    labelText: 'Nom du port',
-                    hintText: 'Rechercher un port...',
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _urlController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'URL météo marine',
-                      labelStyle: TextStyle(color: Colors.white70),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: ElevatedButton.icon(
-                      onPressed: _addPort,
-                      icon: const Icon(Icons.add),
-                      label: const Text('Ajouter'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blueAccent,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(color: Colors.white24, height: 1),
-            Expanded(
-              child: _ports.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'Aucun port favori.\nAjoutez-en un ci-dessus.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white70),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _ports.length,
-                      itemBuilder: (context, index) {
-                        final port = _ports[index];
-                        return ListTile(
-                          leading: const Icon(
-                            Icons.anchor,
-                            color: Colors.white70,
-                          ),
-                          title: Text(
-                            port.name,
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                          subtitle: Text(
-                            port.url,
-                            style: const TextStyle(
-                              color: Colors.white54,
-                              fontSize: 12,
-                            ),
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.edit,
-                                  color: Colors.blueAccent,
-                                ),
-                                onPressed: () => _editPort(index),
-                              ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.delete,
-                                  color: Colors.redAccent,
-                                ),
-                                onPressed: () => _removePort(index),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
             ),
           ],
         ),

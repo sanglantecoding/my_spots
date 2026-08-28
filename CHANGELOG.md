@@ -4,6 +4,62 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 
 ---
 
+## 🆕 [v1.0.1+2] - 24 Août 2026
+
+### ✨ Refactoring architectural majeur
+
+#### 🧭 **Architecture GPS unifiée**
+- **GpsController comme unique source** : Suppression de l'architecture dual tracking (GpsService + GpsController)
+- **MapScreen refactorisé** : Suppression des appels à `GpsService.startAdaptiveGpsTracking()` et `stopAdaptiveGpsTracking()`
+- **Subscription directe** : MapScreen s'abonne à `GpsController.instance.positionStream` et `stateStream`
+- **GpsService nettoyé** : Ne contient plus que des fonctions pures (calculs de distance, formatage, statut GPS)
+- **Suppression tracking** : Retrait de toute logique de streaming GPS de GpsService
+- **Vérification** : `Geolocator.getPositionStream()` appelé uniquement dans GpsController
+
+#### 🏗️ **Initialisation centralisée**
+- **AppBootstrap créé** : Classe d'initialisation centralisée dans `lib/core/app_bootstrap.dart`
+- **main() simplifié** : Appel unique à `AppBootstrap.initialize()` avant `runApp()`
+- **Services initialisés** : AppSettings, WaypointStore, MapTileCacheService, SatelliteService
+- **Code propre** : main.dart réduit à l'essentiel
+
+#### 📦 **Repository pattern pour FMTC**
+- **TileCacheRepository créé** : Interface abstraite dans `lib/repositories/tile_cache_repository.dart`
+- **FmtcTileCacheRepository** : Implémentation encapsulant les dépendances FMTC internes
+- **Isolation des imports** : `export_internal.dart` confiné au repository
+- **MapTileCacheService refactorisé** : Délègue au repository au lieu d'appeler FMTC directement
+- **API propre** : Méthodes publiques `purgeTilesInBounds()` et `clearLayerCache()`
+
+#### 🧩 **Extraction de widgets MapScreen**
+- **GpsMarkerWidget** : Widget indépendant écoutant GpsController pour éviter les rebuilds du parent
+- **SelectedWaypointPanel** : Panneau de détails du waypoint sélectionné extrait
+- **MapControlsWidget** : Boutons de contrôle de carte (recenter, toggle waypoints, add waypoint)
+- **Réduction MapScreen** : De ~1066 à ~876 lignes (-190 lignes)
+- **Meilleure maintenabilité** : Chaque widget testable et modifiable indépendamment
+
+#### 📄 **Extraction de ManagePortsScreen**
+- **ManagePortsScreen séparé** : Déplacé de settings_page.dart vers `lib/views/settings/manage_ports_screen.dart`
+- **Réduction SettingsScreen** : De ~1678 à ~1420 lignes (-258 lignes)
+- **Navigation préservée** : MaterialPageRoute continue de fonctionner
+
+#### 🔒 **Sécurité AlarmService**
+- **Protection contre conditions de course** : Flag `_isProcessingAlarm` déjà en place
+- **Verrou audio** : Flag `_isPlayingAudio` pour éviter le chevauchement audio
+- **Null check ajouté** : Vérification de `_proximityPlayer` avant opérations audio
+- **Calculs synchrones** : Distance calculée de manière synchrone
+
+### 🔧 Améliorations techniques
+
+#### 📊 **Statistiques de la version**
+- **~450 lignes** supprimées des fichiers principaux
+- **3 nouveaux widgets** extraits (GpsMarkerWidget, SelectedWaypointPanel, MapControlsWidget)
+- **1 nouveau repository** (TileCacheRepository)
+- **1 nouveau service d'initialisation** (AppBootstrap)
+- **1 nouvel écran** (ManagePortsScreen)
+- **Architecture améliorée** : Séparation des responsabilités, dépendances isolées
+- **flutter analyze** : 17 issues pré-existantes (deprecated_member_use, implementation_imports)
+
+---
+
 ## 🆕 [v1.01] - 20 Juin 2026
 
 ### ✨ Nouvelles fonctionnalités
@@ -292,4 +348,4 @@ Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de
 
 ---
 
-*Version 1.01 - Navigation active et refactoring des alarmes*
+*Version 1.0.1+2 - Architecture unifiée et refactoring progressif*

@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import '../controllers/gps_controller.dart';
 import 'dart:async';
 
-/// Informations sur un satellite
+/// Informations estimées sur un satellite (basées sur la précision)
+///
+/// IMPORTANT : Ces données sont estimées à partir de la précision GPS fournie
+/// par Geolocator. Elles ne représentent PAS de véritables données satellites
+/// matérielles (NMEA), car Geolocator n'expose pas cette information.
 class SatelliteInfo {
   final int id;
-  final double signalStrength; // 0.0 à 1.0
-  final String type; // GPS, GLONASS, GALILEO, etc.
-  final bool used;
+  final double signalStrength; // 0.0 à 1.0 (estimation basée sur la précision)
+  final String type; // Constellation estimée
+  final bool used; // Estimation d'utilisation
 
   SatelliteInfo({
     required this.id,
@@ -17,80 +22,101 @@ class SatelliteInfo {
   });
 }
 
-/// Service pour la gestion des informations satellites GPS
+/// Niveau de qualité du fix GPS
+enum FixQuality { excellent, good, medium, poor, unknown }
+
+/// Service pour la gestion des informations GPS et de précision
+///
+/// Ce service utilise GpsController.currentAccuracy comme métrique primaire.
+/// Les données "satellites" affichées sont des estimations visuelles basées
+/// sur la précision horizontale, et non de véritables données NMEA/GNSS.
 class SatelliteService {
   static StreamSubscription<Position>? _positionSubscription;
   static final List<SatelliteInfo> _satellites = [];
-  static String _gnssType = 'GPS';
-  static int _totalSatellites = 0;
-  static int _usedSatellites = 0;
+  static String _gnssType = 'Multi-GNSS';
   static bool _isInitialized = false;
 
-  /// Initialise le service des satellites (appelé au démarrage de l'app)
+  /// Précision horizontale actuelle en mètres (source primaire : GpsController)
+  static double? _currentAccuracy;
+
+  /// Indique si les données sont estimées (toujours true pour Geolocator)
+  static bool get isEstimated => true;
+
+  /// Indique si le service a une souscription active au flux de position
+  static bool get isListening => _positionSubscription != null;
+
+  /// Initialise le service (appelé au démarrage de l'app).
+  ///
+  /// Réinitialise automatiquement l'état si la souscription a été annulée
+  /// (ex. après un appel à [stopSatelliteTracking]), afin de garantir une
+  /// réécoute transparente lors de la réouverture des écrans satellites.
   static Future<void> initialize() async {
+    // Si la souscription a été annulée, forcer la réinitialisation complète
+    if (_positionSubscription == null) {
+      _isInitialized = false;
+    }
     if (_isInitialized) return;
 
     try {
-      // Note: Geolocator ne fournit pas directement les infos satellites
-      // Nous utilisons des données réalistes basées sur la précision actuelle
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-      _generateSimulatedSatellites(position.accuracy);
+      _currentAccuracy = GpsController.instance.currentAccuracy;
+      _generateEstimatedSatelliteView(_currentAccuracy);
 
-      _positionSubscription = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 10, // Mise à jour tous les 10m
-        ),
-      ).listen(_onPositionUpdate);
+      _positionSubscription = GpsController.instance.positionStream.listen(
+        _onPositionUpdate,
+      );
 
       _isInitialized = true;
     } catch (e) {
-      // En cas d'erreur, nous utilisons des données simulées
-      _generateSimulatedSatellites();
+      _generateEstimatedSatelliteView();
       _isInitialized = true;
     }
   }
 
-  /// Démarre l'écoute des informations satellites (pour clic manuel)
+  /// Démarre l'écoute (pour clic manuel).
+  ///
+  /// Garantit qu'une souscription existe même après un précédent [stopSatelliteTracking].
   static Future<void> startSatelliteTracking() async {
+    // Si la souscription est absente (stop() a été appelé), permettre la réinit
+    if (_positionSubscription == null) {
+      _isInitialized = false;
+    }
     await initialize();
   }
 
-  /// Arrête le suivi des satellites
+  /// Arrête le suivi et réinitialise l'état pour autoriser une réécoute ultérieure.
   static void stopSatelliteTracking() {
     _positionSubscription?.cancel();
     _positionSubscription = null;
+    _isInitialized = false;
   }
 
   /// Traite les mises à jour de position
   static void _onPositionUpdate(Position position) {
-    // Génère des données satellites simulées basées sur la précision
-    _generateSimulatedSatellites(position.accuracy);
+    _currentAccuracy = position.accuracy;
+    _generateEstimatedSatelliteView(position.accuracy);
   }
 
-  /// Position actuelle pour le fallback
+  /// Position actuelle
   static Position? _currentPosition;
 
-  /// Génère des données satellites simulées réalistes
-  static void _generateSimulatedSatellites([double? accuracy]) {
-    final random = DateTime.now().millisecondsSinceEpoch % 100;
+  /// Génère une vue estimée des satellites à partir de la précision.
+  ///
+  /// Les données sont des estimations : ce ne sont PAS de véritables
+  /// informations satellites (NMEA). Geolocator ne fournit pas ce niveau
+  /// de détail ; nous visualisons donc la qualité du signal via la précision.
+  static void _generateEstimatedSatelliteView([double? accuracy]) {
+    final seed = DateTime.now().millisecondsSinceEpoch % 100;
     _satellites.clear();
 
-    // Simulation basée sur la précision GPS
-    final baseSatellites = accuracy != null
-        ? _calculateSatelliteCount(accuracy)
+    final displayCount = accuracy != null
+        ? _estimatedSatelliteCount(accuracy)
         : 8;
 
-    // Éviter les listes vides : garantir au minimum 4 satellites
-    final minSatellites = baseSatellites < 4 ? 4 : baseSatellites;
+    final minSatellites = displayCount < 4 ? 4 : displayCount;
 
     for (int i = 0; i < minSatellites; i++) {
-      final signalStrength = 0.3 + (random + i * 13) % 70 / 100.0;
-      final used = signalStrength > 0.5 && i < 12; // Seuils réalistes
+      final signalStrength = 0.3 + (seed + i * 13) % 70 / 100.0;
+      final used = signalStrength > 0.5 && i < 12;
 
       _satellites.add(
         SatelliteInfo(
@@ -102,42 +128,83 @@ class SatelliteService {
       );
     }
 
-    _totalSatellites = _satellites.length;
-    _usedSatellites = _satellites.where((s) => s.used).length;
     _gnssType = _getDominantGnssType();
   }
 
-  /// Obtient la position actuelle pour le fallback
+  /// Obtient la position actuelle
   static Future<Position?> getCurrentPosition() async {
     if (_currentPosition != null) return _currentPosition;
 
     try {
-      _currentPosition = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
+      _currentPosition = await GpsController.instance.getCurrentPosition();
       return _currentPosition;
     } catch (e) {
       return null;
     }
   }
 
-  /// Calcule le nombre de satellites selon la précision
-  static int _calculateSatelliteCount(double accuracy) {
-    if (accuracy < 5) return 12; // Excellent : 12 satellites
-    if (accuracy < 10) return 10; // Bon : 10 satellites
-    if (accuracy < 20) return 8; // Moyen : 8 satellites
-    return 6; // Faible : 6 satellites minimum
+  /// Précision horizontale actuelle en mètres (source : GpsController)
+  static double? get currentAccuracy {
+    return _currentAccuracy ?? GpsController.instance.currentAccuracy;
   }
 
-  /// Détermine le type de satellite selon l'index
+  /// Qualité du fix GPS basée sur la précision horizontale
+  static FixQuality get fixQuality {
+    final acc = currentAccuracy;
+    if (acc == null || acc <= 0) return FixQuality.unknown;
+    if (acc < 5) return FixQuality.excellent;
+    if (acc < 15) return FixQuality.good;
+    if (acc < 30) return FixQuality.medium;
+    return FixQuality.poor;
+  }
+
+  /// Qualité du signal estimée (0.0 - 1.0) basée sur la précision horizontale
+  static double get signalQuality {
+    final acc = currentAccuracy;
+    if (acc == null || acc <= 0) return 0.0;
+    if (acc < 5) return 0.95;
+    if (acc < 15) return 0.75;
+    if (acc < 30) return 0.55;
+    if (acc < 50) return 0.35;
+    return 0.15;
+  }
+
+  /// Nombre estimé de satellites visibles (basé sur la précision)
+  static int get totalSatellites {
+    final acc = currentAccuracy;
+    if (acc == null) return _satellites.length;
+    return _estimatedSatelliteCount(acc);
+  }
+
+  /// Nombre estimé de satellites utilisés dans le fix
+  static int get usedSatellites {
+    final total = totalSatellites;
+    // ~70-80% des satellites visibles sont typiquement utilisés
+    return (total * 0.75).round().clamp(0, total);
+  }
+
+  /// Type GNSS affiché
+  static String get gnssType => _gnssType;
+
+  /// [OBSOLÈTE] Utiliser [signalQuality] à la place.
+  /// Rétrocompatibilité : mappe sur [signalQuality].
+  static double get signalAccuracy => signalQuality;
+
+  /// Estimation du nombre de satellites selon la précision
+  static int _estimatedSatelliteCount(double accuracy) {
+    if (accuracy < 5) return 12;
+    if (accuracy < 10) return 10;
+    if (accuracy < 20) return 8;
+    return 6;
+  }
+
+  /// Type de satellite par index (estimation)
   static String _getSatelliteType(int index) {
     final types = ['GPS', 'GLONASS', 'GALILEO', 'BEIDOU'];
     return types[index % types.length];
   }
 
-  /// Détermine le type GNSS dominant
+  /// Type GNSS dominant estimé
   static String _getDominantGnssType() {
     final gpsCount = _satellites.where((s) => s.type == 'GPS').length;
     final glonassCount = _satellites.where((s) => s.type == 'GLONASS').length;
@@ -158,42 +225,54 @@ class SatelliteService {
     return 'BEIDOU';
   }
 
-  /// Obtient la liste des satellites
+  /// Liste des satellites (vue estimée, pas des données réelles)
   static List<SatelliteInfo> get satellites => List.unmodifiable(_satellites);
 
-  /// Obtient le nombre total de satellites
-  static int get totalSatellites => _totalSatellites;
-
-  /// Obtient le nombre de satellites utilisés
-  static int get usedSatellites => _usedSatellites;
-
-  /// Obtient le type GNSS dominant
-  static String get gnssType => _gnssType;
-
-  /// Obtient la précision du signal en pourcentage
-  static double get signalAccuracy {
-    if (_satellites.isEmpty) return 0.0;
-    final totalSignal = _satellites
-        .where((s) => s.used)
-        .map((s) => s.signalStrength)
-        .fold(0.0, (a, b) => a + b);
-    return _usedSatellites > 0 ? totalSignal / _usedSatellites : 0.0;
-  }
-
-  /// Obtient une description textuelle de l'état GPS
+  /// Description textuelle de la qualité du fix (basée sur la précision)
   static String getGpsStatusDescription() {
-    if (_usedSatellites == 0) return 'Aucun satellite utilisé';
-    if (_usedSatellites < 4) return 'Position imprécise';
-    if (_usedSatellites < 6) return 'Position correcte';
-    if (_usedSatellites < 8) return 'Position bonne';
-    return 'Position excellente';
+    switch (fixQuality) {
+      case FixQuality.excellent:
+        return 'Position excellente';
+      case FixQuality.good:
+        return 'Position bonne';
+      case FixQuality.medium:
+        return 'Précision moyenne';
+      case FixQuality.poor:
+        return 'Précision faible';
+      case FixQuality.unknown:
+        return 'Position indisponible';
+    }
   }
 
-  /// Obtient la couleur correspondant à l'état
+  /// Libellé court de la qualité
+  static String getFixQualityLabel() {
+    switch (fixQuality) {
+      case FixQuality.excellent:
+        return 'Excellent';
+      case FixQuality.good:
+        return 'Bon';
+      case FixQuality.medium:
+        return 'Moyen';
+      case FixQuality.poor:
+        return 'Faible';
+      case FixQuality.unknown:
+        return 'Inconnu';
+    }
+  }
+
+  /// Couleur correspondant à la qualité du fix
   static Color getGpsStatusColor() {
-    if (_usedSatellites < 4) return Colors.red;
-    if (_usedSatellites < 6) return Colors.orange;
-    if (_usedSatellites < 8) return Colors.amber;
-    return Colors.green;
+    switch (fixQuality) {
+      case FixQuality.excellent:
+        return Colors.green;
+      case FixQuality.good:
+        return Colors.amber;
+      case FixQuality.medium:
+        return Colors.orange;
+      case FixQuality.poor:
+        return Colors.red;
+      case FixQuality.unknown:
+        return Colors.grey;
+    }
   }
 }

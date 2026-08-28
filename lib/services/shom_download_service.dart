@@ -26,6 +26,8 @@ class ShomDownloadService {
   static const Object marineDownloadInstanceId = 'shom10kOffline_marine';
   static const Object lidarDownloadInstanceId = 'shom10kOffline_lidar';
 
+  static final Set<Object> _cancelRequestedIds = {};
+
   static const String _downloadedMarineIdsKey = 'shom10k_downloaded_region_ids';
   static const String _downloadedLidarIdsKey = 'shom10k_downloaded_lidar_ids';
   static const String _cacheSizesKey = 'shom10k_region_cache_sizes';
@@ -101,12 +103,10 @@ class ShomDownloadService {
     };
   }
 
-  static Future<void> _markMarineDownloaded(
-    String regionId,
-    int bytes,
-  ) async {
+  static Future<void> _markMarineDownloaded(String regionId, int bytes) async {
     final prefs = await SharedPreferences.getInstance();
-    final ids = await loadDownloadedMarineIds()..add(regionId);
+    final ids = await loadDownloadedMarineIds()
+      ..add(regionId);
     await prefs.setStringList(_downloadedMarineIdsKey, ids.toList());
     final sizes = await loadCacheSizes();
     sizes[regionId] = (sizes[regionId] ?? const ShomRegionLayerSizes())
@@ -116,7 +116,8 @@ class ShomDownloadService {
 
   static Future<void> _markLidarDownloaded(String regionId, int bytes) async {
     final prefs = await SharedPreferences.getInstance();
-    final ids = await loadDownloadedLidarIds()..add(regionId);
+    final ids = await loadDownloadedLidarIds()
+      ..add(regionId);
     await prefs.setStringList(_downloadedLidarIdsKey, ids.toList());
     final sizes = await loadCacheSizes();
     sizes[regionId] = (sizes[regionId] ?? const ShomRegionLayerSizes())
@@ -126,7 +127,8 @@ class ShomDownloadService {
 
   static Future<void> _unmarkMarineDownloaded(String regionId) async {
     final prefs = await SharedPreferences.getInstance();
-    final ids = await loadDownloadedMarineIds()..remove(regionId);
+    final ids = await loadDownloadedMarineIds()
+      ..remove(regionId);
     await prefs.setStringList(_downloadedMarineIdsKey, ids.toList());
     final sizes = await loadCacheSizes();
     final current = sizes[regionId];
@@ -138,7 +140,8 @@ class ShomDownloadService {
 
   static Future<void> _unmarkLidarDownloaded(String regionId) async {
     final prefs = await SharedPreferences.getInstance();
-    final ids = await loadDownloadedLidarIds()..remove(regionId);
+    final ids = await loadDownloadedLidarIds()
+      ..remove(regionId);
     await prefs.setStringList(_downloadedLidarIdsKey, ids.toList());
     final sizes = await loadCacheSizes();
     final current = sizes[regionId];
@@ -149,10 +152,9 @@ class ShomDownloadService {
   }
 
   static String _marineTileUrl(int z, int x, int y) {
-    return MarineMapService.clevisuWmtsUrl(MarineMapService.layer10k)
-        .replaceAll('{z}', '$z')
-        .replaceAll('{x}', '$x')
-        .replaceAll('{y}', '$y');
+    return MarineMapService.clevisuWmtsUrl(
+      MarineMapService.layer10k,
+    ).replaceAll('{z}', '$z').replaceAll('{x}', '$x').replaceAll('{y}', '$y');
   }
 
   static String _lidarTileUrl(int z, int x, int y) {
@@ -197,41 +199,40 @@ class ShomDownloadService {
   }
 
   static Future<int> estimateMarineTileCount(Shom10kRegion region) {
-    return FMTCStore(_marineStoreName)
-        .download
-        .countTiles(_downloadableFor(region, ShomOfflineLayer.marine));
+    return FMTCStore(
+      _marineStoreName,
+    ).download.countTiles(_downloadableFor(region, ShomOfflineLayer.marine));
   }
 
   static Future<int> estimateLidarTileCount(Shom10kRegion region) {
-    return FMTCStore(_lidarStoreName)
-        .download
-        .countTiles(_downloadableFor(region, ShomOfflineLayer.lidar));
+    return FMTCStore(
+      _lidarStoreName,
+    ).download.countTiles(_downloadableFor(region, ShomOfflineLayer.lidar));
   }
 
   static TileLayer _tileLayerOptions(ShomOfflineLayer layer) {
     return switch (layer) {
       ShomOfflineLayer.marine => TileLayer(
-          urlTemplate:
-              MarineMapService.clevisuWmtsUrl(MarineMapService.layer10k),
-          userAgentPackageName: MapTileCacheService.packageName,
-          minZoom: minDownloadZoom.toDouble(),
-          maxZoom: maxDownloadZoom.toDouble(),
-          minNativeZoom: 14,
-          maxNativeZoom: 18,
-          tileProvider: MapTileCacheService.marineTileProviderFor(
-            MarineMapService.layer10k,
-          ),
+        urlTemplate: MarineMapService.clevisuWmtsUrl(MarineMapService.layer10k),
+        userAgentPackageName: MapTileCacheService.packageName,
+        minZoom: minDownloadZoom.toDouble(),
+        maxZoom: maxDownloadZoom.toDouble(),
+        minNativeZoom: 14,
+        maxNativeZoom: 18,
+        tileProvider: MapTileCacheService.marineTileProviderFor(
+          MarineMapService.layer10k,
         ),
+      ),
       ShomOfflineLayer.lidar => TileLayer(
-          urlTemplate:
-              '$_inspireWmtsBase&LAYER=${MapTileCacheService.lidarOmbrageLayerName}',
-          userAgentPackageName: MapTileCacheService.packageName,
-          minZoom: minDownloadZoom.toDouble(),
-          maxZoom: maxDownloadZoom.toDouble(),
-          minNativeZoom: 14,
-          maxNativeZoom: 18,
-          tileProvider: MapTileCacheService.lidarOmbrageTileProvider(),
-        ),
+        urlTemplate:
+            '$_inspireWmtsBase&LAYER=${MapTileCacheService.lidarOmbrageLayerName}',
+        userAgentPackageName: MapTileCacheService.packageName,
+        minZoom: minDownloadZoom.toDouble(),
+        maxZoom: maxDownloadZoom.toDouble(),
+        minNativeZoom: 14,
+        maxNativeZoom: 18,
+        tileProvider: MapTileCacheService.lidarOmbrageTileProvider(),
+      ),
     };
   }
 
@@ -250,34 +251,36 @@ class ShomDownloadService {
     return (progress.flushedTilesSize * 1024).round();
   }
 
-  static Future<void> downloadPlans(
+  static Future<ShomDownloadResult> downloadPlans(
     List<ShomRegionDownloadPlan> plans, {
     void Function(
       Shom10kRegion region,
       ShomOfflineLayer layer,
       DownloadProgress progress,
-    )? onProgress,
+    )?
+    onProgress,
     void Function(Shom10kRegion region, ShomOfflineLayer layer)? onLayerStarted,
-    void Function(Shom10kRegion region, ShomOfflineLayer layer)? onLayerCompleted,
+    void Function(Shom10kRegion region, ShomOfflineLayer layer)?
+    onLayerCompleted,
     void Function(Shom10kRegion region, ShomOfflineLayer layer)? onLayerSkipped,
     void Function(Shom10kRegion region, ShomOfflineLayer layer, Object error)?
-        onLayerFailed,
+    onLayerFailed,
     bool Function(Shom10kRegion region, ShomOfflineLayer layer)?
-        shouldDownloadLayer,
+    shouldDownloadLayer,
     bool skipExistingTiles = true,
     int rateLimit = 4,
   }) async {
-    if (plans.isEmpty) return;
+    if (plans.isEmpty) return ShomDownloadResult.success;
     await MapTileCacheService.initialise();
 
-    final keepLayer = shouldDownloadLayer ?? (_, __) => true;
+    final keepLayer = shouldDownloadLayer ?? (_, _) => true;
 
     for (final plan in plans) {
       if (!plan.hasWork) continue;
 
       if (plan.downloadMarine &&
           keepLayer(plan.region, ShomOfflineLayer.marine)) {
-        await _downloadLayerForRegion(
+        final result = await _downloadLayerForRegion(
           region: plan.region,
           layer: ShomOfflineLayer.marine,
           keepLayer: keepLayer,
@@ -289,10 +292,15 @@ class ShomDownloadService {
           skipExistingTiles: skipExistingTiles,
           rateLimit: rateLimit,
         );
+        if (!result.isSuccess) return result;
+      } else if (plan.downloadMarine &&
+          !keepLayer(plan.region, ShomOfflineLayer.marine)) {
+        return ShomDownloadResult.cancelled;
       }
 
-      if (plan.downloadLidar && keepLayer(plan.region, ShomOfflineLayer.lidar)) {
-        await _downloadLayerForRegion(
+      if (plan.downloadLidar &&
+          keepLayer(plan.region, ShomOfflineLayer.lidar)) {
+        final result = await _downloadLayerForRegion(
           region: plan.region,
           layer: ShomOfflineLayer.lidar,
           keepLayer: keepLayer,
@@ -304,26 +312,33 @@ class ShomDownloadService {
           skipExistingTiles: skipExistingTiles,
           rateLimit: rateLimit,
         );
+        if (!result.isSuccess) return result;
+      } else if (plan.downloadLidar &&
+          !keepLayer(plan.region, ShomOfflineLayer.lidar)) {
+        return ShomDownloadResult.cancelled;
       }
     }
+
+    return ShomDownloadResult.success;
   }
 
-  static Future<void> _downloadLayerForRegion({
+  static Future<ShomDownloadResult> _downloadLayerForRegion({
     required Shom10kRegion region,
     required ShomOfflineLayer layer,
     required bool Function(Shom10kRegion region, ShomOfflineLayer layer)
-        keepLayer,
+    keepLayer,
     void Function(
       Shom10kRegion region,
       ShomOfflineLayer layer,
       DownloadProgress progress,
-    )? onProgress,
+    )?
+    onProgress,
     void Function(Shom10kRegion region, ShomOfflineLayer layer)? onLayerStarted,
     void Function(Shom10kRegion region, ShomOfflineLayer layer)?
-        onLayerCompleted,
+    onLayerCompleted,
     void Function(Shom10kRegion region, ShomOfflineLayer layer)? onLayerSkipped,
     void Function(Shom10kRegion region, ShomOfflineLayer layer, Object error)?
-        onLayerFailed,
+    onLayerFailed,
     required bool skipExistingTiles,
     required int rateLimit,
   }) async {
@@ -334,6 +349,12 @@ class ShomDownloadService {
     final instanceId = layer == ShomOfflineLayer.marine
         ? marineDownloadInstanceId
         : lidarDownloadInstanceId;
+
+    if (_cancelRequestedIds.contains(instanceId) || !keepLayer(region, layer)) {
+      await _purgePartialLayer(region, layer);
+      onLayerSkipped?.call(region, layer);
+      return ShomDownloadResult.cancelled;
+    }
 
     try {
       final store = FMTCStore(storeName);
@@ -346,11 +367,12 @@ class ShomDownloadService {
       );
 
       DownloadProgress? lastProgress;
-      var cancelled = false;
+      var cancelledByKeepLayer = false;
 
       await for (final progress in streams.downloadProgress) {
-        if (!keepLayer(region, layer)) {
-          cancelled = true;
+        if (!keepLayer(region, layer) ||
+            _cancelRequestedIds.contains(instanceId)) {
+          cancelledByKeepLayer = true;
           await cancelDownload(layer: layer);
           break;
         }
@@ -358,16 +380,34 @@ class ShomDownloadService {
         onProgress?.call(region, layer, progress);
       }
 
-      if (cancelled || !keepLayer(region, layer)) {
+      final cancelled =
+          cancelledByKeepLayer ||
+          !keepLayer(region, layer) ||
+          _cancelRequestedIds.contains(instanceId);
+
+      if (cancelled) {
+        await _purgePartialLayer(region, layer);
         onLayerSkipped?.call(region, layer);
-        return;
+        return ShomDownloadResult.cancelled;
       }
 
-      final bytes = lastProgress != null
-          ? _bytesFromProgress(lastProgress)
-          : await (layer == ShomOfflineLayer.marine
-              ? estimateMarineBytes(region)
-              : estimateLidarBytes(region));
+      final incomplete =
+          lastProgress != null &&
+          (lastProgress.remainingTilesCount > 0 ||
+              lastProgress.failedTilesCount > 0 ||
+              lastProgress.retryTilesQueuedCount > 0);
+      if (lastProgress == null || incomplete) {
+        final message = lastProgress == null
+            ? 'Aucune progression de téléchargement reçue.'
+            : lastProgress.failedTilesCount > 0
+            ? 'Échec du téléchargement de ${lastProgress.failedTilesCount} tuile(s).'
+            : 'Téléchargement incomplet (${lastProgress.remainingTilesCount} tuile(s) restante(s)).';
+        await _purgePartialLayer(region, layer);
+        onLayerFailed?.call(region, layer, message);
+        return ShomDownloadResult.failed(message);
+      }
+
+      final bytes = _bytesFromProgress(lastProgress);
 
       if (layer == ShomOfflineLayer.marine) {
         await _markMarineDownloaded(region.id, bytes);
@@ -375,21 +415,56 @@ class ShomDownloadService {
         await _markLidarDownloaded(region.id, bytes);
       }
       onLayerCompleted?.call(region, layer);
+      return ShomDownloadResult.success;
     } catch (error) {
+      if (_cancelRequestedIds.contains(instanceId) ||
+          _isCancellationError(error)) {
+        await _purgePartialLayer(region, layer);
+        onLayerSkipped?.call(region, layer);
+        return ShomDownloadResult.cancelled;
+      }
+      await _purgePartialLayer(region, layer);
       onLayerFailed?.call(region, layer, error);
+      return ShomDownloadResult.failed(error.toString());
+    } finally {
+      _cancelRequestedIds.remove(instanceId);
+    }
+  }
+
+  static bool _isCancellationError(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('cancelled') ||
+        text.contains('canceled') ||
+        text.contains('queuecancelledexception');
+  }
+
+  static Future<void> _purgePartialLayer(
+    Shom10kRegion region,
+    ShomOfflineLayer layer,
+  ) async {
+    try {
+      if (layer == ShomOfflineLayer.marine) {
+        await purgeMarineCacheForRegion(region);
+      } else {
+        await deleteLidarCacheForRegion(region);
+      }
+    } catch (_) {
+      // Best-effort cleanup of an incomplete cache.
     }
   }
 
   static Future<void> cancelDownload({ShomOfflineLayer? layer}) async {
     if (layer == null || layer == ShomOfflineLayer.marine) {
-      await FMTCStore(_marineStoreName)
-          .download
-          .cancel(instanceId: marineDownloadInstanceId);
+      _cancelRequestedIds.add(marineDownloadInstanceId);
+      await FMTCStore(
+        _marineStoreName,
+      ).download.cancel(instanceId: marineDownloadInstanceId);
     }
     if (layer == null || layer == ShomOfflineLayer.lidar) {
-      await FMTCStore(_lidarStoreName)
-          .download
-          .cancel(instanceId: lidarDownloadInstanceId);
+      _cancelRequestedIds.add(lidarDownloadInstanceId);
+      await FMTCStore(
+        _lidarStoreName,
+      ).download.cancel(instanceId: lidarDownloadInstanceId);
     }
   }
 
@@ -499,7 +574,8 @@ class ShomDownloadService {
     final bounds = _boundsFromGeometry(geometry);
     if (bounds == null) return null;
 
-    final name = _firstNonEmptyString(properties, [
+    final name =
+        _firstNonEmptyString(properties, [
           'nom',
           'NOM',
           'name',

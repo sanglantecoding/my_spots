@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/satellite_service.dart';
 
-/// Boîte de dialogue affichant l'état détaillé des satellites GPS
+/// Boîte de dialogue affichant l'état et la précision GPS
 class SatelliteStatusDialog extends StatefulWidget {
   const SatelliteStatusDialog({super.key});
 
@@ -45,18 +45,24 @@ class _SatelliteStatusDialogState extends State<SatelliteStatusDialog>
         opacity: _fadeAnimation,
         child: Container(
           padding: const EdgeInsets.all(20),
-          constraints: const BoxConstraints(maxHeight: 600),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildHeader(),
-              const SizedBox(height: 20),
-              _buildStatusOverview(),
-              const SizedBox(height: 20),
-              _buildSatelliteList(),
-              const SizedBox(height: 20),
-              _buildActions(),
-            ],
+          constraints: const BoxConstraints(maxHeight: 700),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildHeader(),
+                const SizedBox(height: 16),
+                _buildEstimatedBadge(),
+                const SizedBox(height: 20),
+                _buildAccuracyCard(),
+                const SizedBox(height: 20),
+                _buildStatusOverview(),
+                const SizedBox(height: 20),
+                _buildSatelliteList(),
+                const SizedBox(height: 20),
+                _buildActions(),
+              ],
+            ),
           ),
         ),
       ),
@@ -71,7 +77,7 @@ class _SatelliteStatusDialogState extends State<SatelliteStatusDialog>
         const SizedBox(width: 12),
         Expanded(
           child: Text(
-            'État du GPS',
+            'État et Précision GPS',
             style: TextStyle(
               color: Colors.white,
               fontSize: 20,
@@ -87,6 +93,139 @@ class _SatelliteStatusDialogState extends State<SatelliteStatusDialog>
     );
   }
 
+  /// Badge indiquant statut estimé
+  Widget _buildEstimatedBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.indigo.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.indigo.withValues(alpha: 0.5),
+          width: 0.5,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.info_outline, color: Colors.indigo[200], size: 12),
+          const SizedBox(width: 6),
+          Text(
+            'Statut Évalué (Basé sur la précision)',
+            style: TextStyle(
+              color: Colors.indigo[200],
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Carte de précision horizontale (métrique de vérité)
+  Widget _buildAccuracyCard() {
+    final accuracy = SatelliteService.currentAccuracy;
+    final qualityLabel = SatelliteService.getFixQualityLabel();
+    final qualityColor = SatelliteService.getGpsStatusColor();
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            qualityColor.withValues(alpha: 0.15),
+            const Color(0xFF1A2F42),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: qualityColor.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.location_on, color: qualityColor, size: 22),
+              const SizedBox(width: 8),
+              Text(
+                'Précision horizontale',
+                style: TextStyle(
+                  color: Colors.grey[300],
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: qualityColor.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  qualityLabel,
+                  style: TextStyle(
+                    color: qualityColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                accuracy != null ? accuracy.toStringAsFixed(1) : '--',
+                style: TextStyle(
+                  color: qualityColor,
+                  fontSize: 44,
+                  fontWeight: FontWeight.bold,
+                  height: 1.0,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  'mètres',
+                  style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: SatelliteService.signalQuality,
+              minHeight: 8,
+              backgroundColor: Colors.grey[800],
+              valueColor: AlwaysStoppedAnimation<Color>(qualityColor),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Qualité du signal : ${(SatelliteService.signalQuality * 100).toInt()}% — '
+            '${SatelliteService.getGpsStatusDescription()}',
+            style: TextStyle(color: Colors.grey[400], fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Vue d'ensemble du statut GPS
   Widget _buildStatusOverview() {
     return Container(
@@ -96,29 +235,43 @@ class _SatelliteStatusDialogState extends State<SatelliteStatusDialog>
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(
+            'Estimation de la couverture GNSS',
+            style: TextStyle(
+              color: Colors.grey[300],
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Données estimées à partir de la précision. '
+            'Aucun flux NMEA natif fourni par Geolocator.',
+            style: TextStyle(color: Colors.grey[500], fontSize: 11),
+          ),
+          const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildStatusItem(
-                'Satellites utilisés',
+                'Satellites utilisés (est.)',
                 '${SatelliteService.usedSatellites}',
                 SatelliteService.getGpsStatusColor(),
               ),
               _buildStatusItem(
-                'Satellites visibles',
+                'Satellites visibles (est.)',
                 '${SatelliteService.totalSatellites}',
                 Colors.blueAccent,
               ),
               _buildStatusItem(
-                'Type GNSS',
+                'Constellation',
                 SatelliteService.gnssType,
                 Colors.green,
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          _buildSignalStrengthIndicator(),
         ],
       ),
     );
@@ -139,92 +292,80 @@ class _SatelliteStatusDialogState extends State<SatelliteStatusDialog>
         const SizedBox(height: 4),
         Text(
           label,
-          style: TextStyle(color: Colors.grey[400], fontSize: 12),
+          style: TextStyle(color: Colors.grey[400], fontSize: 11),
           textAlign: TextAlign.center,
         ),
       ],
     );
   }
 
-  /// Indicateur de force du signal
-  Widget _buildSignalStrengthIndicator() {
-    final signalAccuracy = SatelliteService.signalAccuracy;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text(
-              'Force du signal',
-              style: TextStyle(
-                color: Colors.grey[300],
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const Spacer(),
-            Text(
-              '${(signalAccuracy * 100).toInt()}%',
-              style: TextStyle(
-                color: _getSignalColor(signalAccuracy),
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        LinearProgressIndicator(
-          value: signalAccuracy,
-          backgroundColor: Colors.grey[700],
-          valueColor: AlwaysStoppedAnimation<Color>(
-            _getSignalColor(signalAccuracy),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          SatelliteService.getGpsStatusDescription(),
-          style: TextStyle(color: Colors.grey[400], fontSize: 12),
-        ),
-      ],
-    );
-  }
-
-  /// Liste détaillée des satellites
+  /// Liste détaillée des satellites (vue estimée)
   Widget _buildSatelliteList() {
     final satellites = SatelliteService.satellites;
 
-    return Expanded(
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF1A2F42),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Satellites détectés',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 280),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A2F42),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Row(
+              children: [
+                Text(
+                  'Vue satellites (estimée)',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'Estimation',
+                    style: TextStyle(
+                      color: Colors.grey[400],
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: satellites.length,
-                itemBuilder: (context, index) {
-                  final satellite = satellites[index];
-                  return _buildSatelliteItem(satellite, index);
-                },
-              ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Visualisation qualitative basée sur la précision horizontale',
+              style: TextStyle(color: Colors.grey[500], fontSize: 11),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: satellites.length,
+              itemBuilder: (context, index) {
+                final satellite = satellites[index];
+                return _buildSatelliteItem(satellite, index);
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -266,10 +407,11 @@ class _SatelliteStatusDialogState extends State<SatelliteStatusDialog>
                 Row(
                   children: [
                     Text(
-                      'Satellite ${satellite.id}',
+                      'Sat. ${satellite.id} (est.)',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
+                        fontSize: 13,
                       ),
                     ),
                     const Spacer(),
@@ -297,10 +439,10 @@ class _SatelliteStatusDialogState extends State<SatelliteStatusDialog>
                 Row(
                   children: [
                     Text(
-                      satellite.used ? 'Utilisé' : 'Non utilisé',
+                      satellite.used ? 'Utilisé (est.)' : 'Non utilisé (est.)',
                       style: TextStyle(
                         color: satellite.used ? Colors.green : Colors.grey[500],
-                        fontSize: 12,
+                        fontSize: 11,
                       ),
                     ),
                     const Spacer(),
@@ -345,14 +487,6 @@ class _SatelliteStatusDialogState extends State<SatelliteStatusDialog>
         ),
       ],
     );
-  }
-
-  /// Obtient la couleur selon la force du signal
-  Color _getSignalColor(double signalAccuracy) {
-    if (signalAccuracy > 0.7) return Colors.green;
-    if (signalAccuracy > 0.5) return Colors.amber;
-    if (signalAccuracy > 0.3) return Colors.orange;
-    return Colors.red;
   }
 
   /// Obtient la couleur selon le type de satellite

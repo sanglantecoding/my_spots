@@ -12,6 +12,10 @@
 .swiftpm/
 migrate_working_dir/
 
+# JVM crash logs
+hs_err_pid*.log
+replay_pid*.log
+
 # IntelliJ related
 *.iml
 *.ipr
@@ -43,3 +47,12 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# ------------------------------------------------------------------
+# Configuration sensible - Never commit
+# ------------------------------------------------------------------
+.env               # Variables d'environnement locales (clés API, secrets)
+.env.*             # Fichiers .env supplémentaires (ex: .env.development)
+key*.json          # Fichiers de clés
+*.key              # Clés privées
+secrets/           # Dossiers secrets

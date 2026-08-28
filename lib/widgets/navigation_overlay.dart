@@ -8,6 +8,7 @@ import '../app_settings.dart';
 import '../models/waypoint.dart';
 import '../services/gps_service.dart';
 import '../services/alarm_service.dart';
+import '../controllers/gps_controller.dart';
 
 /// Widget de bandeau de navigation active
 /// Affiche les informations de navigation en temps réel vers un waypoint ciblé
@@ -29,6 +30,7 @@ class NavigationOverlay extends StatefulWidget {
 
 class _NavigationOverlayState extends State<NavigationOverlay> {
   StreamSubscription<Position>? _positionSubscription;
+  StreamSubscription<AlarmEvent>? _alarmSubscription;
   LatLng? _currentPosition;
   double _currentSpeed = 0.0;
   double _distanceToTarget = 0.0;
@@ -48,16 +50,13 @@ class _NavigationOverlayState extends State<NavigationOverlay> {
     // Initialiser l'état muet depuis le service
     _isMuted = AlarmService.isMuted;
 
-    // Configurer le callback pour les changements d'état muet
-    AlarmService.setCallbacks(
-      onMutedChanged: (bool muted) {
-        if (mounted) {
-          setState(() {
-            _isMuted = muted;
-          });
-        }
-      },
-    );
+    // S'abonner au flux broadcast d'événements d'alarme
+    _alarmSubscription = AlarmService.onAlarmEvent.listen((event) {
+      if (!mounted) return;
+      if (event.type == AlarmEventType.mutedChanged) {
+        setState(() => _isMuted = event.boolPayload);
+      }
+    });
 
     _startNavigationTracking();
   }
@@ -65,26 +64,23 @@ class _NavigationOverlayState extends State<NavigationOverlay> {
   @override
   void dispose() {
     _positionSubscription?.cancel();
+    _alarmSubscription?.cancel();
     super.dispose();
   }
 
   /// Démarre le suivi GPS pour la navigation
   void _startNavigationTracking() {
-    _positionSubscription =
-        Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 0,
-          ),
-        ).listen((Position position) {
-          if (mounted) {
-            setState(() {
-              _currentPosition = LatLng(position.latitude, position.longitude);
-              _currentSpeed = position.speed;
-              _updateNavigationData();
-            });
-          }
+    _positionSubscription = GpsController.instance.positionStream.listen((
+      Position position,
+    ) {
+      if (mounted) {
+        setState(() {
+          _currentPosition = LatLng(position.latitude, position.longitude);
+          _currentSpeed = position.speed;
+          _updateNavigationData();
         });
+      }
+    });
   }
 
   /// Met à jour les données de navigation (distance, cap, ETA)
@@ -92,7 +88,7 @@ class _NavigationOverlayState extends State<NavigationOverlay> {
     if (_currentPosition == null) return;
 
     // Calculer la distance vers le waypoint
-    _distanceToTarget = Geolocator.distanceBetween(
+    _distanceToTarget = GpsController.distanceBetween(
       _currentPosition!.latitude,
       _currentPosition!.longitude,
       widget.targetWaypoint.latitude,
@@ -100,7 +96,7 @@ class _NavigationOverlayState extends State<NavigationOverlay> {
     );
 
     // Calculer le cap vers le waypoint et normaliser entre 0-360°
-    _bearingToTarget = Geolocator.bearingBetween(
+    _bearingToTarget = GpsController.bearingBetween(
       _currentPosition!.latitude,
       _currentPosition!.longitude,
       widget.targetWaypoint.latitude,
@@ -115,22 +111,17 @@ class _NavigationOverlayState extends State<NavigationOverlay> {
 
   /// Calcule le temps d'arrivée estimé
   void _calculateETA() {
-    // Si la vitesse est trop faible ou nulle, afficher --:--
-    if (_currentSpeed < 0.2) {
+    // Si la vitesse est trop faible ou nulle (<= 0.5 m/s), afficher --:--
+    // Geolocator.position.speed est toujours en m/s
+    if (_currentSpeed <= 0.5) {
       _eta = '--:--';
       return;
     }
 
-    // Convertir la vitesse en m/s selon l'unité préférée
-    double speedInMetersPerSecond = _currentSpeed;
-    if (AppSettings.speedUnit == SpeedUnit.kmh) {
-      speedInMetersPerSecond = _currentSpeed / 3.6;
-    } else if (AppSettings.speedUnit == SpeedUnit.knots) {
-      speedInMetersPerSecond = _currentSpeed * 0.514444;
-    }
-
-    // Calculer le temps en secondes
-    final timeInSeconds = _distanceToTarget / speedInMetersPerSecond;
+    // Calculer le temps en secondes en utilisant les unités SI
+    // _currentSpeed est déjà en m/s (valeur native de Geolocator)
+    // _distanceToTarget est en mètres
+    final timeInSeconds = _distanceToTarget / _currentSpeed;
 
     // Convertir en heures et minutes
     if (timeInSeconds.isInfinite || timeInSeconds.isNaN || timeInSeconds <= 0) {
