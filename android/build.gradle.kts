@@ -20,6 +20,15 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+subprojects {
+    afterEvaluate {
+        if (plugins.hasPlugin("com.android.application") || plugins.hasPlugin("com.android.library")) {
+            val android = extensions.findByName("android") as? com.android.build.api.dsl.CommonExtension<*, *, *, *, *, *>
+            android?.compileSdk = 36
+        }
+    }
+}
+
 // Configuration pour supprimer les warnings Java obsolètes dans tous les sous-projets
 tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:-options")
