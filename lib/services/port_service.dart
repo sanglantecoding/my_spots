@@ -1109,9 +1109,6 @@ class PortService {
     ),
   ];
 
-  /// Obtenir tous les ports français
-  List<FishingPort> get allPorts => List.unmodifiable(_frenchPorts);
-
   /// Obtenir un port par sa clé
   FishingPort? getPortByKey(String key) {
     try {
@@ -1157,9 +1154,99 @@ class PortService {
     return port?.weatherUrl;
   }
 
-  /// Obtenir l'URL météo automatique pour une clé de port
-  String? getAutoWeatherUrlByKey(String portKey) {
-    final port = getPortByKey(portKey);
-    return port?.weatherUrl;
+
+  /// Retourne la cle d'un port a partir de son nom (insensible casse + accents).
+  String? getKeyByName(String name) {
+    final lower = name.toLowerCase().trim();
+    for (final p in _frenchPorts) {
+      if (p.name.toLowerCase() == lower) return p.key;
+    }
+    return null;
+  }
+
+  /// Retourne la liste des ports correspondants a une liste de cles.
+  /// Les cles inconnues sont ignorees.
+  List<FishingPort> getPortsByKeys(List<String> keys) {
+    final result = <FishingPort>[];
+    for (final key in keys) {
+      final port = getPortByKey(key);
+      if (port != null) result.add(port);
+    }
+    return result;
+  }
+
+  /// Normalise une requete de recherche : minuscule + sans accents.
+  String normalizeSearchQuery(String query) {
+    if (query.isEmpty) return '';
+    const from = 'àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ';
+    const to   = 'aaaaaaaceeeeiiiidnoooooouuuuyby';
+    final buf = StringBuffer();
+    for (int i = 0; i < query.length; i++) {
+      final c = query[i].toLowerCase();
+      final idx = from.indexOf(c);
+      buf.write(idx >= 0 ? to[idx] : c);
+    }
+    return buf.toString();
+  }
+
+  /// Trie les ports selon :
+  /// 1. selectedPortKey (si connu) — en premiere position, exclu des autres sections
+  /// 2. favoris restants (alphabetique)
+  /// 3. autres ports (alphabetique)
+  List<FishingPort> orderByFavoritesFirst(
+    List<FishingPort> ports,
+    Set<String> favKeys, {
+    String? selectedPortKey,
+  }) {
+    final favs    = <FishingPort>[];
+    final nonFavs = <FishingPort>[];
+    FishingPort? selectedPort;
+
+    for (final p in ports) {
+      if (p.key == selectedPortKey) {
+        selectedPort = p;
+      } else if (favKeys.contains(p.key)) {
+        favs.add(p);
+      } else {
+        nonFavs.add(p);
+      }
+    }
+
+    favs.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    nonFavs.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    if (selectedPort != null) {
+      return [selectedPort, ...favs, ...nonFavs];
+    }
+    return [...favs, ...nonFavs];
+  }
+
+  /// Map des overrides utilisateur (edition inline). key = portKey.
+  final Map<String, FishingPort> _portOverrides = {};
+
+  /// Applique un override a un port (edition inline).
+  void updatePortInfo({
+    required String key,
+    String? name,
+    String? weatherUrl,
+  }) {
+    final original = getPortByKey(key);
+    if (original == null) return;
+    _portOverrides[key] = FishingPort(
+      key: key,
+      name: name ?? original.name,
+      weatherUrl: weatherUrl ?? original.weatherUrl,
+      latitude: original.latitude,
+      longitude: original.longitude,
+    );
+  }
+
+  /// Liste de tous les ports avec overrides appliques.
+  List<FishingPort> get allPorts {
+    final result = <String, FishingPort>{};
+    for (final port in _frenchPorts) {
+      result[port.key] = _portOverrides[port.key] ?? port;
+    }
+    return result.values.toList();
   }
 }

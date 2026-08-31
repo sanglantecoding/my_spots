@@ -3,7 +3,7 @@ import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/models/fishing_port.dart';
 import 'package:my_spots/offline_management_screen.dart';
-import 'package:my_spots/views/settings/manage_ports_screen.dart';
+import 'package:my_spots/views/settings/widgets/meteo_port_setting.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -19,7 +19,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   SpeedUnit _selectedUnit = AppSettings.speedUnit;
-  String? _selectedPortKey = AppSettings.selectedPortKey;
   bool _showWaypointNamesOnMap = AppSettings.showWaypointNamesOnMap;
   bool _showWaypointDateOnMap = AppSettings.showWaypointDateOnMap;
   DistanceUnit _distanceUnit = AppSettings.distanceUnit;
@@ -390,106 +389,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16.0),
           children: [
-            const SizedBox(height: 16),
-            const Text(
-              'METEO PORT FAVORI',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white70,
-                letterSpacing: 1.5,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.black26,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  width: 1,
-                ),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  isExpanded: true,
-                  value: _selectedPortKey,
-                  hint: const Text(
-                    'Sélectionner un port',
-                    style: TextStyle(color: Colors.white54, fontSize: 18),
-                  ),
-                  dropdownColor: const Color(0xFF1A2F42),
-                  icon: const Icon(
-                    Icons.arrow_drop_down,
-                    color: Colors.white70,
-                    size: 32,
-                  ),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  items: [
-                    const DropdownMenuItem<String>(
-                      value: null,
-                      child: Text(
-                        'Aucun (météo générale)',
-                        style: TextStyle(color: Colors.white70),
-                      ),
-                    ),
-                    ...AppSettings.favoritePorts.map((port) {
-                      return DropdownMenuItem<String>(
-                        value: port.key,
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.anchor,
-                              color: Colors.blueAccent,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 12),
-                            Text(port.name),
-                          ],
-                        ),
-                      );
-                    }),
-                  ],
-                  onChanged: (String? newValue) async {
-                    setState(() {
-                      _selectedPortKey = newValue;
-                    });
-                    await AppSettings.saveSelectedPort(newValue);
-                  },
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.manage_search, color: Colors.white70),
-              title: const Text(
-                'Gérer mes ports',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              trailing: const Icon(Icons.chevron_right, color: Colors.white54),
-              onTap: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const ManagePortsScreen(),
-                  ),
-                );
-                // Rafraîchir l'état après retour de l'écran de gestion
-                setState(() {
-                  _selectedPortKey = AppSettings.selectedPortKey;
-                });
-              },
-            ),
+            MeteoPortSetting(),
             const SizedBox(height: 32),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

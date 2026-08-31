@@ -2,6 +2,7 @@
 // Accès interne FMTC requis pour la purge tuile-par-tuile (API publique absente).
 // Cette dépendance est isolée dans ce fichier repository pour éviter la propagation
 // dans le reste de la base de code.
+// ignore: implementation_imports
 import 'package:flutter_map_tile_caching/src/backend/export_internal.dart'
     as internal;
 import 'package:flutter_map/flutter_map.dart';
@@ -63,9 +64,7 @@ class FmtcTileCacheRepository implements TileCacheRepository {
 
       for (var x = nwX; x <= seX; x++) {
         for (var y = nwY; y <= seY; y++) {
-          pendingUrls.add(
-            urlForTile(zoom, x, y),
-          );
+          pendingUrls.add(urlForTile(zoom, x, y));
           if (pendingUrls.length >= _purgeConcurrency) {
             await flushBatch();
           }

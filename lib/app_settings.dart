@@ -2,6 +2,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:my_spots/controllers/gps_controller.dart';
 import 'package:my_spots/models/fishing_port.dart';
+import 'package:my_spots/services/port_service.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:convert';
 
@@ -9,12 +10,17 @@ import 'dart:convert';
 /// NE JAMAIS coder en dur cette clé dans le code source !
 /// Voir main.dart pour le chargement de dotenv avant l'initialisation de l'app.
 ///
-/// ⚠️ IMPORTANT — SÉCURITÉ :
-/// L'ancienne clé (5f93b838b4134d6a8bd223c62408d2df) a été RÉVOQUÉE car exposée
-/// dans l'historique Git. Vous DEVEZ générer une nouvelle clé sur :
-/// https://www.thunderforest.com/ → compte → API keys
-/// Puis la définir dans le fichier .env (copié depuis .env.example)
-const String THUNDERFOREST_API_KEY = String.fromEnvironment('THUNDERFOREST_API_KEY', defaultValue: dotenv.env['THUNDERFOREST_API_KEY'] ?? '');
+/// ⚠️ NOTE DE SÉCURITÉ :
+/// La clé actuelle est valide et fonctionnelle.
+/// Comme toute clé utilisée côté client, elle peut être extraite du binaire :
+/// la sécurité repose sur la rotation régulière de la clé, pas sur son secret.
+/// En cas de compromission avérée, révoquer l'ancienne clé et en générer
+/// une nouvelle sur https://www.thunderforest.com/ → compte → API keys,
+/// puis la définir dans le fichier .env (copié depuis .env.example).
+final String thunderforestApiKey = String.fromEnvironment(
+  'THUNDERFOREST_API_KEY',
+  defaultValue: dotenv.env['THUNDERFOREST_API_KEY'] ?? '',
+);
 
 enum SpeedUnit { knots, kmh }
 
@@ -46,6 +52,25 @@ class AppSettings {
   static bool energySavingMode = false;
   static List<FishingPort> favoritePorts = [];
 
+  /// Keys of favorite ports (subset of [favoritePorts]).
+  static Set<String> get favoritePortKeys =>
+      favoritePorts.map((p) => p.key).toSet();
+
+  /// Add a port to favorites by key.
+  static Future<void> addFavorite(String portKey) async {
+    final port = PortService.instance.getPortByKey(portKey);
+    if (port == null) return;
+    if (!favoritePorts.any((p) => p.key == portKey)) {
+      await saveFavoritePorts([...favoritePorts, port]);
+    }
+  }
+
+  /// Remove a port from favorites by key.
+  static Future<void> removeFavorite(String portKey) async {
+    final newList = favoritePorts.where((p) => p.key != portKey).toList();
+    await saveFavoritePorts(newList);
+  }
+
   // Superposition relief sous-marin / LiDAR (contrôles sur la carte)
   static bool bathymetryOverlayEnabled = false;
   static double bathymetryOverlayOpacity = 0.7;
@@ -61,29 +86,6 @@ class AppSettings {
   static set bathymetryOpacity(double value) =>
       bathymetryOverlayOpacity = value;
 
-  static final Map<String, FishingPort> ports = {
-    'palavas': FishingPort.legacy(
-      name: 'Palavas-les-Flots',
-      url: 'https://meteofrance.com/meteo-marine/palavas-les-flots/570277',
-    ),
-    'sete': FishingPort.legacy(
-      name: 'Sète',
-      url: 'https://meteofrance.com/meteo-marine/sete/570202',
-    ),
-    'carnon': FishingPort.legacy(
-      name: 'Carnon',
-      url: 'https://meteofrance.com/meteo-marine/carnon/570211',
-    ),
-    'cap_agde': FishingPort.legacy(
-      name: 'Cap d\'Agde',
-      url: 'https://meteofrance.com/meteo-marine/cap-d-agde/570229',
-    ),
-    'grau_du_roi': FishingPort.legacy(
-      name: 'Le Grau-du-Roi / Port-Camargue',
-      url: 'https://meteofrance.com/meteo-marine/le-grau-du-roi/570268',
-    ),
-  };
-
   static const String defaultWeatherUrl =
       'https://meteofrance.com/meteo-marine';
 
@@ -91,6 +93,11 @@ class AppSettings {
     final prefs = await SharedPreferences.getInstance();
 
     selectedPortKey = prefs.getString('selected_port');
+    // Premier lancement : pas de port actif enregistré -> défaut Palavas-les-Flots.
+    if (selectedPortKey == null) {
+      selectedPortKey = 'palavas_les_flots';
+      await prefs.setString('selected_port', 'palavas_les_flots');
+    }
 
     speedUnit = getEnumFromIndex(
       SpeedUnit.values,
@@ -152,18 +159,31 @@ class AppSettings {
             jsonDecode(favoritesJson) as List<dynamic>;
         favoritePorts = decoded
             .map(
-              (e) => FishingPort.legacy(
+              (e) => FishingPort(
+                key: (e['key'] ?? e['name'] ?? '') as String,
                 name: (e['name'] ?? '') as String,
-                url: (e['url'] ?? '') as String,
+                weatherUrl: (e['url'] ?? '') as String,
               ),
             )
-            .where((p) => p.name.isNotEmpty && p.url.isNotEmpty)
+            .where((p) => p.name.isNotEmpty && p.weatherUrl.isNotEmpty)
             .toList();
       } catch (_) {
         favoritePorts = [];
       }
     } else {
-      favoritePorts = [];
+      // Premier lancement : pas de favoris enregistrés -> défaut Palavas-les-Flots.
+      final p = PortService.instance.getPortByKey('palavas_les_flots');
+      favoritePorts = [?p];
+      await prefs.setString(
+        'favorite_ports',
+        jsonEncode(
+          favoritePorts
+              .map(
+                (port) => {'key': port.key, 'name': port.name, 'url': port.url},
+              )
+              .toList(),
+        ),
+      );
     }
   }
 
@@ -262,17 +282,10 @@ class AppSettings {
   static Future<void> saveFavoritePorts(List<FishingPort> portsList) async {
     final prefs = await SharedPreferences.getInstance();
     final payload = portsList
-        .map((p) => {'name': p.name, 'url': p.url})
+        .map((p) => {'key': p.key, 'name': p.name, 'url': p.url})
         .toList();
     await prefs.setString('favorite_ports', jsonEncode(payload));
     favoritePorts = List<FishingPort>.from(portsList);
-  }
-
-  static List<FishingPort> getEffectiveFavoritePorts() {
-    if (favoritePorts.isNotEmpty) {
-      return favoritePorts;
-    }
-    return ports.values.toList();
   }
 
   static Future<void> saveProximityAlarmEnabled(bool enabled) async {
@@ -334,11 +347,14 @@ class AppSettings {
       if (favoritePort != null) {
         return favoritePort.url;
       }
-    }
 
-    // Ensuite chercher dans les ports prédéfinis
-    if (selectedPortKey != null && ports.containsKey(selectedPortKey)) {
-      return ports[selectedPortKey]!.url;
+      // Sinon chercher via PortService (inclut _frenchPorts + overrides)
+      final portFromService = PortService.instance.getPortByKey(
+        selectedPortKey!,
+      );
+      if (portFromService != null) {
+        return portFromService.url;
+      }
     }
 
     return defaultWeatherUrl;
@@ -351,7 +367,7 @@ class AppSettings {
       case MapType.relief:
         return 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
       case MapType.hiking:
-        return 'https://tile.thunderforest.com/outdoors/{z}/{x}/{y}.png?apikey=${THUNDERFOREST_API_KEY}';
+        return 'https://tile.thunderforest.com/outdoors/{z}/{x}/{y}.png?apikey=$thunderforestApiKey';
       case MapType.marine:
         // Empilement multi-échelles via [MarineMapService] — pas d'URL unique.
         throw StateError(
@@ -386,7 +402,7 @@ class AppSettings {
   }
 
   static double getMapMaxZoom() {
-    if (mapType == MapType.marine) return 18;
+    if (mapType == MapType.marine) return 20.0;
     return 18;
   }
 

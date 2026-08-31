@@ -174,7 +174,6 @@ class _MapScreenState extends State<MapScreen> {
     _positionSubscription?.cancel();
     _stateSubscription?.cancel();
     _alarmSubscription?.cancel();
-    AlarmService.dispose();
     _waypointNameController.dispose();
     super.dispose();
   }

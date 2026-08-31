@@ -68,18 +68,30 @@ class AlarmService {
   static bool _isNavigationActive = false;
   static bool _isProcessingAlarm = false;
   static bool _isPlayingAudio = false;
+  static bool _isInitialized = false;
 
   static final StreamController<AlarmEvent> _alarmEventController =
       StreamController<AlarmEvent>.broadcast();
 
   /// Flux broadcast d'événements d'alarme. Multi-abonnements autorisés.
+  /// Ce stream reste ouvert pendant toute la session et n'est fermé
+  /// que lors de la destruction finale de l'application.
   static Stream<AlarmEvent> get onAlarmEvent => _alarmEventController.stream;
 
   /// Initialise le service d'alarme.
   ///
-  /// Évite les fuites natives : si un [AudioPlayer] existe déjà, il est
-  /// proprement stoppé et disposé avant la création d'une nouvelle instance.
+  /// Cette méthode est idempotente : si le service est déjà initialisé,
+  /// elle ne fait rien et ne recrée pas le player.
+  ///
+  /// Le [StreamController] broadcast reste ouvert pendant toute la session
+  /// et ne doit jamais être fermé par les appels à [dispose].
   static Future<void> initialize() async {
+    if (_isInitialized) {
+      return;
+    }
+
+    _isInitialized = true;
+
     if (_proximityPlayer != null) {
       try {
         await _proximityPlayer!.stop();
@@ -335,13 +347,16 @@ class AlarmService {
     _emit(AlarmEvent.mutedChanged(_isMuted));
   }
 
-  /// Libère les ressources du service et ferme le contrôleur de flux.
+  /// Libère les ressources du service liées au monitoring.
   ///
-  /// Garantit :
-  /// - Annulation complète du timer de proximité ;
-  /// - Arrêt puis dispose de l'[AudioPlayer] courant (exceptions silencieuses
-  ///   pour éviter les fuites natives sur un player déjà disposé) ;
-  /// - Fermeture du [StreamController] broadcast.
+  /// Cette méthode ne ferme PAS le [StreamController] broadcast, car celui-ci
+  /// est une ressource globale nécessaire au fonctionnement continu de
+  /// l'application. Fermer le stream depuis un widget enfant (comme MapScreen)
+  /// empêcherait tout abonnement futur.
+  ///
+  /// Ressources libérées :
+  /// - Timer de proximité (annulé) ;
+  /// - AudioPlayer (arrêté et disposé si existant).
   static Future<void> dispose() async {
     _proximityTimer?.cancel();
     _proximityTimer = null;
@@ -357,8 +372,8 @@ class AlarmService {
       _proximityPlayer = null;
     }
 
-    if (!_alarmEventController.isClosed) {
-      await _alarmEventController.close();
-    }
+    // NOTE: Le StreamController broadcast N'EST PAS fermé ici.
+    // Il reste disponible pour les prochains abonnements.
+    // Le stream ne sera fermé que lors de la destruction finale de l'application.
   }
 }
