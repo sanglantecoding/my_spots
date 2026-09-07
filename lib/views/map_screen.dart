@@ -6,6 +6,7 @@ import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/settings_page.dart';
 import 'package:my_spots/services/gps_service.dart';
 import 'package:my_spots/services/alarm_service.dart';
+import 'package:my_spots/services/zone_download_service.dart';
 import 'package:my_spots/services/marine_map_service.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/widgets/satellite_bottom_sheet.dart';
@@ -19,8 +20,10 @@ import 'dart:async';
 
 class MapScreen extends StatefulWidget {
   final Waypoint? centerOn;
+  final bool? triggerZoneCreation;
+  final ZoneDownloadService? zoneService;
 
-  const MapScreen({super.key, this.centerOn});
+  const MapScreen({super.key, this.centerOn, this.triggerZoneCreation, this.zoneService});
 
   @override
   State<MapScreen> createState() => _MapScreenState();

@@ -150,6 +150,9 @@ class MarineMapService {
     return layerOrder.map((layerName) {
       final zoom = _zoomByLayer[layerName]!;
 
+      // DIAGNOSTIC TEMPORAIRE - TILELAYER CREATION
+      debugPrint('[MARINE-TILELAYER-CREATED] mode=ONLINE currentZoom=$currentZoom layer=$layerName minZoom=${zoom.minZoom} maxZoom=${zoom.maxZoom} hardcodedMaxZoom=22.0 minNativeZoom=${zoom.minNativeZoom} maxNativeZoom=${zoom.maxNativeZoom} provider=marineTileProviderFor($layerName)');
+
       return TileLayer(
         key: Key('marine_layer_$layerName'),
         urlTemplate: '$_clevisuWmtsLayerPrefix$layerName',
@@ -178,6 +181,10 @@ class MarineMapService {
       '&FORMAT=image/png'
       '&TILEMATRIXSET=3857'
       '&TILEMATRIX={z}&TILECOL={x}&TILEROW={y}';
+
+  /// Génère l'URL WMTS pour une couche LiDAR/Litto3D
+  static String inspireWmtsUrl(String wmtsLayerName) =>
+      '$_inspireWmtsBase&Layer=$wmtsLayerName';
 
   static List<TileLayer> getActiveLidarLayers(
     LatLngBounds? visibleBounds, {

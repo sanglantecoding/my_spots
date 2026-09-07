@@ -1,0 +1,130 @@
+{
+  "_note1": "KEEP THIS FILE! Check it into a version control system (VCS) like git.",
+  "_note2": "ObjectBox manages crucial IDs for your object model. See docs for details.",
+  "_note3": "If you have VCS merge conflicts, you must resolve them according to ObjectBox docs.",
+  "entities": [
+    {
+      "id": "1:5182520997279946803",
+      "lastPropertyId": "8:665590391856139998",
+      "name": "OfflineMapLayer",
+      "properties": [
+        {
+          "id": "1:922587658472003169",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:256897108380192436",
+          "name": "offlineMapId",
+          "type": 6
+        },
+        {
+          "id": "3:2482675901880860640",
+          "name": "layerTypeIndex",
+          "type": 6
+        },
+        {
+          "id": "4:5112291591954589995",
+          "name": "minZoom",
+          "type": 6
+        },
+        {
+          "id": "5:8342025355646786947",
+          "name": "maxZoom",
+          "type": 6
+        },
+        {
+          "id": "6:1477336916736815939",
+          "name": "statusIndex",
+          "type": 6
+        },
+        {
+          "id": "7:5558319306818141683",
+          "name": "estimatedTileCount",
+          "type": 6
+        },
+        {
+          "id": "8:665590391856139998",
+          "name": "downloadedTileCount",
+          "type": 6
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "2:5621580101653289067",
+      "lastPropertyId": "11:5526990479795015572",
+      "name": "OfflineMap",
+      "properties": [
+        {
+          "id": "1:2442507201481088472",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:7460004151515988256",
+          "name": "uuid",
+          "type": 9
+        },
+        {
+          "id": "3:6263178554942586765",
+          "name": "name",
+          "type": 9
+        },
+        {
+          "id": "4:7610148528282434889",
+          "name": "northLat",
+          "type": 8
+        },
+        {
+          "id": "5:4281449343890196518",
+          "name": "southLat",
+          "type": 8
+        },
+        {
+          "id": "6:2563115367669983531",
+          "name": "westLng",
+          "type": 8
+        },
+        {
+          "id": "7:4084698283543616286",
+          "name": "eastLng",
+          "type": 8
+        },
+        {
+          "id": "8:8961617604869378169",
+          "name": "statusIndex",
+          "type": 6
+        },
+        {
+          "id": "9:4604877508117257081",
+          "name": "createdAt",
+          "type": 10
+        },
+        {
+          "id": "11:5526990479795015572",
+          "name": "completedAt",
+          "type": 10
+        }
+      ],
+      "relations": []
+    }
+  ],
+  "lastEntityId": "2:5621580101653289067",
+  "lastIndexId": "1:8228622745366417356",
+  "lastRelationId": "0:0",
+  "lastSequenceId": "0:0",
+  "modelVersion": 5,
+  "modelVersionParserMinimum": 5,
+  "retiredEntityUids": [],
+  "retiredIndexUids": [
+    8228622745366417356
+  ],
+  "retiredPropertyUids": [
+    8365270913800956856
+  ],
+  "retiredRelationUids": [],
+  "version": 1
+}

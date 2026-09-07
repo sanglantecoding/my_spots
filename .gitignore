@@ -56,3 +56,5 @@ app.*.map.json
 key*.json          # Fichiers de clés
 *.key              # Clés privées
 secrets/           # Dossiers secrets
+# Widget Preview related
+.widget_preview/

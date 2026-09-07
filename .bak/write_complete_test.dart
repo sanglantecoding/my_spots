@@ -1,0 +1,61 @@
+import 'dart:io';
+
+void main() {
+  final path = r'C:\Users\JIM\my_spots\test\repositories\offline_map_repository_test.dart';
+  final sb = StringBuffer();
+
+  sb.writeln('// Unit tests for OfflineMapRepository.');
+  sb.writeln('');
+  sb.writeln("import 'dart:io';");
+  sb.writeln('');
+  sb.writeln("import 'package:flutter_test/flutter_test.dart';");
+  sb.writeln("import 'package:my_spots/models/offline_map.dart';");
+  sb.writeln("import 'package:my_spots/models/offline_map_layer.dart';");
+  sb.writeln("import 'package:my_spots/objectbox.g.dart';");
+  sb.writeln("import 'package:my_spots/repositories/offline_map_repository.dart';");
+  sb.writeln('');
+  sb.writeln('OfflineMap _newMap(String uuid, String name) => OfflineMap.create(');
+  sb.writeln('      uuid: uuid, name: name,');
+  sb.writeln('      northLat: 44.0, southLat: 43.0,');
+  sb.writeln('      westLng: 6.0, eastLng: 7.5,');
+  sb.writeln('    );');
+  sb.writeln('');
+  sb.writeln('OfflineMapLayer _newLayer(LayerType t, int zmin, int zmax) =>');
+  sb.writeln('    OfflineMapLayer.create(layerType: t, minZoom: zmin, maxZoom: zmax);');
+  sb.writeln('');
+  sb.writeln('void main() {');
+  sb.writeln('  late Directory tmpDir;');
+  sb.writeln('  late Store store;');
+  sb.writeln('  late OfflineMapRepository repo;');
+  sb.writeln('');
+  sb.writeln('  setUp(() async {');
+  sb.writeln("    tmpDir = await Directory.systemTemp.createTemp('offline_map_test_');");
+  sb.writeln('    store = await openStore(directory: tmpDir.path);');
+  sb.writeln('    repo = OfflineMapRepository(store);');
+  sb.writeln('  });');
+  sb.writeln('');
+  sb.writeln('  tearDown(() async {');
+  sb.writeln('    store.close();');
+  sb.writeln('    if (await tmpDir.exists()) {');
+  sb.writeln('      await tmpDir.delete(recursive: true);');
+  sb.writeln('    }');
+  sb.writeln('  });');
+  sb.writeln('');
+  sb.writeln('  group("OfflineMap CRUD", () {');
+  sb.writeln('    test("save assigns a new id and findById retrieves it", () {');
+  sb.writeln('      final saved = repo.save(_newMap("uuid-1", "Cote"));');
+  sb.writeln('      expect(saved.id, isNot(0));');
+  sb.writeln('      final fetched = repo.findById(saved.id);');
+  sb.writeln('      expect(fetched, isNotNull);');
+  sb.writeln('      expect(fetched!.uuid, "uuid-1");');
+  sb.writeln('      expect(fetched.name, "Cote");');
+  sb.writeln('      expect(fetched.status, OfflineMapStatus.notStarted);');
+  sb.writeln('      expect(fetched.isNotStarted, isTrue);');
+  sb.writeln('      expect(fetched.isCompleted, isFalse);');
+  sb.writeln('    });');
+  sb.writeln('  });');
+  sb.writeln('}');
+
+  File(path).writeAsStringSync(sb.toString());
+  print('Done: ${sb.length} chars');
+}

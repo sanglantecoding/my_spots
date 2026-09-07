@@ -95,4 +95,15 @@ class FmtcTileCacheRepository implements TileCacheRepository {
     final store = FMTCStore(storeName);
     await store.manage.reset();
   }
+
+  @override
+  Future<int> getStoreSizeBytes(String storeName) async {
+    try {
+      final store = FMTCStore(storeName);
+      final stats = await store.stats.all;
+      return stats.size.toInt();
+    } catch (_) {
+      return 0;
+    }
+  }
 }

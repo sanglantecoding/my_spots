@@ -260,7 +260,11 @@ class MapTileCacheService {
   }
 
   static TileProvider marineTileProviderFor(String layerName) {
+    // DIAGNOSTIC TEMPORAIRE - PROVIDER CALL
+    debugPrint('[MARINE-PROVIDER-FOR] layerName=$layerName');
     return _marineTileProviders.putIfAbsent(layerName, () {
+      // DIAGNOSTIC TEMPORAIRE - PROVIDER CREATION
+      debugPrint('[MARINE-PROVIDER-CREATED] layerName=$layerName');
       return _createProvider(
         stores: {
           marineStoreForLayer(layerName): BrowseStoreStrategy.readUpdateCreate,
@@ -286,6 +290,94 @@ class MapTileCacheService {
     return _lidarOmbrageTileProvider ??= _createProvider(
       stores: {lidarOmbrageStore: BrowseStoreStrategy.readUpdateCreate},
       headers: shomTileHeaders,
+    );
+  }
+
+  // ─── Zone-scoped store accessors ─────────────────────────────────────────────
+
+  /// FMTC store name for a zone's marine tiles.
+  static FMTCStore marineStoreForZone(String zoneUuid) {
+    return FMTCStore('marine_zone_$zoneUuid');
+  }
+
+  /// FMTC store name for a zone's LiDAR tiles.
+  static FMTCStore lidarStoreForZone(String zoneUuid) {
+    return FMTCStore('lidar_zone_$zoneUuid');
+  }
+
+  /// Deletes ALL FMTC stores associated with a zone (marine + LiDAR).
+  ///
+  /// Silently ignores errors (store not found, etc.).
+  static Future<void> deleteStoresForZone(String zoneUuid) async {
+    await initialise();
+    for (final store in [marineStoreForZone(zoneUuid), lidarStoreForZone(zoneUuid)]) {
+      try {
+        await store.manage.delete();
+      } catch (_) {
+        // Ignore errors (store not exists, etc.)
+      }
+    }
+  }
+
+  /// Aggregates the size in bytes of the marine + LiDAR stores for a zone.
+  static Future<int> getZoneSizeBytes(String zoneUuid) async {
+    final repo = FmtcTileCacheRepository.instance;
+    final marineBytes = await repo.getStoreSizeBytes(marineStoreForZone(zoneUuid).storeName);
+    final lidarBytes = await repo.getStoreSizeBytes(lidarStoreForZone(zoneUuid).storeName);
+    return marineBytes + lidarBytes;
+  }
+
+  // ─── Offline providers ───────────────────────────────────────────────────────
+
+  /// Builds an offline-first [FMTCTileProvider] for marine tiles.
+  ///
+  /// For non-empty zones, uses zone-specific stores with strict fallback.
+  /// For empty zone list, uses the legacy marineBase_50K store.
+  static TileProvider offlineMarineTileProvider(List<String> zoneUuids) {
+    if (zoneUuids.isEmpty) {
+      // Legacy path: single-store for 50K
+      return _createProvider(
+        stores: {'marineBase_50K': BrowseStoreStrategy.readUpdateCreate},
+        headers: shomTileHeaders,
+      );
+    }
+
+    final Map<String, BrowseStoreStrategy> explicitStores = {
+      for (final uuid in zoneUuids) 'marine_zone_$uuid': BrowseStoreStrategy.readUpdateCreate,
+    };
+
+    return FMTCTileProvider(
+      stores: explicitStores,
+      headers: shomTileHeaders,
+      otherStoresStrategy: BrowseStoreStrategy.read,
+      useOtherStoresAsFallbackOnly: true,
+      httpClient: _httpClient,
+    );
+  }
+
+  /// Builds an offline-first [FMTCTileProvider] for LiDAR tiles.
+  ///
+  /// For non-empty zones, uses zone-specific stores with strict fallback.
+  /// For empty zone list, uses the legacy bathymetryOverlay_* store.
+  static TileProvider offlineLidarTileProvider(List<String> zoneUuids) {
+    if (zoneUuids.isEmpty) {
+      // Legacy path: bathymetry overlay store
+      return _createProvider(
+        stores: {'bathymetryOverlay_50K': BrowseStoreStrategy.readUpdateCreate},
+        headers: shomTileHeaders,
+      );
+    }
+
+    final Map<String, BrowseStoreStrategy> explicitStores = {
+      for (final uuid in zoneUuids) 'lidar_zone_$uuid': BrowseStoreStrategy.readUpdateCreate,
+    };
+
+    return FMTCTileProvider(
+      stores: explicitStores,
+      headers: shomTileHeaders,
+      otherStoresStrategy: BrowseStoreStrategy.read,
+      useOtherStoresAsFallbackOnly: true,
+      httpClient: _httpClient,
     );
   }
 

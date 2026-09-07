@@ -25,4 +25,7 @@ abstract class TileCacheRepository {
 
   /// Clears all tiles from a specific store
   Future<void> clearLayerCache(String storeName);
+
+  /// Returns the size in bytes of a store
+  Future<int> getStoreSizeBytes(String storeName);
 }

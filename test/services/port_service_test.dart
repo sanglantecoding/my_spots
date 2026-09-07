@@ -92,7 +92,7 @@ void main() {
       final port = PortService.instance.getPortByKey('sete');
       expect(port, isNotNull);
       expect(port!.key, 'sete');
-      expect(port.name, 'Sète');
+      expect(port.name, 'Sete');
     });
 
     test('addFavorite("sete") -> favoritePortKeys contient "sete" (pas "Sete")', () async {
@@ -143,35 +143,35 @@ void main() {
       AppSettings.favoritePorts = [];
     });
 
-    test('PortService.getPortByKey("cap_agde") existe', () {
-      final port = PortService.instance.getPortByKey('cap_agde');
+    test('PortService.getPortByKey("cap_d_agde") existe', () {
+      final port = PortService.instance.getPortByKey('cap_d_agde');
       expect(port, isNotNull);
     });
 
-    test('PortService.getPortByKey("cap_agde").key == "cap_agde"', () {
-      final port = PortService.instance.getPortByKey('cap_agde');
-      expect(port!.key, 'cap_agde');
+    test('PortService.getPortByKey("cap_d_agde").key == "cap_d_agde"', () {
+      final port = PortService.instance.getPortByKey('cap_d_agde');
+      expect(port!.key, 'cap_d_agde');
     });
 
-    test('PortService.getPortByKey("cap_agde").name == "Cap d\'Agde"', () {
-      final port = PortService.instance.getPortByKey('cap_agde');
-      expect(port!.name, "Cap d'Agde");
+    test('PortService.getPortByKey("cap_d_agde").name == "Cap D Agde"', () {
+      final port = PortService.instance.getPortByKey('cap_d_agde');
+      expect(port!.name, 'Cap D Agde');
     });
 
-    test('PortService.getPortByKey("cap_agde").url inchangee', () {
-      final port = PortService.instance.getPortByKey('cap_agde');
+    test('PortService.getPortByKey("cap_d_agde").url inchangee', () {
+      final port = PortService.instance.getPortByKey('cap_d_agde');
       expect(
         port!.url,
         'https://meteofrance.com/meteo-marine/cap-d-agde/570229',
       );
     });
 
-    test('addFavorite("cap_agde") ajoute le port avec la bonne cle', () async {
-      await AppSettings.addFavorite('cap_agde');
-      expect(AppSettings.favoritePortKeys.contains('cap_agde'), isTrue);
+    test('addFavorite("cap_d_agde") ajoute le port avec la bonne cle', () async {
+      await AppSettings.addFavorite('cap_d_agde');
+      expect(AppSettings.favoritePortKeys.contains('cap_d_agde'), isTrue);
       expect(AppSettings.favoritePorts.length, 1);
-      expect(AppSettings.favoritePorts.first.key, 'cap_agde');
-      expect(AppSettings.favoritePorts.first.name, "Cap d'Agde");
+      expect(AppSettings.favoritePorts.first.key, 'cap_d_agde');
+      expect(AppSettings.favoritePorts.first.name, 'Cap D Agde');
     });
   });
 

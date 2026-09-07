@@ -1,0 +1,36 @@
+import 'dart:io';
+void main() {
+  final p = r'C:\Users\JIM\my_spots\test\services\zone_download_service_test.dart';
+  final s = StringBuffer();
+  s.writeln("  group('downloadZone — empty input', () {");
+  s.writeln("    test('empty layers list returns without calling downloader', () async {");
+  s.writeln("      final d = FakeLayerDownloader(); final s2 = ZoneDownloadService(repository: repo, downloader: d);");
+  s.writeln("      final map = repo.save(_m('empty'));");
+  s.writeln("      await s2.downloadZone(map: map, layers: []);");
+  s.writeln("      expect(d.count, 0);");
+  s.writeln("    });");
+  s.writeln("  });");
+  s.writeln("  group('downloadZone — initial state', () {");
+  s.writeln("    test('sets map status to downloading before completion', () async {");
+  s.writeln("      final d = FakeLayerDownloader(); final s2 = ZoneDownloadService(repository: repo, downloader: d);");
+  s.writeln("      final map = repo.save(_m('init-map')); final layer = repo.saveLayer(map, _l(LayerType.marine25k));");
+  s.writeln("      unawaited(s2.downloadZone(map: map, layers: [layer]));");
+  s.writeln("      await Future.delayed(Duration.zero);");
+  s.writeln("      expect(repo.findByUuid(map.uuid)!.status, OfflineMapStatus.downloading);");
+  s.writeln("      await s2.cancelDownload(map.uuid);");
+  s.writeln("    });");
+  s.writeln("    test('sets all layer statuses to downloading', () async {");
+  s.writeln("      final d = FakeLayerDownloader(); final s2 = ZoneDownloadService(repository: repo, downloader: d);");
+  s.writeln("      final map = repo.save(_m('init-layers'));");
+  s.writeln("      final a = repo.saveLayer(map, _l(LayerType.marine25k));");
+  s.writeln("      final b = repo.saveLayer(map, _l(LayerType.lidarOmbrage));");
+  s.writeln("      unawaited(s2.downloadZone(map: map, layers: [a, b]));");
+  s.writeln("      await Future.delayed(Duration.zero);");
+  s.writeln("      expect(repo.findLayerById(a.id)!.downloadStatus, LayerDownloadStatus.downloading);");
+  s.writeln("      expect(repo.findLayerById(b.id)!.downloadStatus, LayerDownloadStatus.downloading);");
+  s.writeln("      await s2.cancelDownload(map.uuid);");
+  s.writeln("    });");
+  s.writeln("  });");
+  File(p).writeAsStringSync(File(p).readAsStringSync() + s.toString(), flush: true);
+  print('Gen2: ${s.length} chars');
+}
