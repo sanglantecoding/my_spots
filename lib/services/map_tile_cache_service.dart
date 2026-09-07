@@ -1,10 +1,85 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show ImageProvider;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:http/http.dart' show Client;
 import 'package:my_spots/models/litto3d_layer.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/repositories/fmtc_tile_cache_repository.dart';
+
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║  DIAGNOSTIC TEMPORAIRE ÉTAPE 9 — NE PAS MERGER                              ║
+// ║  Wrapper transparent autour du TileProvider FMTC pour observer :            ║
+// ║  [OFFLINE-READ] : quand FlutterMap demande une ImageProvider pour une tuile ║
+// ║  [OFFLINE-FILTER] : quand une URL est filtrée par le provider               ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+/// Wrapper de diagnostic transparent pour un [TileProvider].
+/// N'altère AUCUN comportement — ne fait que logger les appels.
+/// Éliminé à la fin du diagnostic.
+class _DiagnosticTileProvider extends TileProvider {
+  final TileProvider _delegate;
+  final String layerName;
+  final String storeName;
+
+  _DiagnosticTileProvider({
+    required TileProvider delegate,
+    required this.layerName,
+    required this.storeName,
+  }) : _delegate = delegate,
+       super(headers: delegate.headers);
+
+  @override
+  ImageProvider<Object> getImage(
+    TileCoordinates coordinates,
+    TileLayer options,
+  ) {
+    // Log DIAGNOSTIC : demande de tuile
+    debugPrint(
+      '[OFFLINE-READ] layer=$layerName store=$storeName '
+      'coords=z${coordinates.z}_x${coordinates.x}_y${coordinates.y} '
+      'url=${_delegate.getTileUrl(coordinates, options)}',
+    );
+    return _delegate.getImage(coordinates, options);
+  }
+
+  @override
+  ImageProvider<Object> getImageWithCancelLoadingSupport(
+    TileCoordinates coordinates,
+    TileLayer options,
+    Future<void> cancelLoading,
+  ) {
+    // Log DIAGNOSTIC : demande de tuile avec support d'annulation
+    debugPrint(
+      '[OFFLINE-READ-CANCEL] layer=$layerName store=$storeName '
+      'coords=z${coordinates.z}_x${coordinates.x}_y${coordinates.y} '
+      'url=${_delegate.getTileUrl(coordinates, options)}',
+    );
+    return _delegate.getImageWithCancelLoadingSupport(
+      coordinates,
+      options,
+      cancelLoading,
+    );
+  }
+
+  @override
+  String getTileUrl(TileCoordinates coordinates, TileLayer options) {
+    final url = _delegate.getTileUrl(coordinates, options);
+    // Log DIAGNOSTIC : URL générée
+    debugPrint(
+      '[OFFLINE-URL] layer=$layerName store=$storeName '
+      'coords=z${coordinates.z}_x${coordinates.x}_y${coordinates.y} '
+      'url=$url',
+    );
+    return url;
+  }
+
+  @override
+  void dispose() {
+    _delegate.dispose();
+    super.dispose();
+  }
+}
 
 /// Journalisation des erreurs tuiles — désactivée pour éviter la saturation du thread principal.
 class MapTileErrorLogger {
@@ -263,13 +338,20 @@ class MapTileCacheService {
     // DIAGNOSTIC TEMPORAIRE - PROVIDER CALL
     debugPrint('[MARINE-PROVIDER-FOR] layerName=$layerName');
     return _marineTileProviders.putIfAbsent(layerName, () {
+      final storeName = marineStoreForLayer(layerName);
       // DIAGNOSTIC TEMPORAIRE - PROVIDER CREATION
-      debugPrint('[MARINE-PROVIDER-CREATED] layerName=$layerName');
-      return _createProvider(
+      debugPrint('[MARINE-PROVIDER-CREATED] layerName=$layerName storeName=$storeName');
+      final fmwcProvider = _createProvider(
         stores: {
-          marineStoreForLayer(layerName): BrowseStoreStrategy.readUpdateCreate,
+          storeName: BrowseStoreStrategy.readUpdateCreate,
         },
         headers: shomTileHeaders,
+      );
+      // DIAGNOSTIC TEMPORAIRE ÉTAPE 9 : wrapper de diagnostic
+      return _DiagnosticTileProvider(
+        delegate: fmwcProvider,
+        layerName: layerName,
+        storeName: storeName,
       );
     });
   }

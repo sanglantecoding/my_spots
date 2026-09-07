@@ -150,8 +150,8 @@ class MarineMapService {
     return layerOrder.map((layerName) {
       final zoom = _zoomByLayer[layerName]!;
 
-      // DIAGNOSTIC TEMPORAIRE - TILELAYER CREATION
-      debugPrint('[MARINE-TILELAYER-CREATED] mode=ONLINE currentZoom=$currentZoom layer=$layerName minZoom=${zoom.minZoom} maxZoom=${zoom.maxZoom} hardcodedMaxZoom=22.0 minNativeZoom=${zoom.minNativeZoom} maxNativeZoom=${zoom.maxNativeZoom} provider=marineTileProviderFor($layerName)');
+      // DIAGNOSTIC TEMPORAIRE ÉTAPE 9 - TILELAYER CREATION
+      debugPrint('[MARINE-TILELAYER-CREATED] currentZoom=$currentZoom layer=$layerName minZoom=${zoom.minZoom} maxZoom=${zoom.maxZoom} hardcodedMaxZoom=22.0 minNativeZoom=${zoom.minNativeZoom} maxNativeZoom=${zoom.maxNativeZoom} tileProvider=marineTileProviderFor($layerName)');
 
       return TileLayer(
         key: Key('marine_layer_$layerName'),
