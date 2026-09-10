@@ -3,6 +3,8 @@ import 'dart:developer' as developer;
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/core/app_initialization_status.dart';
 import 'package:my_spots/models/waypoint.dart';
+import 'package:my_spots/objectbox.g.dart';
+import 'package:my_spots/repositories/offline_map_repository.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/services/satellite_service.dart';
 
@@ -59,6 +61,7 @@ class AppBootstrap {
       _loadWaypoints(),
       _initialiseMapTileCache(),
       _initialiseSatellite(),
+      _initialiseObjectBox(),
     ]);
   }
 
@@ -110,6 +113,29 @@ class AppBootstrap {
       AppInitializationStatus.errors['SatelliteService'] = e;
       developer.log(
         'SatelliteService.initialize a échoué (GNSS visuel désactivé)',
+        name: _logName,
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+
+  /// Initialise ObjectBox et expose [OfflineMapRepository] via singleton.
+  ///
+  /// Non-bloquant : un échec n'empêche pas le démarrage de l'app,
+  /// mais l'écran de gestion des zones affichera un message dégradé.
+  static Future<void> _initialiseObjectBox() async {
+    try {
+      final store = await openStore();
+      OfflineMapRepository.initWithStore(store);
+      developer.log(
+        'OfflineMapRepository singleton initialisé',
+        name: _logName,
+      );
+    } catch (e, st) {
+      AppInitializationStatus.errors['OfflineMapRepository'] = e;
+      developer.log(
+        'OfflineMapRepository.init a échoué (zones hors-ligne désactivées)',
         name: _logName,
         error: e,
         stackTrace: st,

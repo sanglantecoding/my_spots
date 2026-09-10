@@ -6,7 +6,6 @@ import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/settings_page.dart';
 import 'package:my_spots/services/gps_service.dart';
 import 'package:my_spots/services/alarm_service.dart';
-import 'package:my_spots/services/zone_download_service.dart';
 import 'package:my_spots/services/marine_map_service.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/widgets/satellite_bottom_sheet.dart';
@@ -16,14 +15,37 @@ import 'package:my_spots/controllers/gps_controller.dart';
 import 'package:my_spots/views/widgets/map/gps_marker_widget.dart';
 import 'package:my_spots/views/widgets/map/selected_waypoint_panel.dart';
 import 'package:my_spots/views/widgets/map/map_controls_widget.dart';
+import 'package:my_spots/repositories/offline_map_repository.dart';
+import 'package:my_spots/views/offline_maps_screen.dart';
+import 'package:my_spots/views/widgets/offline_maps/new_zone_sheet.dart';
+import 'package:my_spots/views/widgets/offline_maps/zone_editor_overlay.dart';
+import 'package:my_spots/models/offline_map.dart';
+import 'package:my_spots/models/offline_map_layer.dart';
+import 'package:my_spots/services/zone_download_service.dart';
 import 'dart:async';
 
 class MapScreen extends StatefulWidget {
   final Waypoint? centerOn;
-  final bool? triggerZoneCreation;
+
+  /// When `true`, the screen automatically opens the
+  /// "Tracer une zone hors-ligne" flow as soon as the map is ready and a
+  /// position (GPS or default map center) is available. Used by
+  /// [OfflineMapsScreen] to deep-link from the "Créer une zone" button.
+  final bool triggerZoneCreation;
+
+  /// Initial value for the temporary ONLINE / HORS-LIGNE switch owned by
+  /// [HomePage]. Not persisted. The in-screen state can still be toggled
+  /// at runtime; this is just the initial value pushed in.
+  final bool initialOfflineTestMode;
   final ZoneDownloadService? zoneService;
 
-  const MapScreen({super.key, this.centerOn, this.triggerZoneCreation, this.zoneService});
+  const MapScreen({
+    super.key,
+    this.centerOn,
+    this.triggerZoneCreation = false,
+    this.initialOfflineTestMode = false,
+    this.zoneService,
+  });
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -45,6 +67,27 @@ class _MapScreenState extends State<MapScreen> {
   StreamSubscription? _positionSubscription;
   StreamSubscription? _stateSubscription;
   StreamSubscription<AlarmEvent>? _alarmSubscription;
+  List<String> _readyZoneUuids = const [];
+
+  /// Cached combined bounds of all downloaded zones, computed from
+  /// the OfflineMapRepository so that LiDAR layers can still be
+  /// determined when _mapVisibleBounds is null (e.g., first render
+  /// or when the user has not yet moved the map).
+  LatLngBounds? _zoneCombinedBounds;
+
+  /// When true, the map shows the interactive zone-editor overlay
+  /// instead of the normal navigation view.
+  bool _zoneEditMode = false;
+
+  /// Temporary test flag — OFFLINE mode bypasses the network in providers.
+  /// Seeded from [MapScreen.initialOfflineTestMode] (driven by the
+  /// HomePage switch). Currently read-only; actual provider behaviour will
+  /// be wired in step 2.
+  late bool _offlineTestMode;
+
+  /// Configuration (name + layers) collected from NewZoneSheet before
+  /// entering _zoneEditMode.
+  ZoneConfig? _pendingZoneConfig;
 
   void _onMapCameraChanged() {
     final bounds = _mapController.camera.visibleBounds;
@@ -54,6 +97,25 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     setState(() => _mapVisibleBounds = bounds);
+  }
+
+  /// Indicateur de diagnostic TEMPORAIRE : affiche le niveau de zoom courant.
+  Widget _buildZoomIndicator() {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.72),
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Text(
+          'ZOOM : ${_currentZoom.toStringAsFixed(2)}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
   }
 
   bool _boundsNearlyEqual(LatLngBounds a, LatLngBounds b) {
@@ -149,6 +211,8 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
 
+    _offlineTestMode = widget.initialOfflineTestMode;
+
     // Initialiser le service d'alarme
     AlarmService.initialize();
 
@@ -161,6 +225,7 @@ class _MapScreenState extends State<MapScreen> {
     });
 
     _startLocationTracking();
+    _loadOfflineZones();
 
     if (widget.centerOn != null) {
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -168,6 +233,17 @@ class _MapScreenState extends State<MapScreen> {
           LatLng(widget.centerOn!.latitude, widget.centerOn!.longitude),
           16.0,
         );
+      });
+    }
+
+    // Auto-start the zone-creation flow when the screen is opened from
+    // OfflineMapsScreen 'Créer une zone' button. We schedule the trigger
+    // Auto-start: after the first frame, open the name sheet immediately.
+    if (widget.triggerZoneCreation) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final center = _currentPosition ?? AppSettings.getDefaultMapCenter();
+        _openNewOfflineZoneWithCenter(center);
       });
     }
   }
@@ -258,6 +334,243 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  /// Loads ready/partial offline zone UUIDs from ObjectBox and computes the
+  /// combined bounds of all downloaded zones so that LiDAR layers can be
+  /// determined even before the map camera has fired its first event.
+  void _loadOfflineZones() {
+    final repo = OfflineMapRepository.instance;
+    if (repo == null) return;
+    final maps = repo.findReadyOrPartialMaps();
+    final lidarLayers = <MapEntry<String, OfflineMapLayer>>[];
+    for (final map in maps) {
+      final layers = repo.findLayersForMap(map);
+      for (final layer in layers) {
+        if (layer.layerType == LayerType.lidarLitto3d) {
+          lidarLayers.add(MapEntry(map.uuid, layer));
+        }
+      }
+    }
+    setState(() {
+      _readyZoneUuids = maps.map((m) => m.uuid).toList();
+      _readyLidarLayers = lidarLayers;
+      if (maps.isEmpty) {
+        _zoneCombinedBounds = null;
+      } else {
+        _zoneCombinedBounds = LatLngBounds(
+          LatLng(
+            maps.map((m) => m.southLat).reduce((a, b) => a < b ? a : b),
+            maps.map((m) => m.westLng).reduce((a, b) => a < b ? a : b),
+          ),
+          LatLng(
+            maps.map((m) => m.northLat).reduce((a, b) => a > b ? a : b),
+            maps.map((m) => m.eastLng).reduce((a, b) => a > b ? a : b),
+          ),
+        );
+      }
+    });
+  }
+
+  /// List of downloaded LiDAR layers per zone, keyed by zone uuid.
+  List<MapEntry<String, OfflineMapLayer>> _readyLidarLayers = const [];
+
+  /// Opens the offline zones management screen.
+  void _openOfflineZones() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const OfflineMapsScreen()),
+    );
+    _loadOfflineZones();
+  }
+
+  /// Shows the context menu (BottomSheet) at the long-pressed map point.
+  void _showMapContextMenu(LatLng point) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0D1B2A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(
+                Icons.add_location_alt,
+                color: Color(0xFF0D6999),
+              ),
+              title: const Text(
+                "Ajouter un waypoint ici",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              subtitle: Text(
+                "Lat ${point.latitude.toStringAsFixed(5)}  Lon ${point.longitude.toStringAsFixed(5)}",
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _addWaypointAt(point);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.crop_free, color: Color(0xFF0D6999)),
+              title: const Text(
+                "Tracer une zone hors-ligne",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              subtitle: const Text(
+                "Definir une zone de telechargement",
+                style: TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openNewOfflineZone(point);
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Opens the waypoint editor pre-filled with the given map position.
+  Future<void> _addWaypointAt(LatLng position) async {
+    final int waypointNumber = WaypointStore.waypoints.length + 1;
+    final defaultName = "WPT $waypointNumber";
+
+    final outcome = await showWaypointEditorSheet(
+      context: context,
+      title: "Nouveau waypoint",
+      icon: Icons.add_location_alt,
+      position: position,
+      initialName: defaultName,
+      initialCategory: WaypointCategory.fishing,
+      initialColorHex: "FFFFEB3B",
+      initialDate: DateTime.now(),
+      isEditing: false,
+    );
+
+    if (outcome == null) return;
+    if (outcome.deleted) return;
+    if (outcome.waypoint != null) {
+      WaypointStore.waypoints.add(outcome.waypoint!);
+      await WaypointStore.save();
+      setState(() {});
+    }
+  }
+
+  /// Opens the zone-name sheet, then enters zone-adjustment mode
+  /// centred on [centerPoint]. Used both for long-press and for the
+  /// [OfflineMapsScreen] entry point.
+  void _openNewOfflineZone(LatLng centerPoint) async {
+    final config = await showNewZoneSheet(context);
+    if (config == null) return;
+    if (!mounted) return;
+
+    setState(() {
+      _zoneEditMode = true;
+      _pendingZoneConfig = config;
+    });
+    _mapController.move(centerPoint, _currentZoom);
+  }
+
+  /// Variant used by the post-frame callback: opens the sheet immediately
+  /// with [center] as the initial map position after confirmation.
+  void _openNewOfflineZoneWithCenter(LatLng center) {
+    _openNewOfflineZone(center);
+  }
+
+  /// Saves the zone after the user has adjusted the rectangle.
+  Future<void> _onZoneBoundsConfirmed(LatLngBounds bounds) async {
+    final config = _pendingZoneConfig;
+    if (config == null) {
+      _exitZoneEditMode();
+      return;
+    }
+
+    final repo = OfflineMapRepository.instance;
+    if (repo == null) {
+      _exitZoneEditMode();
+      return;
+    }
+
+    // 2) Create and persist the OfflineMap.
+    final uuid = DateTime.now().millisecondsSinceEpoch.toString();
+    final map = OfflineMap.create(
+      uuid: uuid,
+      name: config.name,
+      northLat: bounds.north,
+      southLat: bounds.south,
+      westLng: bounds.west,
+      eastLng: bounds.east,
+    );
+    repo.save(map);
+
+    // 3) Create layers and trigger download.
+    final layers = ZoneConfig.defaultLayersForBounds(
+      bounds,
+    ); // ← Retourne déjà des OfflineMapLayer
+    for (final layer in layers) {
+      repo.saveLayer(map, layer);
+    }
+
+    final zoneService = ZoneDownloadService(repository: repo);
+    zoneService.downloadZone(map: map, layers: layers, zoneBounds: bounds);
+
+    // 4) Exit edit mode and refresh.
+    _exitZoneEditMode();
+    _loadOfflineZones();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          "Zone \"${config.name}\" creee - telechargement en cours",
+        ),
+        backgroundColor: const Color(0xFF0D6999),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _exitZoneEditMode() {
+    setState(() {
+      _zoneEditMode = false;
+      _pendingZoneConfig = null;
+    });
+  }
+
+  /// Zoom ranges aligned with `MarineMapService.getActiveMarineTileLayers`:
+  ///   - 50K  : displayed at z >= 11
+  ///   - 25K  : displayed at z >= 13
+  ///   - 10K  : displayed at z >= 15
+  /// Download `maxZoom` is clamped to 17 by `FmtcLayerDownloader`; this is
+  /// compatible with the 10K layer which only needs z=15..17 to cover the
+  /// full on-screen use case (the display layer extends to z=22 via
+  /// `maxNativeZoom=19` + display `maxZoom: 22.0`).
+  ///
+  /// For LiDAR ombrage / Litto3D, [LidarRegionCatalog] returns layers
+  /// covering the visible bounds, so a download range of 10..16 covers
+  /// the typical coastal usage (Litto3D is natively available from z6).
   Future<void> _showAddWaypointDialog() async {
     if (_currentPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -431,7 +744,7 @@ class _MapScreenState extends State<MapScreen> {
                     maxZoom: AppSettings.getMapMaxZoom(),
                     onPositionChanged: (position, hasGesture) {
                       // Met à jour _currentZoom seulement en cas de changement significatif
-                      if ((position.zoom - _currentZoom).abs() > 0.1) {
+                      if ((position.zoom - _currentZoom).abs() > 0.001) {
                         setState(() {
                           _currentZoom = position.zoom;
                         });
@@ -452,17 +765,41 @@ class _MapScreenState extends State<MapScreen> {
                         });
                       }
                     },
+                    onLongPress: (tapPosition, latLng) {
+                      if (_zoneEditMode) return;
+                      _showMapContextMenu(latLng);
+                    },
                   ),
                   children: [
                     if (AppSettings.mapType == MapType.marine) ...[
-                      ...MarineMapService.getActiveMarineTileLayers(
-                        _currentZoom,
-                      ),
-                      if (AppSettings.bathymetryOverlayEnabled)
-                        ...MarineMapService.getActiveLidarLayers(
-                          _mapVisibleBounds,
-                          opacity: AppSettings.bathymetryOverlayOpacity,
+                      if (_offlineTestMode) ...[
+                        // HORS-LIGNE : never falls back to the general FMTC
+                        // store or to the network. getOffline*() is always
+                        // called; when _readyZoneUuids is empty the provider
+                        // uses stores:{} + cacheOnly so every tile is missing
+                        // => transparent PNG, no HTTP request is made.
+                        ...MarineMapService.getOfflineMarineTileLayers(
+                          _currentZoom,
+                          _readyZoneUuids,
                         ),
+                        if (AppSettings.bathymetryOverlayEnabled)
+                          ...MarineMapService.getOfflineLidarLayers(
+                            _mapVisibleBounds ?? _zoneCombinedBounds,
+                            _readyZoneUuids,
+                            opacity: AppSettings.bathymetryOverlayOpacity,
+                          ),
+                      ] else ...[
+                        ...MarineMapService.getActiveMarineTileLayers(
+                          _currentZoom,
+                          zoneUuids: _readyZoneUuids,
+                        ),
+                        if (AppSettings.bathymetryOverlayEnabled)
+                          ...MarineMapService.getActiveLidarLayers(
+                            _mapVisibleBounds,
+                            zoneUuids: _readyZoneUuids,
+                            opacity: AppSettings.bathymetryOverlayOpacity,
+                          ),
+                      ],
                     ] else
                       TileLayer(
                         key: ValueKey('basemap_${AppSettings.mapType}'),
@@ -720,87 +1057,114 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ],
                 ),
-                Positioned(
-                  left: 16,
-                  top: 16,
-                  child: _buildBathymetryOverlayControls(),
-                ),
-                Positioned(
-                  right: 16,
-                  top: 16,
-                  child: MapControlsWidget(
-                    onRecenter: _recenterMap,
-                    onToggleWaypoints: () async {
-                      setState(() {
-                        AppSettings.waypointsVisible =
-                            !AppSettings.waypointsVisible;
-                      });
-                      await AppSettings.saveWaypointsVisibility(
-                        AppSettings.waypointsVisible,
-                      );
-                    },
-                    onAddWaypoint: _showAddWaypointDialog,
-                    waypointsVisible: AppSettings.waypointsVisible,
-                  ),
-                ),
-                if (_selectedWaypoint != null)
-                  Positioned(
-                    left: 16,
-                    right: 16,
-                    bottom: 95,
-                    child: SelectedWaypointPanel(
-                      waypoint: _selectedWaypoint!,
-                      currentPosition: _currentPosition,
-                      onCenterOnTarget: _centerOnTargetAndUser,
-                      onEditWaypoint: (outcome) async {
-                        if (outcome != null) {
-                          if (outcome.deleted) {
-                            setState(() {
-                              WaypointStore.waypoints.remove(_selectedWaypoint);
-                              _selectedWaypoint = null;
-                              _navigationTarget = null;
-                            });
-                            await WaypointStore.save();
-                          } else if (outcome.waypoint != null) {
-                            setState(() {
-                              final index = WaypointStore.waypoints.indexWhere(
-                                (wp) => wp == _selectedWaypoint,
-                              );
-                              if (index != -1) {
-                                WaypointStore.waypoints[index] =
-                                    outcome.waypoint!;
-                                _selectedWaypoint = outcome.waypoint;
-                                if (_navigationTarget == _selectedWaypoint) {
-                                  _navigationTarget = outcome.waypoint;
-                                }
-                              }
-                            });
-                            await WaypointStore.save();
-                          }
-                        }
-                      },
-                      onStartNavigation: () {
-                        setState(() {
-                          _navigationTarget = _selectedWaypoint;
-                        });
-                        if (_navigationTarget != null) {
-                          AlarmService.startMonitoring(_navigationTarget!);
-                        }
-                      },
-                      onClose: () {
-                        AlarmService.stopMonitoring();
-                        setState(() {
-                          _selectedWaypoint = null;
-                          _navigationTarget = null;
-                        });
-                      },
+                // Zone-adjustment overlay (active when long-pressing
+                // "Tracer une zone hors-ligne").
+                if (_zoneEditMode)
+                  Positioned.fill(
+                    child: ZoneEditorOverlay(
+                      centerPoint: _mapController.camera.center,
+                      onConfirm: _onZoneBoundsConfirmed,
+                      onCancel: _exitZoneEditMode,
+                      // Share the same MapController with the underlying
+                      // FlutterMap so that bounds-to-LatLng conversions
+                      // match the user's actual viewport.
+                      mapController: _mapController,
                     ),
                   ),
+                // ── UI masquée pendant le tracé de zone (_zoneEditMode == true) ──
+                // L'utilisateur ne voit QUE : la carte, le rectangle de sélection,
+                // la barre d'annulation (top) et le bouton "Valider" (bottom).
+                if (!_zoneEditMode) ...[
+                  // Sélecteur LiDAR / Bathymétrie (haut-gauche).
+                  Positioned(
+                    left: 16,
+                    top: 16,
+                    child: _buildBathymetryOverlayControls(),
+                  ),
+                  // Boutons : recentrage GPS, toggle waypoints, + waypoint,
+                  // accès zones hors-ligne (haut-droite).
+                  Positioned(
+                    right: 16,
+                    top: 16,
+                    child: MapControlsWidget(
+                      onRecenter: _recenterMap,
+                      onToggleWaypoints: () async {
+                        setState(() {
+                          AppSettings.waypointsVisible =
+                              !AppSettings.waypointsVisible;
+                        });
+                        await AppSettings.saveWaypointsVisibility(
+                          AppSettings.waypointsVisible,
+                        );
+                      },
+                      onAddWaypoint: _showAddWaypointDialog,
+                      onOpenOfflineZones: _openOfflineZones,
+                      waypointsVisible: AppSettings.waypointsVisible,
+                      offlineZoneCount: _readyZoneUuids.length,
+                    ),
+                  ),
+                  if (_selectedWaypoint != null)
+                    Positioned(
+                      left: 16,
+                      right: 16,
+                      bottom: 95,
+                      child: SelectedWaypointPanel(
+                        waypoint: _selectedWaypoint!,
+                        currentPosition: _currentPosition,
+                        onCenterOnTarget: _centerOnTargetAndUser,
+                        onEditWaypoint: (outcome) async {
+                          if (outcome != null) {
+                            if (outcome.deleted) {
+                              setState(() {
+                                WaypointStore.waypoints.remove(
+                                  _selectedWaypoint,
+                                );
+                                _selectedWaypoint = null;
+                                _navigationTarget = null;
+                              });
+                              await WaypointStore.save();
+                            } else if (outcome.waypoint != null) {
+                              setState(() {
+                                final index = WaypointStore.waypoints
+                                    .indexWhere(
+                                      (wp) => wp == _selectedWaypoint,
+                                    );
+                                if (index != -1) {
+                                  WaypointStore.waypoints[index] =
+                                      outcome.waypoint!;
+                                  _selectedWaypoint = outcome.waypoint;
+                                  if (_navigationTarget == _selectedWaypoint) {
+                                    _navigationTarget = outcome.waypoint;
+                                  }
+                                }
+                              });
+                              await WaypointStore.save();
+                            }
+                          }
+                        },
+                        onStartNavigation: () {
+                          setState(() {
+                            _navigationTarget = _selectedWaypoint;
+                          });
+                          if (_navigationTarget != null) {
+                            AlarmService.startMonitoring(_navigationTarget!);
+                          }
+                        },
+                        onClose: () {
+                          AlarmService.stopMonitoring();
+                          setState(() {
+                            _selectedWaypoint = null;
+                            _navigationTarget = null;
+                          });
+                        },
+                      ),
+                    ),
+                ],
                 Positioned(
                   left: 16,
                   right: 16,
                   bottom: 16,
-                  child: AppSettings.showSpeedOnMap
+                  child: AppSettings.showSpeedOnMap && !_zoneEditMode
                       ? Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 20,
@@ -844,8 +1208,8 @@ class _MapScreenState extends State<MapScreen> {
                         )
                       : const SizedBox.shrink(),
                 ),
-                // Bandeau de navigation active
-                if (_navigationTarget != null)
+                // Bandeau de navigation active (masqué en mode tracé de zone)
+                if (_navigationTarget != null && !_zoneEditMode)
                   Positioned(
                     left: 16,
                     right: 16,
@@ -862,6 +1226,8 @@ class _MapScreenState extends State<MapScreen> {
                       },
                     ),
                   ),
+                // Indicateur de diagnostic TEMPORAIRE - zoom courant (bas-droit)
+                Positioned(right: 16, bottom: 16, child: _buildZoomIndicator()),
               ],
             ),
     );

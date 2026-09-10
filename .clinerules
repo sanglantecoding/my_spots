@@ -1,0 +1,3 @@
+# Directives d'édition de code
+- Ne tente JAMAIS d'utiliser `replace_in_file` plus de 2 fois de suite en cas d'échec sur un même fichier.
+- Pour les fichiers de plus de 150-200 lignes (comme les vues Flutter/Dart), privilégie directement `write_to_file` pour réécrire le fichier complet au lieu de faire des modifications partielles par lignes.

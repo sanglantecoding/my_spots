@@ -23,19 +23,46 @@ class ZoneConfig {
   /// Marine layers (50K + 25K + 10K) are always included.  LiDAR overlays are
   /// included only when the bounds intersect a known LiDAR region (see
   /// [LidarRegionCatalog.regionsIntersecting]).
-  static List<LayerType> defaultLayersForBounds(LatLngBounds bounds) {
-    final hasLidar =
-        LidarRegionCatalog.regionsIntersecting(bounds).isNotEmpty;
-    const marine = [
-      LayerType.marine50k,
-      LayerType.marine25k,
-      LayerType.marine10k,
+  /// /// For LiDAR, creates one [OfflineMapLayer] per available campaign with
+  /// [OfflineMapLayer.lidarLayerId] set to the campaign ID.
+  static List<OfflineMapLayer> defaultLayersForBounds(LatLngBounds bounds) {
+    const defaultMinZoom = 0;
+    const defaultMaxZoom = 18;
+
+    final layers = <OfflineMapLayer>[
+      OfflineMapLayer.create(
+        layerType: LayerType.marine50k,
+        minZoom: defaultMinZoom,
+        maxZoom: defaultMaxZoom,
+      ),
+      OfflineMapLayer.create(
+        layerType: LayerType.marine25k,
+        minZoom: defaultMinZoom,
+        maxZoom: defaultMaxZoom,
+      ),
+      OfflineMapLayer.create(
+        layerType: LayerType.marine10k,
+        minZoom: defaultMinZoom,
+        maxZoom: defaultMaxZoom,
+      ),
     ];
-    if (!hasLidar) return marine;
-    return [
-      ...marine,
-      LayerType.lidarLitto3d,
-    ];
+
+    // Ajoute un OfflineMapLayer par campagne LiDAR disponible dans la zone
+    final lidarRegions = LidarRegionCatalog.regionsIntersecting(bounds);
+    for (final region in lidarRegions) {
+      for (final layerId in region.layerIds) {
+        layers.add(
+          OfflineMapLayer.create(
+            layerType: LayerType.lidarLitto3d,
+            minZoom: defaultMinZoom,
+            maxZoom: defaultMaxZoom,
+            lidarLayerId: layerId,
+          ),
+        );
+      }
+    }
+
+    return layers;
   }
 }
 
@@ -66,9 +93,8 @@ Future<ZoneConfig?> showNewZoneSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _NewZoneSheet(
-      checkNameExists: checkNameExists ?? _defaultNameExists,
-    ),
+    builder: (_) =>
+        _NewZoneSheet(checkNameExists: checkNameExists ?? _defaultNameExists),
   );
 }
 
@@ -149,7 +175,8 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
       return 'Obligatoire';
     }
     if (widget.checkNameExists(value)) {
-      _duplicateError = 'Une zone porte déjà ce nom. Veuillez en choisir un autre.';
+      _duplicateError =
+          'Une zone porte déjà ce nom. Veuillez en choisir un autre.';
       return _duplicateError;
     }
     return null;
@@ -160,10 +187,9 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
     // Layers are resolved later in the caller using
     // [ZoneConfig.defaultLayersForBounds] once the user has drawn the zone
     // bounds.  Passing an empty list here is intentional.
-    Navigator.of(context).pop(ZoneConfig(
-      name: _nameController.text.trim(),
-      layers: const [],
-    ));
+    Navigator.of(
+      context,
+    ).pop(ZoneConfig(name: _nameController.text.trim(), layers: const []));
   }
 
   @override
@@ -182,9 +208,25 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)))),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
               const SizedBox(height: 16),
-              const Text('Nom de la zone', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
+              const Text(
+                'Nom de la zone',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _nameController,
@@ -200,13 +242,16 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
                   color: const Color(0xFF0D6999).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                      color: const Color(0xFF0D6999).withValues(alpha: 0.4)),
+                    color: const Color(0xFF0D6999).withValues(alpha: 0.4),
+                  ),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline,
-                        color: const Color(0xFF0D6999).withValues(alpha: 0.8),
-                        size: 18),
+                    Icon(
+                      Icons.info_outline,
+                      color: const Color(0xFF0D6999).withValues(alpha: 0.8),
+                      size: 18,
+                    ),
                     const SizedBox(width: 10),
                     const Expanded(
                       child: Text(
@@ -220,16 +265,24 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
                 ),
               ),
               const SizedBox(height: 24),
-              SizedBox(width: double.infinity, child: ElevatedButton(
-                onPressed: _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0D6999),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _submit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0D6999),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Suivant : Tracer la zone sur la carte',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
                 ),
-                child: const Text('Suivant : Tracer la zone sur la carte', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              )),
+              ),
             ],
           ),
         ),

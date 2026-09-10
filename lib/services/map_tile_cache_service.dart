@@ -1,85 +1,19 @@
+import 'dart:ui' show Codec, ImmutableBuffer;
+
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart' show ImageProvider;
+import 'package:flutter/widgets.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
+// Accès à l'infrastructure interne de FMTC pour la lecture brute du cache.
+// FMTCBackendAccess n'est pas exporté publiquement (utilisation interne only).
+// ignore: implementation_imports
+import 'package:flutter_map_tile_caching/src/backend/backend_access.dart'
+    // ignore: invalid_use_of_internal_member
+    as fmtc_internal;
 import 'package:http/http.dart' show Client;
 import 'package:my_spots/models/litto3d_layer.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/repositories/fmtc_tile_cache_repository.dart';
-
-// ╔══════════════════════════════════════════════════════════════════════════════╗
-// ║  DIAGNOSTIC TEMPORAIRE ÉTAPE 9 — NE PAS MERGER                              ║
-// ║  Wrapper transparent autour du TileProvider FMTC pour observer :            ║
-// ║  [OFFLINE-READ] : quand FlutterMap demande une ImageProvider pour une tuile ║
-// ║  [OFFLINE-FILTER] : quand une URL est filtrée par le provider               ║
-// ╚══════════════════════════════════════════════════════════════════════════════╝
-
-/// Wrapper de diagnostic transparent pour un [TileProvider].
-/// N'altère AUCUN comportement — ne fait que logger les appels.
-/// Éliminé à la fin du diagnostic.
-class _DiagnosticTileProvider extends TileProvider {
-  final TileProvider _delegate;
-  final String layerName;
-  final String storeName;
-
-  _DiagnosticTileProvider({
-    required TileProvider delegate,
-    required this.layerName,
-    required this.storeName,
-  }) : _delegate = delegate,
-       super(headers: delegate.headers);
-
-  @override
-  ImageProvider<Object> getImage(
-    TileCoordinates coordinates,
-    TileLayer options,
-  ) {
-    // Log DIAGNOSTIC : demande de tuile
-    debugPrint(
-      '[OFFLINE-READ] layer=$layerName store=$storeName '
-      'coords=z${coordinates.z}_x${coordinates.x}_y${coordinates.y} '
-      'url=${_delegate.getTileUrl(coordinates, options)}',
-    );
-    return _delegate.getImage(coordinates, options);
-  }
-
-  @override
-  ImageProvider<Object> getImageWithCancelLoadingSupport(
-    TileCoordinates coordinates,
-    TileLayer options,
-    Future<void> cancelLoading,
-  ) {
-    // Log DIAGNOSTIC : demande de tuile avec support d'annulation
-    debugPrint(
-      '[OFFLINE-READ-CANCEL] layer=$layerName store=$storeName '
-      'coords=z${coordinates.z}_x${coordinates.x}_y${coordinates.y} '
-      'url=${_delegate.getTileUrl(coordinates, options)}',
-    );
-    return _delegate.getImageWithCancelLoadingSupport(
-      coordinates,
-      options,
-      cancelLoading,
-    );
-  }
-
-  @override
-  String getTileUrl(TileCoordinates coordinates, TileLayer options) {
-    final url = _delegate.getTileUrl(coordinates, options);
-    // Log DIAGNOSTIC : URL générée
-    debugPrint(
-      '[OFFLINE-URL] layer=$layerName store=$storeName '
-      'coords=z${coordinates.z}_x${coordinates.x}_y${coordinates.y} '
-      'url=$url',
-    );
-    return url;
-  }
-
-  @override
-  void dispose() {
-    _delegate.dispose();
-    super.dispose();
-  }
-}
 
 /// Journalisation des erreurs tuiles — désactivée pour éviter la saturation du thread principal.
 class MapTileErrorLogger {
@@ -101,6 +35,217 @@ class MapTileErrorLogger {
   ]) {
     // Ne rien faire pour éviter la saturation du thread principal
   }
+}
+
+/// Seuil en octets au-dessus duquel un tile lu en cache est considéré comme
+/// un PNG SHOM valide.
+///
+/// En téléchargement, FMTC a stocké dans le store ObjectBox non seulement les
+/// tuiles HTTP 200 (PNG cartographiques, généralement ≥ 5 Ko), mais aussi
+/// certains corps de réponse HTTP 404 / erreurs SHOM (HTML/JSON court, de
+/// quelques centaines d'octets à ~2 Ko). FMTC n'expose aucun drapeau
+/// « negative » pour distinguer ces deux cas dans la voie `cacheOnly`, et son
+/// `errorHandler` n'est jamais appelé pour un hit de cache — le tile est
+/// simplement retourné en bytes.
+///
+/// En mode OFFLINE, ces réponses négatives sont donc resservies comme images
+/// opaques, ce qui masque la couche inférieure (ex. 50k) au-dessus de laquelle
+/// la couche supérieure (25k) devrait être transparente en cas d'absence.
+///
+/// On filtre donc systématiquement, en lecture, tout tile issu du cache dont
+/// la taille est inférieure à ce seuil : il est remplacé par un PNG 1×1
+/// transparent afin que la couche inférieure reste visible.
+///
+/// Les tuiles téléchargées avec succès font toutes plusieurs Ko ; ce seuil ne
+/// peut donc jamais correspondre à un PNG cartographique valide.
+const int _offlineMinValidTileBytes = 3072;
+
+/// Sous-classe de [FMTCTileProvider] qui, en mode `cacheOnly`, filtre les
+/// « tiles » stockés qui sont en réalité des corps de réponse négatifs
+/// (404 / erreurs SHOM), c'est-à-dire dont la taille est anormalement petite
+/// pour un PNG cartographique.
+///
+/// Ce filtre s'applique uniquement à la chaîne de RENDU OFFLINE :
+/// - Il ne supprime rien du cache.
+/// - Il n'effectue aucune requête réseau.
+/// - Il n'altère pas le téléchargement.
+///
+/// L'`ImageProvider` Flutter produit par `FMTCTileProvider.getImage` est
+/// dérouté vers un `ImageStream` qui décode les bytes reçus ; si la taille est
+/// inférieure à [_offlineMinValidTileBytes], on substitue [transparentTilePng]
+/// avant l'étape de décodage pour que la couche supérieure apparaisse
+/// transparente et laisse voir la couche inférieure (50k).
+class _OfflineTransparentTileProvider extends FMTCTileProvider {
+  _OfflineTransparentTileProvider({
+    required super.stores,
+    super.otherStoresStrategy,
+    super.loadingStrategy,
+    super.useOtherStoresAsFallbackOnly,
+    // Ignored: ces paramètres sont conservés pour exposer la même API
+    // complète que FMTCTileProvider, mais ne sont pas utilisés par
+    // _NegativeFilteringImageProvider (cache-only, sans réseau).
+    // ignore: unused_element_parameter
+    super.recordHitsAndMisses,
+    // ignore: unused_element_parameter
+    super.cachedValidDuration,
+    // ignore: unused_element_parameter
+    super.urlTransformer,
+    super.errorHandler,
+    // ignore: unused_element_parameter
+    super.tileLoadingInterceptor,
+    super.httpClient,
+    // ignore: unused_element_parameter
+    super.fakeNetworkDisconnect,
+    super.headers,
+  });
+
+  @override
+  ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
+    return _NegativeFilteringImageProvider(
+      coords: coordinates,
+      options: options,
+      provider: this,
+      transparentBytes: MapTileCacheService.transparentTilePng,
+      minValidBytes: _offlineMinValidTileBytes,
+    );
+  }
+}
+
+/// [ImageProvider] qui intercepte la chaîne de décodage pour remplacer les
+/// tiles dont les bytes sont trop petits (réponses HTTP 404/4xx stockées en
+/// cache par FMTC) par un transparent.png, AVANT l'étape de décodage.
+///
+/// Contrairement à [_FMTCImageProvider] (privé à FMTC), ce fournisseur :
+///  1. Lit directement les bytes depuis le cache FMTC (accès interne).
+///  2. Filtre sur la taille des bytes avant le décodage.
+///  3. Décode via le pipeline standard [ImmutableBuffer] → [decode].
+///
+/// IMPORTANT : ce fournisseur ne fait AUCUNE requête réseau. Il est destiné
+/// à être utilisé avec un [FMTCTileProvider] configuré en
+/// `BrowseLoadingStrategy.cacheOnly` (mode hors-ligne).
+class _NegativeFilteringImageProvider
+    extends ImageProvider<_NegativeFilteringImageProvider> {
+  const _NegativeFilteringImageProvider({
+    required this.coords,
+    required this.options,
+    required this.provider,
+    required this.transparentBytes,
+    required this.minValidBytes,
+  });
+
+  final TileCoordinates coords;
+  final TileLayer options;
+  final FMTCTileProvider provider;
+  final Uint8List transparentBytes;
+  final int minValidBytes;
+
+  @override
+  Future<_NegativeFilteringImageProvider> obtainKey(
+    ImageConfiguration configuration,
+  ) => SynchronousFuture<_NegativeFilteringImageProvider>(this);
+
+  @override
+  ImageStreamCompleter loadImage(
+    _NegativeFilteringImageProvider key,
+    ImageDecoderCallback decode,
+  ) {
+    return MultiFrameImageStreamCompleter(
+      codec: _loadTileAndDecode(decode: decode),
+      scale: 1,
+      debugLabel: coords.toString(),
+      informationCollector: () {
+        final tileUrl = provider.getTileUrl(coords, options);
+        return <DiagnosticsNode>[
+          DiagnosticsProperty<FMTCTileProvider>('FMTCTileProvider', provider),
+          DiagnosticsProperty<TileCoordinates>('Tile coordinates', coords),
+          DiagnosticsProperty<String>('Tile URL', tileUrl),
+        ];
+      },
+    );
+  }
+
+  /// Lit les bytes du cache FMTC, filtre par taille, puis décode.
+  Future<Codec> _loadTileAndDecode({
+    required ImageDecoderCallback decode,
+  }) async {
+    // ── Construire l'URL transformée (même logique que FMTC) ──────────────
+    final networkUrl = provider.getTileUrl(coords, options);
+    final matcherUrl = provider.urlTransformer?.call(networkUrl) ?? networkUrl;
+
+    // ── Compiler les stores lisibles (copie de FMTCTileProvider) ───────────
+    final storeNames = provider.stores.entries
+        .where((e) => e.value != null)
+        .map((e) => e.key)
+        .toList(growable: false);
+
+    // ── Lecture directe depuis le cache FMTC ──────────────────────────────
+    // ignore: invalid_use_of_internal_member, experimental_member_use
+    final result = await fmtc_internal.FMTCBackendAccess.internal.readTile(
+      url: matcherUrl,
+      storeNames: (storeNames: storeNames, includeOrExclude: true),
+    );
+
+    if (result.tile == null) {
+      // LOG TEMPORAIRE : informations détaillées pour comparaison avec téléchargement
+      debugPrint(
+        '[LIDAR-OFFLINE-MISS] store=${storeNames.join(",")} url=$matcherUrl z=${coords.z} x=${coords.x} y=${coords.y}',
+      );
+      debugPrint(
+        '[OFFLINE-LIDAR-RESULT] layer=${options.tileProvider.runtimeType} z=${coords.z} x=${coords.x} y=${coords.y} result=MISS bytes=0',
+      );
+      // Tile absent du cache → utiliser le errorHandler si défini
+      if (provider.errorHandler != null) {
+        final fallback = provider.errorHandler!(
+          // ignore: invalid_use_of_internal_member
+          FMTCBrowsingError(
+            type: FMTCBrowsingErrorType.missingInCacheOnlyMode,
+            networkUrl: networkUrl,
+            storageSuitableUID: matcherUrl,
+          ),
+        );
+        if (fallback != null) {
+          final buf = await ImmutableBuffer.fromUint8List(fallback);
+          return decode(buf);
+        }
+      }
+      // ignore: invalid_use_of_internal_member
+      throw FMTCBrowsingError(
+        type: FMTCBrowsingErrorType.missingInCacheOnlyMode,
+        networkUrl: networkUrl,
+        storageSuitableUID: matcherUrl,
+      );
+    }
+
+    debugPrint(
+      '[OFFLINE-LIDAR-RESULT] layer=${options.tileProvider.runtimeType} z=${coords.z} x=${coords.x} y=${coords.y} result=HIT bytes=${result.tile!.bytes.length}',
+    );
+
+    // ── Filtrage : remplace les bytes trop courts par un PNG transparent ──
+    final bytes = result.tile!.bytes;
+    final bytesToDecode = bytes.length < minValidBytes
+        ? transparentBytes
+        : bytes;
+
+    // ── Décodage via le pipeline standard Flutter ──────────────────────────
+    final ImmutableBuffer buffer = await ImmutableBuffer.fromUint8List(
+      bytesToDecode,
+    );
+
+    debugPrint(
+      '[OFFLINE-LIDAR-DECODE] bytes=${bytesToDecode.length} success=true error=null',
+    );
+    return decode(buffer);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is _NegativeFilteringImageProvider &&
+          other.coords == coords &&
+          other.provider == provider);
+
+  @override
+  int get hashCode => Object.hash(coords, provider);
 }
 
 /// Cache local des tuiles cartographiques (FMTC) pour usage hors-ligne.
@@ -128,9 +273,9 @@ class MapTileCacheService {
     'RASTER_MARINE_10_WMTS_3857',
   ];
 
-  /// Relief LiDAR ombré — store FMTC `marineBase_LIDAR_OMBRAGE_WMTS`.
+  /// Name of the old bathymetry/LiDAR general-purpose store (pre-zone-scoped).
+  /// Kept as the fallback general store for LiDAR layers.
   static const String lidarOmbrageLayerName = 'LIDAR_OMBRAGE_WMTS';
-
   static String get lidarOmbrageStore =>
       marineStoreForLayer(lidarOmbrageLayerName);
 
@@ -224,7 +369,6 @@ class MapTileCacheService {
   static bool _initialised = false;
   static final Map<String, TileProvider> _bathymetryTileProviders = {};
   static final Map<String, TileProvider> _marineTileProviders = {};
-  static TileProvider? _lidarOmbrageTileProvider;
 
   /// Long-lived HTTP client to avoid "Client is already closed" errors
   static final Client _httpClient = Client();
@@ -273,7 +417,6 @@ class MapTileCacheService {
     for (final layerName in marineLayerNames) {
       await FMTCStore(marineStoreForLayer(layerName)).manage.create();
     }
-    await FMTCStore(lidarOmbrageStore).manage.create();
     _initialised = true;
   }
 
@@ -334,131 +477,107 @@ class MapTileCacheService {
     }
   }
 
-  static TileProvider marineTileProviderFor(String layerName) {
-    // DIAGNOSTIC TEMPORAIRE - PROVIDER CALL
-    debugPrint('[MARINE-PROVIDER-FOR] layerName=$layerName');
-    return _marineTileProviders.putIfAbsent(layerName, () {
-      final storeName = marineStoreForLayer(layerName);
-      // DIAGNOSTIC TEMPORAIRE - PROVIDER CREATION
-      debugPrint('[MARINE-PROVIDER-CREATED] layerName=$layerName storeName=$storeName');
-      final fmwcProvider = _createProvider(
-        stores: {
-          storeName: BrowseStoreStrategy.readUpdateCreate,
-        },
-        headers: shomTileHeaders,
-      );
-      // DIAGNOSTIC TEMPORAIRE ÉTAPE 9 : wrapper de diagnostic
-      return _DiagnosticTileProvider(
-        delegate: fmwcProvider,
-        layerName: layerName,
-        storeName: storeName,
-      );
-    });
-  }
-
-  static TileProvider bathymetryTileProviderFor(String layerName) {
-    return _bathymetryTileProviders.putIfAbsent(layerName, () {
-      return _createProvider(
-        stores: {
-          bathymetryStoreForLayer(layerName):
-              BrowseStoreStrategy.readUpdateCreate,
-        },
-        headers: shomTileHeaders,
-      );
-    });
-  }
-
-  static TileProvider lidarOmbrageTileProvider() {
-    return _lidarOmbrageTileProvider ??= _createProvider(
-      stores: {lidarOmbrageStore: BrowseStoreStrategy.readUpdateCreate},
-      headers: shomTileHeaders,
-    );
-  }
-
-  // ─── Zone-scoped store accessors ─────────────────────────────────────────────
-
-  /// FMTC store name for a zone's marine tiles.
-  static FMTCStore marineStoreForZone(String zoneUuid) {
-    return FMTCStore('marine_zone_$zoneUuid');
-  }
-
-  /// FMTC store name for a zone's LiDAR tiles.
-  static FMTCStore lidarStoreForZone(String zoneUuid) {
-    return FMTCStore('lidar_zone_$zoneUuid');
-  }
-
-  /// Deletes ALL FMTC stores associated with a zone (marine + LiDAR).
+  /// Builds a [TileProvider] for marine tiles.
   ///
-  /// Silently ignores errors (store not found, etc.).
-  static Future<void> deleteStoresForZone(String zoneUuid) async {
-    await initialise();
-    for (final store in [marineStoreForZone(zoneUuid), lidarStoreForZone(zoneUuid)]) {
-      try {
-        await store.manage.delete();
-      } catch (_) {
-        // Ignore errors (store not exists, etc.)
-      }
-    }
-  }
-
-  /// Aggregates the size in bytes of the marine + LiDAR stores for a zone.
-  static Future<int> getZoneSizeBytes(String zoneUuid) async {
-    final repo = FmtcTileCacheRepository.instance;
-    final marineBytes = await repo.getStoreSizeBytes(marineStoreForZone(zoneUuid).storeName);
-    final lidarBytes = await repo.getStoreSizeBytes(lidarStoreForZone(zoneUuid).storeName);
-    return marineBytes + lidarBytes;
-  }
-
-  // ─── Offline providers ───────────────────────────────────────────────────────
-
-  /// Builds an offline-first [FMTCTileProvider] for marine tiles.
+  /// - Without [zoneUuids] (null or empty): returns the cached general-purpose
+  ///   provider (`_marineTileProviders`). The general store (`marineBase_<layer>`)
+  ///   is the sole store; FMTC fetches from the network on cache miss.
   ///
-  /// For non-empty zones, uses zone-specific stores with strict fallback.
-  /// For empty zone list, uses the legacy marineBase_50K store.
-  static TileProvider offlineMarineTileProvider(List<String> zoneUuids) {
-    if (zoneUuids.isEmpty) {
-      // Legacy path: single-store for 50K
-      return _createProvider(
-        stores: {'marineBase_50K': BrowseStoreStrategy.readUpdateCreate},
-        headers: shomTileHeaders,
-      );
+  /// - With [zoneUuids]: builds a one-shot provider each call (not cached)
+  ///   with the general store as the primary store (`readUpdateCreate`) and
+  ///   the zone stores as read-only fallbacks. The network is always queried
+  ///   first (`onlineFirst`); zone stores are consulted only on network miss.
+  ///   `useOtherStoresAsFallbackOnly: true` prevents the general store from
+  ///   being demoted when the zone store contains a tile.
+  ///
+  /// [zoneUuids] must remain optional to preserve backward compatibility with
+  /// existing callers (e.g. `marine_map_service.dart:111`).
+  static TileProvider marineTileProviderFor(
+    String layerName, {
+    List<String>? zoneUuids,
+  }) {
+    if (zoneUuids == null || zoneUuids.isEmpty) {
+      return _marineTileProviders.putIfAbsent(layerName, () {
+        return _createProvider(
+          stores: {
+            marineStoreForLayer(layerName):
+                BrowseStoreStrategy.readUpdateCreate,
+          },
+          headers: shomTileHeaders,
+        );
+      });
     }
 
-    final Map<String, BrowseStoreStrategy> explicitStores = {
-      for (final uuid in zoneUuids) 'marine_zone_$uuid': BrowseStoreStrategy.readUpdateCreate,
+    // General store: primary (read + write). Zone stores: read-only fallbacks.
+    final Map<String, BrowseStoreStrategy> stores = {
+      marineStoreForLayer(layerName): BrowseStoreStrategy.readUpdateCreate,
+      for (final uuid in zoneUuids)
+        'marine_zone_$uuid': BrowseStoreStrategy.read,
     };
 
     return FMTCTileProvider(
-      stores: explicitStores,
-      headers: shomTileHeaders,
+      stores: stores,
       otherStoresStrategy: BrowseStoreStrategy.read,
+      loadingStrategy: BrowseLoadingStrategy.onlineFirst,
       useOtherStoresAsFallbackOnly: true,
+      headers: shomTileHeaders,
+      errorHandler: handleFmtcBrowsingError,
       httpClient: _httpClient,
     );
   }
 
-  /// Builds an offline-first [FMTCTileProvider] for LiDAR tiles.
+  /// Builds a [TileProvider] for bathymetry/LiDAR tiles.
   ///
-  /// For non-empty zones, uses zone-specific stores with strict fallback.
-  /// For empty zone list, uses the legacy bathymetryOverlay_* store.
-  static TileProvider offlineLidarTileProvider(List<String> zoneUuids) {
-    if (zoneUuids.isEmpty) {
-      // Legacy path: bathymetry overlay store
-      return _createProvider(
-        stores: {'bathymetryOverlay_50K': BrowseStoreStrategy.readUpdateCreate},
-        headers: shomTileHeaders,
-      );
+  /// - Without [zoneUuids] (null or empty): returns the cached general-purpose
+  ///   provider (`_bathymetryTileProviders`). The general store
+  ///   (`bathymetryOverlay_<layer>`) is the sole store; FMTC fetches from the
+  ///   network on cache miss.
+  ///
+  /// - With [zoneUuids]: builds a one-shot provider each call (not cached)
+  ///   with the general store as the primary store (`readUpdateCreate`) and
+  ///   the zone stores as read-only fallbacks. The network is always queried
+  ///   first (`onlineFirst`); zone stores are consulted only on network miss.
+  ///   `useOtherStoresAsFallbackOnly: true` prevents the general store from
+  ///   being demoted when the zone store contains a tile.
+  ///
+  /// [zoneUuids] must remain optional to preserve backward compatibility with
+  /// existing callers (e.g. `marine_map_service.dart:221`).
+  static TileProvider bathymetryTileProviderFor(
+    String layerName, {
+    List<String>? zoneUuids,
+  }) {
+    if (zoneUuids == null || zoneUuids.isEmpty) {
+      return _bathymetryTileProviders.putIfAbsent(layerName, () {
+        return _createProvider(
+          stores: {
+            bathymetryStoreForLayer(layerName):
+                BrowseStoreStrategy.readUpdateCreate,
+          },
+          headers: shomTileHeaders,
+        );
+      });
     }
 
-    final Map<String, BrowseStoreStrategy> explicitStores = {
-      for (final uuid in zoneUuids) 'lidar_zone_$uuid': BrowseStoreStrategy.readUpdateCreate,
+    // Déduire le lidarLayerId du wmtsLayerName via le catalogue
+    final lidarLayer = Litto3DCatalog.findByWmtsName(layerName);
+    final lidarLayerId = lidarLayer?.id;
+
+    final Map<String, BrowseStoreStrategy> stores = {
+      bathymetryStoreForLayer(layerName): BrowseStoreStrategy.readUpdateCreate,
+      for (final uuid in zoneUuids)
+        if (lidarLayerId != null)
+          'lidar_zone_${uuid}_$lidarLayerId': BrowseStoreStrategy.read
+        else
+          'lidar_zone_$uuid': BrowseStoreStrategy.read,
     };
 
     return FMTCTileProvider(
-      stores: explicitStores,
-      headers: shomTileHeaders,
+      stores: stores,
       otherStoresStrategy: BrowseStoreStrategy.read,
+      loadingStrategy: BrowseLoadingStrategy.onlineFirst,
       useOtherStoresAsFallbackOnly: true,
+      headers: shomTileHeaders,
+      errorHandler: handleFmtcBrowsingError,
       httpClient: _httpClient,
     );
   }
@@ -486,5 +605,235 @@ class MapTileCacheService {
       urlForTile: urlForTile,
       tileDimension: tileDimension,
     );
+  }
+
+  // ─── Zone-scoped FMTC stores (one store per zone, per type) ───
+
+  /// Returns the FMTC store dedicated to marine tiles for the given zone.
+  ///
+  /// Naming: `marine_zone_$zoneUuid`.
+  ///
+  /// The caller is responsible for creating the store
+  /// ([FMTCStore.manage.create]) before downloading and for disposing
+  /// it via [deleteStoresForZone] when the zone is deleted.
+  static FMTCStore marineStoreForZone(String zoneUuid) =>
+      FMTCStore('marine_zone_$zoneUuid');
+
+  /// MODIFIÉ : accepte un [lidarLayerId] optionnel.
+  /// - Avec `lidarLayerId` : store = `lidar_zone_<zoneUuid>_<lidarLayerId>`
+  /// - Sans `lidarLayerId` : store = `lidar_zone_<zoneUuid>` (ancien format, fallback)
+  static FMTCStore lidarStoreForZone(String zoneUuid, [String? lidarLayerId]) {
+    if (lidarLayerId != null) {
+      return FMTCStore('lidar_zone_${zoneUuid}_$lidarLayerId');
+    }
+    return FMTCStore('lidar_zone_$zoneUuid');
+  }
+
+  /// Builds a [FMTCTileProvider] for a zone-scoped store.
+  ///
+  /// Uses only the public FMTC API ([FMTCTileProvider]).
+  /// The returned provider reads from / writes to the specified [storeName].
+  static TileProvider zoneTileProvider({
+    required String storeName,
+    required Map<String, String> headers,
+  }) {
+    return FMTCTileProvider(
+      stores: {storeName: BrowseStoreStrategy.readUpdateCreate},
+      headers: headers,
+      errorHandler: handleFmtcBrowsingError,
+      urlTransformer: null,
+      httpClient: _httpClient,
+    );
+  }
+
+  /// Builds a cache-only [FMTCTileProvider] for marine tiles (HORS-LIGNE mode).
+  ///
+  /// Strict offline policy:
+  /// - The general `marineBase_*` FMTC store is **never** read — neither
+  ///   via `stores` nor via `otherStoresStrategy` (which is `null`, so
+  ///   unspecified stores are not consulted at all).
+  /// - `loadingStrategy: cacheOnly` means the network is **never** queried.
+  /// - `useOtherStoresAsFallbackOnly: false` is the default and is left
+  ///   implicit — no other store is ever used as a fallback.
+  ///
+  /// Behaviour matrix:
+  /// - `zoneUuids` empty:
+  ///     Returns a provider whose `stores` map is **empty**. Combined with
+  ///     `cacheOnly`, this means every requested tile is "missing in cache
+  ///     only mode" — the FMTC error handler returns the transparent PNG
+  ///     and **no HTTP request is ever made**.
+  /// - `zoneUuids` non-empty:
+  ///     The provider reads **only** from `marine_zone_<uuid>` stores.
+  ///     Any tile that is not present in one of those stores renders
+  ///     transparent. The general marine base store is completely ignored.
+  static TileProvider offlineMarineTileProvider(List<String> zoneUuids) {
+    if (zoneUuids.isEmpty) {
+      // Empty stores + cacheOnly = every tile is missing => transparent
+      // PNG via the error handler. No network, no other store consulted.
+      return FMTCTileProvider(
+        stores: const <String, BrowseStoreStrategy>{},
+        otherStoresStrategy: null,
+        loadingStrategy: BrowseLoadingStrategy.cacheOnly,
+        headers: shomTileHeaders,
+        errorHandler: handleFmtcBrowsingError,
+        httpClient: _httpClient,
+      );
+    }
+
+    final Map<String, BrowseStoreStrategy> explicitStores = {
+      for (final uuid in zoneUuids)
+        'marine_zone_$uuid': BrowseStoreStrategy.readUpdateCreate,
+    };
+
+    return _OfflineTransparentTileProvider(
+      stores: explicitStores,
+      otherStoresStrategy: null,
+      loadingStrategy: BrowseLoadingStrategy.cacheOnly,
+      useOtherStoresAsFallbackOnly: false,
+      headers: shomTileHeaders,
+      errorHandler: handleFmtcBrowsingError,
+      httpClient: _httpClient,
+    );
+  }
+
+  /// MODIFIÉ : accepte une liste de store names LiDAR complets au lieu de zone UUIDs.
+  ///
+  /// Chaque campagne LiDAR a son propre store `lidar_zone_<uuid>_<lidarLayerId>`.
+  /// L'appelant construit la liste de store names à partir de ses OfflineMapLayer.
+  ///
+  /// Exemples de store names :
+  /// - `lidar_zone_123_occitanie_2009`
+  /// - `lidar_zone_123_occitanie_2011`
+  /// - `lidar_zone_123_occitanie_2014_2015`
+  ///
+  /// Pour les anciens layers sans lidarLayerId : `lidar_zone_<uuid>`
+  static TileProvider offlineLidarTileProvider(List<String> lidarStoreNames) {
+    if (lidarStoreNames.isEmpty) {
+      debugPrint(
+        '[OFFLINE-LIDAR-PROVIDER] lidarStoreNames empty - returning transparent provider',
+      );
+      return _OfflineTransparentTileProvider(
+        stores: const <String, BrowseStoreStrategy>{},
+        otherStoresStrategy: null,
+        loadingStrategy: BrowseLoadingStrategy.cacheOnly,
+        headers: shomTileHeaders,
+        errorHandler: handleFmtcBrowsingError,
+        httpClient: _httpClient,
+      );
+    }
+
+    debugPrint(
+      '[OFFLINE-LIDAR-PROVIDER] zoneUuids not empty: $lidarStoreNames',
+    );
+
+    final Map<String, BrowseStoreStrategy> explicitStores = {
+      for (final storeName in lidarStoreNames)
+        storeName: BrowseStoreStrategy.readUpdateCreate,
+    };
+
+    debugPrint(
+      '[OFFLINE-LIDAR-PROVIDER] explicitStores: ${explicitStores.keys.toList()}',
+    );
+
+    return _OfflineTransparentTileProvider(
+      stores: explicitStores,
+      otherStoresStrategy: null,
+      loadingStrategy: BrowseLoadingStrategy.cacheOnly,
+      useOtherStoresAsFallbackOnly: false,
+      headers: shomTileHeaders,
+      errorHandler: handleFmtcBrowsingError,
+      httpClient: _httpClient,
+    );
+  }
+
+  static TileProvider? _lidarOmbrageTileProvider;
+
+  static TileProvider lidarOmbrageTileProvider() {
+    return _lidarOmbrageTileProvider ??= _OfflineTransparentTileProvider(
+      stores: {lidarOmbrageStore: BrowseStoreStrategy.readUpdateCreate},
+      otherStoresStrategy: null,
+      loadingStrategy: BrowseLoadingStrategy.cacheOnly,
+      headers: shomTileHeaders,
+      errorHandler: handleFmtcBrowsingError,
+      httpClient: _httpClient,
+    );
+  }
+
+  /// MODIFIÉ : accepte une liste optionnelle de store names LiDAR.
+  ///
+  /// Si [lidarStoreNames] est fourni, supprime ces stores spécifiques
+  /// (nouveau format `lidar_zone_<uuid>_<lidarLayerId>`).
+  /// Sinon, supprime l'ancien store `lidar_zone_<uuid>` (fallback).
+  static Future<void> deleteStoresForZone(
+    String zoneUuid, {
+    List<String>? lidarStoreNames,
+  }) async {
+    final stores = <FMTCStore>[marineStoreForZone(zoneUuid)];
+
+    if (lidarStoreNames != null && lidarStoreNames.isNotEmpty) {
+      for (final storeName in lidarStoreNames) {
+        stores.add(FMTCStore(storeName));
+      }
+    } else {
+      // Fallback : ancien store sans lidarLayerId
+      stores.add(lidarStoreForZone(zoneUuid));
+    }
+
+    for (final store in stores) {
+      try {
+        await store.manage.delete();
+      } catch (_) {
+        // StoreNotExists or already absent — ignore.
+      }
+    }
+  }
+
+  /// MODIFIÉ : accepte une liste optionnelle de store names LiDAR.
+  ///
+  /// Si [lidarStoreNames] est fourni, agrège ces stores spécifiques.
+  /// Sinon, agrège l'ancien store `lidar_zone_<uuid>` (fallback).
+  static Future<int> getZoneSizeBytes(
+    String zoneUuid, {
+    List<String>? lidarStoreNames,
+  }) async {
+    final repo = FmtcTileCacheRepository.instance;
+    final marineBytes = await repo.getStoreSizeBytes(
+      marineStoreForZone(zoneUuid).storeName,
+    );
+
+    int lidarBytes = 0;
+    if (lidarStoreNames != null && lidarStoreNames.isNotEmpty) {
+      for (final storeName in lidarStoreNames) {
+        lidarBytes += await repo.getStoreSizeBytes(storeName);
+      }
+    } else {
+      lidarBytes = await repo.getStoreSizeBytes(
+        lidarStoreForZone(zoneUuid).storeName,
+      );
+    }
+
+    return marineBytes + lidarBytes;
+  }
+
+  /// Formats a byte count as a human-readable French-style size string.
+  ///
+  /// Examples:
+  /// - `formatBytes(0)` → `"0 o"`
+  /// - `formatBytes(1500)` → `"1,5 Ko"`
+  /// - `formatBytes(14_200_000)` → `"14,2 Mo"`
+  /// - `formatBytes(2_500_000_000)` → `"2,5 Go"`
+  static String formatBytes(int bytes) {
+    if (bytes <= 0) return '0 o';
+    const units = ['o', 'Ko', 'Mo', 'Go', 'To'];
+    var value = bytes.toDouble();
+    var unitIdx = 0;
+    while (value >= 1024 && unitIdx < units.length - 1) {
+      value /= 1024;
+      unitIdx++;
+    }
+    final rounded = value < 10
+        ? value.toStringAsFixed(1).replaceAll('.', ',')
+        : value.toStringAsFixed(0);
+    return '$rounded ${units[unitIdx]}';
   }
 }

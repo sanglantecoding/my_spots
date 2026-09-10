@@ -115,6 +115,11 @@ class FmtcLayerDownloader implements LayerDownloader {
       'instance=$instanceId url=$urlTemplate zoom=$minZoom-$maxZoom',
     );
 
+    // LOG TEMPORAIRE : informations détaillées pour comparaison offline
+    debugPrint(
+      '[LIDAR-DL] store=${store.storeName} url=$urlTemplate minZoom=$minZoom maxZoom=$maxZoom',
+    );
+
     final effectiveMaxZoom = maxZoom.clamp(minZoom, 17);
 
     // Build an IOClient wrapping an HttpClient with the required User-Agent.
@@ -230,6 +235,15 @@ class FmtcLayerDownloader implements LayerDownloader {
             debugPrint(
               '[FmtcLayerDownloader] Progress: '
               '$successful/$maxTiles tiles (${(progress * 100).toStringAsFixed(1)}%)',
+            );
+          }
+          // LOG TEMPORAIRE : logguer quelques tiles spécifiques pour comparaison
+          if (p.attemptedTilesCount == 1 ||
+              p.attemptedTilesCount == 10 ||
+              p.attemptedTilesCount == 50) {
+            debugPrint(
+              '[LIDAR-DL-TILE] store=${store.storeName} url=$urlTemplate zoom=$minZoom-$maxZoom '
+              'attemptedTileCount=${p.attemptedTilesCount}',
             );
           }
         }
@@ -401,7 +415,10 @@ class ZoneDownloadService {
       _repository.save(map);
 
       for (final layer in layers) {
-        debugPrint('[ZONE][$zoneUuid] layer START ${layer.layerType.name}');
+        debugPrint(
+          '[ZONE][$zoneUuid] layer START ${layer.layerType.name}'
+          '${layer.lidarLayerId != null ? ' (lidarLayerId=${layer.lidarLayerId})' : ''}',
+        );
         _repository.saveLayer(map, layer);
         layer.estimatedTileCount = 0;
         layer.downloadedTileCount = 0;
@@ -423,14 +440,18 @@ class ZoneDownloadService {
         if (state.isCancelled) break;
 
         final layer = layers[i];
-        final layerLabel = _layerLabel(layer.layerType);
+        final layerLabel = _layerLabel(layer);
         debugPrint(
           '[ZoneDownloadService] Layer $i+1/${layers.length} ($layerLabel) '
           'for zone ${map.uuid}',
         );
 
         final instanceId = '${map.uuid}#$runCount';
-        final storeName = _fmtcStoreName(map.uuid, layer.layerType);
+        final storeName = _fmtcStoreName(
+          map.uuid,
+          layer.layerType,
+          layer.lidarLayerId,
+        );
         final store = FMTCStore(storeName);
         state.activeStore = store;
         state.activeInstanceId = instanceId;
@@ -441,7 +462,11 @@ class ZoneDownloadService {
             zoneUuid: map.uuid,
             store: store,
             instanceId: instanceId,
-            urlTemplate: _layerUrl(layer.layerType, routingBounds),
+            urlTemplate: _layerUrl(
+              layer.layerType,
+              routingBounds,
+              layer.lidarLayerId,
+            ),
             bounds: bounds,
             minZoom: layer.minZoom,
             maxZoom: layer.maxZoom,
@@ -520,56 +545,25 @@ class ZoneDownloadService {
         '[OFFLINE-DL] ZONE SUMMARY uuid=${map.uuid} layers=${layers.length}',
       );
 
-      final r50k = layerResults[LayerType.marine50k];
-      final r25k = layerResults[LayerType.marine25k];
-      final r10k = layerResults[LayerType.marine10k];
-      final rLidar = layerResults[LayerType.lidarLitto3d];
+      for (final entry in layerResults.entries) {
+        debugPrint(
+          '[OFFLINE-DL]   ${entry.key} requested=${entry.value.estimatedTileCount} '
+          'successful=${entry.value.downloadedTileCount} '
+          'negative=${entry.value.negativeTileCount} '
+          'failed=${entry.value.failedTileCount}',
+        );
+      }
 
-      debugPrint(
-        '[OFFLINE-DL]   50K   requested=${r50k?.estimatedTileCount ?? 0} '
-        'successful=${r50k?.downloadedTileCount ?? 0} '
-        'negative=${r50k?.negativeTileCount ?? 0} '
-        'failed=${r50k?.failedTileCount ?? 0}',
-      );
-      debugPrint(
-        '[OFFLINE-DL]   25K   requested=${r25k?.estimatedTileCount ?? 0} '
-        'successful=${r25k?.downloadedTileCount ?? 0} '
-        'negative=${r25k?.negativeTileCount ?? 0} '
-        'failed=${r25k?.failedTileCount ?? 0}',
-      );
-      debugPrint(
-        '[OFFLINE-DL]   10K   requested=${r10k?.estimatedTileCount ?? 0} '
-        'successful=${r10k?.downloadedTileCount ?? 0} '
-        'negative=${r10k?.negativeTileCount ?? 0} '
-        'failed=${r10k?.failedTileCount ?? 0}',
-      );
-      debugPrint(
-        '[OFFLINE-DL]   LIDAR requested=${rLidar?.estimatedTileCount ?? 0} '
-        'successful=${rLidar?.downloadedTileCount ?? 0} '
-        'negative=${rLidar?.negativeTileCount ?? 0} '
-        'failed=${rLidar?.failedTileCount ?? 0}',
-      );
-
-      final totalReq =
-          (r50k?.estimatedTileCount ?? 0) +
-          (r25k?.estimatedTileCount ?? 0) +
-          (r10k?.estimatedTileCount ?? 0) +
-          (rLidar?.estimatedTileCount ?? 0);
-      final totalOk =
-          (r50k?.downloadedTileCount ?? 0) +
-          (r25k?.downloadedTileCount ?? 0) +
-          (r10k?.downloadedTileCount ?? 0) +
-          (rLidar?.downloadedTileCount ?? 0);
-      final totalNeg =
-          (r50k?.negativeTileCount ?? 0) +
-          (r25k?.negativeTileCount ?? 0) +
-          (r10k?.negativeTileCount ?? 0) +
-          (rLidar?.negativeTileCount ?? 0);
-      final totalFail =
-          (r50k?.failedTileCount ?? 0) +
-          (r25k?.failedTileCount ?? 0) +
-          (r10k?.failedTileCount ?? 0) +
-          (rLidar?.failedTileCount ?? 0);
+      var totalReq = 0;
+      var totalOk = 0;
+      var totalNeg = 0;
+      var totalFail = 0;
+      for (final r in layerResults.values) {
+        totalReq += r.estimatedTileCount;
+        totalOk += r.downloadedTileCount;
+        totalNeg += r.negativeTileCount;
+        totalFail += r.failedTileCount;
+      }
 
       debugPrint(
         '[OFFLINE-DL]   TOTAL requested=$totalReq successful=$totalOk '
@@ -680,17 +674,31 @@ class ZoneDownloadService {
     }
   }
 
-  String _fmtcStoreName(String zoneUuid, LayerType type) {
-    final prefix = switch (type) {
-      LayerType.marine50k ||
-      LayerType.marine25k ||
-      LayerType.marine10k => 'marine_zone',
-      LayerType.lidarLitto3d => 'lidar_zone',
-    };
-    return '${prefix}_$zoneUuid';
+  String _fmtcStoreName(
+    String zoneUuid,
+    LayerType type, [
+    String? lidarLayerId,
+  ]) {
+    switch (type) {
+      case LayerType.marine50k:
+      case LayerType.marine25k:
+      case LayerType.marine10k:
+        return 'marine_zone_$zoneUuid';
+      case LayerType.lidarLitto3d:
+        // Nouveau : un store par campagne LiDAR
+        if (lidarLayerId != null) {
+          return 'lidar_zone_${zoneUuid}_$lidarLayerId';
+        }
+        // Fallback : anciens layers sans lidarLayerId
+        return 'lidar_zone_$zoneUuid';
+    }
   }
 
-  String _layerUrl(LayerType type, LatLngBounds? zoneBounds) {
+  String _layerUrl(
+    LayerType type,
+    LatLngBounds? zoneBounds, [
+    String? lidarLayerId,
+  ]) {
     switch (type) {
       case LayerType.marine50k:
         return MarineMapService.clevisuWmtsUrl('RASTER_MARINE_50_WMTS_3857');
@@ -699,6 +707,17 @@ class ZoneDownloadService {
       case LayerType.marine10k:
         return MarineMapService.clevisuWmtsUrl('RASTER_MARINE_10_WMTS_3857');
       case LayerType.lidarLitto3d:
+        // Nouveau : si lidarLayerId est fourni, l'utiliser directement
+        if (lidarLayerId != null) {
+          final layer = Litto3DCatalog.findById(lidarLayerId);
+          if (layer != null) {
+            return MarineMapService.inspireWmtsUrl(layer.wmtsLayerName);
+          }
+          debugPrint(
+            '[ZoneDownloadService] WARNING: lidarLayerId=$lidarLayerId not found in catalog, falling back.',
+          );
+        }
+        // Fallback : comportement actuel pour anciens layers sans lidarLayerId
         if (zoneBounds == null) {
           return MarineMapService.inspireWmtsUrl(
             Litto3DCatalog.allLayers.first.wmtsLayerName,
@@ -740,5 +759,11 @@ class ZoneDownloadService {
     return base;
   }
 
-  String _layerLabel(LayerType type) => type.name;
+  String _layerLabel(OfflineMapLayer layer) {
+    if (layer.layerType == LayerType.lidarLitto3d &&
+        layer.lidarLayerId != null) {
+      return 'lidarLitto3d:${layer.lidarLayerId}';
+    }
+    return layer.layerType.name;
+  }
 }
