@@ -178,6 +178,29 @@ class _NegativeFilteringImageProvider
         .map((e) => e.key)
         .toList(growable: false);
 
+    // ── Détection LiDAR vs Marine via l'URL ──────────────────────────────
+    // Les layers LiDAR SHOM ont un wmtsLayerName qui commence par L3D_ ou LITTO3D_.
+    // Les layers marines commencent par RASTER_MARINE_.
+    final isLidar =
+        networkUrl.contains('L3D_') || networkUrl.contains('LITTO3D_');
+
+    // Extraire le wmtsLayerName de l'URL (après &LAYER= ou &layer=)
+    String? wmtsLayerName;
+    final layerMatch = RegExp(
+      r'[&?]LAYER=([^&]+)',
+      caseSensitive: false,
+    ).firstMatch(networkUrl);
+    if (layerMatch != null) {
+      wmtsLayerName = layerMatch.group(1);
+    }
+
+    // Déduire le lidarLayerId du wmtsLayerName via le catalogue
+    String? lidarLayerId;
+    if (isLidar && wmtsLayerName != null) {
+      final layer = Litto3DCatalog.findByWmtsName(wmtsLayerName);
+      lidarLayerId = layer?.id;
+    }
+
     // ── Lecture directe depuis le cache FMTC ──────────────────────────────
     // ignore: invalid_use_of_internal_member, experimental_member_use
     final result = await fmtc_internal.FMTCBackendAccess.internal.readTile(
@@ -186,13 +209,25 @@ class _NegativeFilteringImageProvider
     );
 
     if (result.tile == null) {
-      // LOG TEMPORAIRE : informations détaillées pour comparaison avec téléchargement
-      debugPrint(
-        '[LIDAR-OFFLINE-MISS] store=${storeNames.join(",")} url=$matcherUrl z=${coords.z} x=${coords.x} y=${coords.y}',
-      );
-      debugPrint(
-        '[OFFLINE-LIDAR-RESULT] layer=${options.tileProvider.runtimeType} z=${coords.z} x=${coords.x} y=${coords.y} result=MISS bytes=0',
-      );
+      // ── Log de diagnostic UNIQUEMENT pour les lectures LiDAR ────────────
+      if (isLidar) {
+        debugPrint(
+          '[REAL-OFFLINE-LIDAR-READ] '
+          'layer=$wmtsLayerName '
+          'layerId=$lidarLayerId '
+          'store=${storeNames.join(",")} '
+          'z=${coords.z} x=${coords.x} y=${coords.y} '
+          'url=$matcherUrl',
+        );
+        debugPrint(
+          '[REAL-OFFLINE-LIDAR-RESULT] '
+          'layer=$wmtsLayerName '
+          'store=${storeNames.join(",")} '
+          'result=MISS '
+          'bytes=0',
+        );
+      }
+
       // Tile absent du cache → utiliser le errorHandler si défini
       if (provider.errorHandler != null) {
         final fallback = provider.errorHandler!(
@@ -216,12 +251,28 @@ class _NegativeFilteringImageProvider
       );
     }
 
-    debugPrint(
-      '[OFFLINE-LIDAR-RESULT] layer=${options.tileProvider.runtimeType} z=${coords.z} x=${coords.x} y=${coords.y} result=HIT bytes=${result.tile!.bytes.length}',
-    );
-
     // ── Filtrage : remplace les bytes trop courts par un PNG transparent ──
     final bytes = result.tile!.bytes;
+
+    // ── Log de diagnostic UNIQUEMENT pour les lectures LiDAR ──────────────
+    if (isLidar) {
+      debugPrint(
+        '[REAL-OFFLINE-LIDAR-READ] '
+        'layer=$wmtsLayerName '
+        'layerId=$lidarLayerId '
+        'store=${storeNames.join(",")} '
+        'z=${coords.z} x=${coords.x} y=${coords.y} '
+        'url=$matcherUrl',
+      );
+      debugPrint(
+        '[REAL-OFFLINE-LIDAR-RESULT] '
+        'layer=$wmtsLayerName '
+        'store=${storeNames.join(",")} '
+        'result=HIT '
+        'bytes=${bytes.length}',
+      );
+    }
+
     final bytesToDecode = bytes.length < minValidBytes
         ? transparentBytes
         : bytes;
@@ -231,9 +282,6 @@ class _NegativeFilteringImageProvider
       bytesToDecode,
     );
 
-    debugPrint(
-      '[OFFLINE-LIDAR-DECODE] bytes=${bytesToDecode.length} success=true error=null',
-    );
     return decode(buffer);
   }
 
@@ -619,15 +667,15 @@ class MapTileCacheService {
   static FMTCStore marineStoreForZone(String zoneUuid) =>
       FMTCStore('marine_zone_$zoneUuid');
 
-  /// MODIFIÉ : accepte un [lidarLayerId] optionnel.
-  /// - Avec `lidarLayerId` : store = `lidar_zone_<zoneUuid>_<lidarLayerId>`
-  /// - Sans `lidarLayerId` : store = `lidar_zone_<zoneUuid>` (ancien format, fallback)
-  static FMTCStore lidarStoreForZone(String zoneUuid, [String? lidarLayerId]) {
-    if (lidarLayerId != null) {
-      return FMTCStore('lidar_zone_${zoneUuid}_$lidarLayerId');
-    }
-    return FMTCStore('lidar_zone_$zoneUuid');
-  }
+  /// Returns the FMTC store dedicated to LiDAR tiles for the given zone.
+  ///
+  /// Naming: `lidar_zone_$zoneUuid`.
+  ///
+  /// The caller is responsible for creating the store
+  /// ([FMTCStore.manage.create]) before downloading and for disposing
+  /// it via [deleteStoresForZone] when the zone is deleted.
+  static FMTCStore lidarStoreForZone(String zoneUuid) =>
+      FMTCStore('lidar_zone_$zoneUuid');
 
   /// Builds a [FMTCTileProvider] for a zone-scoped store.
   ///
@@ -696,21 +744,18 @@ class MapTileCacheService {
     );
   }
 
-  /// MODIFIÉ : accepte une liste de store names LiDAR complets au lieu de zone UUIDs.
+  /// Builds a cache-only [FMTCTileProvider] for LiDAR/bathymetry tiles
+  /// (HORS-LIGNE mode).
   ///
-  /// Chaque campagne LiDAR a son propre store `lidar_zone_<uuid>_<lidarLayerId>`.
-  /// L'appelant construit la liste de store names à partir de ses OfflineMapLayer.
-  ///
-  /// Exemples de store names :
-  /// - `lidar_zone_123_occitanie_2009`
-  /// - `lidar_zone_123_occitanie_2011`
-  /// - `lidar_zone_123_occitanie_2014_2015`
-  ///
-  /// Pour les anciens layers sans lidarLayerId : `lidar_zone_<uuid>`
-  static TileProvider offlineLidarTileProvider(List<String> lidarStoreNames) {
-    if (lidarStoreNames.isEmpty) {
+  /// Strict offline policy — mirror of [offlineMarineTileProvider]:
+  /// - `otherStoresStrategy: null` → the general `bathymetryOverlay_*`
+  ///   store is never read.
+  /// - `loadingStrategy: cacheOnly` → the network is never queried.
+  /// - `zoneUuids` empty → empty `stores`, all tiles render transparent.
+  static TileProvider offlineLidarTileProvider(List<String> zoneUuids) {
+    if (zoneUuids.isEmpty) {
       debugPrint(
-        '[OFFLINE-LIDAR-PROVIDER] lidarStoreNames empty - returning transparent provider',
+        '[OFFLINE-LIDAR-PROVIDER] zoneUuids empty - returning transparent provider',
       );
       return _OfflineTransparentTileProvider(
         stores: const <String, BrowseStoreStrategy>{},
@@ -722,13 +767,10 @@ class MapTileCacheService {
       );
     }
 
-    debugPrint(
-      '[OFFLINE-LIDAR-PROVIDER] zoneUuids not empty: $lidarStoreNames',
-    );
+    debugPrint('[OFFLINE-LIDAR-PROVIDER] storeNames not empty: $zoneUuids');
 
     final Map<String, BrowseStoreStrategy> explicitStores = {
-      for (final storeName in lidarStoreNames)
-        storeName: BrowseStoreStrategy.readUpdateCreate,
+      for (final storeName in zoneUuids) storeName: BrowseStoreStrategy.read,
     };
 
     debugPrint(
@@ -759,27 +801,17 @@ class MapTileCacheService {
     );
   }
 
-  /// MODIFIÉ : accepte une liste optionnelle de store names LiDAR.
+  /// Deletes ALL FMTC stores associated with a zone (marine + LiDAR).
   ///
-  /// Si [lidarStoreNames] est fourni, supprime ces stores spécifiques
-  /// (nouveau format `lidar_zone_<uuid>_<lidarLayerId>`).
-  /// Sinon, supprime l'ancien store `lidar_zone_<uuid>` (fallback).
-  static Future<void> deleteStoresForZone(
-    String zoneUuid, {
-    List<String>? lidarStoreNames,
-  }) async {
-    final stores = <FMTCStore>[marineStoreForZone(zoneUuid)];
-
-    if (lidarStoreNames != null && lidarStoreNames.isNotEmpty) {
-      for (final storeName in lidarStoreNames) {
-        stores.add(FMTCStore(storeName));
-      }
-    } else {
-      // Fallback : ancien store sans lidarLayerId
-      stores.add(lidarStoreForZone(zoneUuid));
-    }
-
-    for (final store in stores) {
+  /// Uses only the public FMTC API ([FMTCStore.manage.delete]) — no
+  /// direct calls to `fmtc_internal.FMTCBackendAccess.internal`.
+  ///
+  /// Silently ignores [StoreNotExists] errors (already absent).
+  static Future<void> deleteStoresForZone(String zoneUuid) async {
+    for (final store in [
+      marineStoreForZone(zoneUuid),
+      lidarStoreForZone(zoneUuid),
+    ]) {
       try {
         await store.manage.delete();
       } catch (_) {
@@ -788,30 +820,17 @@ class MapTileCacheService {
     }
   }
 
-  /// MODIFIÉ : accepte une liste optionnelle de store names LiDAR.
+  /// Aggregates the size in bytes of the marine + LiDAR stores for a zone.
   ///
-  /// Si [lidarStoreNames] est fourni, agrège ces stores spécifiques.
-  /// Sinon, agrège l'ancien store `lidar_zone_<uuid>` (fallback).
-  static Future<int> getZoneSizeBytes(
-    String zoneUuid, {
-    List<String>? lidarStoreNames,
-  }) async {
+  /// Returns 0 if the stores do not exist or on any error.
+  static Future<int> getZoneSizeBytes(String zoneUuid) async {
     final repo = FmtcTileCacheRepository.instance;
     final marineBytes = await repo.getStoreSizeBytes(
       marineStoreForZone(zoneUuid).storeName,
     );
-
-    int lidarBytes = 0;
-    if (lidarStoreNames != null && lidarStoreNames.isNotEmpty) {
-      for (final storeName in lidarStoreNames) {
-        lidarBytes += await repo.getStoreSizeBytes(storeName);
-      }
-    } else {
-      lidarBytes = await repo.getStoreSizeBytes(
-        lidarStoreForZone(zoneUuid).storeName,
-      );
-    }
-
+    final lidarBytes = await repo.getStoreSizeBytes(
+      lidarStoreForZone(zoneUuid).storeName,
+    );
     return marineBytes + lidarBytes;
   }
 

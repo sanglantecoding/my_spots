@@ -388,10 +388,23 @@ class MarineMapService {
     if (layers.isEmpty) return [];
 
     final layerOpacity = opacity ?? AppSettings.bathymetryOverlayOpacity;
+
+    // Construire les store names LiDAR pour le provider offline
+    final lidarStoreNames = lidarLayers
+        .map((layer) {
+          final zoneUuid = layer.offlineMap.target?.uuid ?? '';
+          if (layer.lidarLayerId != null && zoneUuid.isNotEmpty) {
+            return 'lidar_zone_${zoneUuid}_${layer.lidarLayerId}';
+          } else if (zoneUuid.isNotEmpty) {
+            return 'lidar_zone_$zoneUuid';
+          }
+          return '';
+        })
+        .where((name) => name.isNotEmpty)
+        .toList();
+
     final offlineProvider = MapTileCacheService.offlineLidarTileProvider(
-      lidarLayers
-          .map((layer) => layer.lidarLayerId ?? 'lidar_zone_${layer.zoneUuid}')
-          .toList(),
+      lidarStoreNames,
     );
 
     debugPrint(

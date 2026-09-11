@@ -68,6 +68,7 @@ class _MapScreenState extends State<MapScreen> {
   StreamSubscription? _stateSubscription;
   StreamSubscription<AlarmEvent>? _alarmSubscription;
   List<String> _readyZoneUuids = const [];
+  final List<OfflineMapLayer> _readyLidarLayers = [];
 
   /// Cached combined bounds of all downloaded zones, computed from
   /// the OfflineMapRepository so that LiDAR layers can still be
@@ -352,7 +353,8 @@ class _MapScreenState extends State<MapScreen> {
     }
     setState(() {
       _readyZoneUuids = maps.map((m) => m.uuid).toList();
-      _readyLidarLayers = lidarLayers;
+      _readyLidarLayers.clear();
+      _readyLidarLayers.addAll(lidarLayers.map((e) => e.value).toList());
       if (maps.isEmpty) {
         _zoneCombinedBounds = null;
       } else {
@@ -369,9 +371,6 @@ class _MapScreenState extends State<MapScreen> {
       }
     });
   }
-
-  /// List of downloaded LiDAR layers per zone, keyed by zone uuid.
-  List<MapEntry<String, OfflineMapLayer>> _readyLidarLayers = const [];
 
   /// Opens the offline zones management screen.
   void _openOfflineZones() async {
@@ -785,7 +784,7 @@ class _MapScreenState extends State<MapScreen> {
                         if (AppSettings.bathymetryOverlayEnabled)
                           ...MarineMapService.getOfflineLidarLayers(
                             _mapVisibleBounds ?? _zoneCombinedBounds,
-                            _readyZoneUuids,
+                            _readyLidarLayers,
                             opacity: AppSettings.bathymetryOverlayOpacity,
                           ),
                       ] else ...[
