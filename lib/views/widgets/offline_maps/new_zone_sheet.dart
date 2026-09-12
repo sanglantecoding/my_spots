@@ -26,24 +26,21 @@ class ZoneConfig {
   /// /// For LiDAR, creates one [OfflineMapLayer] per available campaign with
   /// [OfflineMapLayer.lidarLayerId] set to the campaign ID.
   static List<OfflineMapLayer> defaultLayersForBounds(LatLngBounds bounds) {
-    const defaultMinZoom = 0;
-    const defaultMaxZoom = 18;
-
     final layers = <OfflineMapLayer>[
       OfflineMapLayer.create(
         layerType: LayerType.marine50k,
-        minZoom: defaultMinZoom,
-        maxZoom: defaultMaxZoom,
+        minZoom: 11, // Zoom natif min
+        maxZoom: 14, // Zoom natif max
       ),
       OfflineMapLayer.create(
         layerType: LayerType.marine25k,
-        minZoom: defaultMinZoom,
-        maxZoom: defaultMaxZoom,
+        minZoom: 12,
+        maxZoom: 15,
       ),
       OfflineMapLayer.create(
         layerType: LayerType.marine10k,
-        minZoom: defaultMinZoom,
-        maxZoom: defaultMaxZoom,
+        minZoom: 14,
+        maxZoom: 16,
       ),
     ];
 
@@ -54,8 +51,8 @@ class ZoneConfig {
         layers.add(
           OfflineMapLayer.create(
             layerType: LayerType.lidarLitto3d,
-            minZoom: defaultMinZoom,
-            maxZoom: defaultMaxZoom,
+            minZoom: 0,
+            maxZoom: 18,
             lidarLayerId: layerId,
           ),
         );

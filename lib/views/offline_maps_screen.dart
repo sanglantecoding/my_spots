@@ -33,7 +33,9 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   void initState() {
     super.initState();
     _offlineMapRepo = OfflineMapRepository.instance;
-    _zoneService = ZoneDownloadService(repository: _offlineMapRepo ?? _FailRepo());
+    _zoneService = ZoneDownloadService(
+      repository: _offlineMapRepo ?? _FailRepo(),
+    );
     _loadZones();
   }
 
@@ -45,19 +47,25 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   Future<void> _loadZones() async {
     final repo = _offlineMapRepo;
     if (repo == null) {
-      if (mounted) setState(() { _isLoading = false; _hasError = true; });
+      if (mounted)
+        setState(() {
+          _isLoading = false;
+          _hasError = true;
+        });
       return;
     }
     final zones = repo.findAll();
     final layerMap = <String, List<OfflineMapLayer>>{};
-    for (final z in zones) { layerMap[z.uuid] = repo.findLayersForMap(z); }
+    for (final z in zones) {
+      layerMap[z.uuid] = repo.findLayersForMap(z);
+    }
     if (mounted) {
       setState(() {
         _zones = zones;
-      _layers.clear();
-      _layers.addAll(layerMap);
-      _isLoading = false;
-      _hasError = false;
+        _layers.clear();
+        _layers.addAll(layerMap);
+        _isLoading = false;
+        _hasError = false;
       });
     }
     _computeZoneSizes();
@@ -71,8 +79,13 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     }
   }
 
-  Future<void> _handleDownload(OfflineMap map, List<OfflineMapLayer> layers) async {
-    debugPrint('[UI][${map.uuid}] _handleDownload ENTER _downloadingUuids=${_downloadingUuids.toList()}');
+  Future<void> _handleDownload(
+    OfflineMap map,
+    List<OfflineMapLayer> layers,
+  ) async {
+    debugPrint(
+      '[UI][${map.uuid}] _handleDownload ENTER _downloadingUuids=${_downloadingUuids.toList()}',
+    );
     if (_downloadingUuids.contains(map.uuid)) {
       debugPrint('[UI][${map.uuid}] _handleDownload already in set, EXIT');
       return;
@@ -82,6 +95,11 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
       _progress[map.uuid] = 0.0;
       _activeLabels[map.uuid] = '';
     });
+
+    debugPrint(
+      '🚨 [DEBUG] Bounds sauvegardés dans OfflineMap: N:${map.northLat}, S:${map.southLat}, E:${map.eastLng}, W:${map.westLng}',
+    );
+
     // Reconstruct the zone bounds from the persisted OfflineMap coordinates.
     // This ensures _layerUrl() selects the correct Litto3D dataset
     // (via LidarRegionCatalog / Litto3DCatalog) during "Mettre à jour la zone".
@@ -89,37 +107,40 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
       LatLng(map.southLat, map.westLng),
       LatLng(map.northLat, map.eastLng),
     );
-    _zoneService.downloadZone(
-      map: map, layers: layers,
-      zoneBounds: zoneBounds,
-      onProgress: ({required double progress, required String layerLabel}) {
-        if (!mounted) return;
-        setState(() {
-          _progress[map.uuid] = progress;
-          _activeLabels[map.uuid] = layerLabel;
+    _zoneService
+        .downloadZone(
+          map: map,
+          layers: layers,
+          zoneBounds: zoneBounds,
+          onProgress: ({required double progress, required String layerLabel}) {
+            if (!mounted) return;
+            setState(() {
+              _progress[map.uuid] = progress;
+              _activeLabels[map.uuid] = layerLabel;
+            });
+          },
+          onError: (String message) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(message),
+                backgroundColor: Colors.redAccent,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          },
+        )
+        .whenComplete(() {
+          if (!mounted) return;
+          _loadZones().then((_) {
+            if (!mounted) return;
+            setState(() {
+              _downloadingUuids.remove(map.uuid);
+              _progress.remove(map.uuid);
+              _activeLabels.remove(map.uuid);
+            });
+          });
         });
-      },
-      onError: (String message) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.redAccent,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      },
-    ).whenComplete(() {
-      if (!mounted) return;
-      _loadZones().then((_) {
-        if (!mounted) return;
-        setState(() {
-          _downloadingUuids.remove(map.uuid);
-          _progress.remove(map.uuid);
-          _activeLabels.remove(map.uuid);
-        });
-      });
-    });
   }
 
   Future<void> _handleCancel(String uuid) async {
@@ -136,22 +157,43 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   }
 
   void _handleResume(OfflineMap map, List<OfflineMapLayer> layers) {
-    debugPrint('[UI][${map.uuid}] _handleResume ENTER map.status=${map.status.name}');
-    debugPrint('[UI][${map.uuid}] _handleResume calling _handleDownload (new downloadZone attempt)');
+    debugPrint(
+      '[UI][${map.uuid}] _handleResume ENTER map.status=${map.status.name}',
+    );
+    debugPrint(
+      '[UI][${map.uuid}] _handleResume calling _handleDownload (new downloadZone attempt)',
+    );
     _handleDownload(map, layers);
   }
 
   Future<void> _handleDelete(OfflineMap map) async {
-    debugPrint('[DELETE][${map.uuid}] START _zoneService=${_zoneService.hashCode}');
+    debugPrint(
+      '[DELETE][${map.uuid}] START _zoneService=${_zoneService.hashCode}',
+    );
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF0D1B2A),
-        title: const Text('Supprimer la zone ?', style: TextStyle(color: Colors.white)),
-        content: Text('Supprimer "${map.name}" supprimera aussi les tuiles FMTC et l\'enregistrement dans la base de donnees.', style: const TextStyle(color: Colors.white70)),
+        title: const Text(
+          'Supprimer la zone ?',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          'Supprimer "${map.name}" supprimera aussi les tuiles FMTC et l\'enregistrement dans la base de donnees.',
+          style: const TextStyle(color: Colors.white70),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ANNULER')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('SUPPRIMER', style: TextStyle(color: Colors.redAccent))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ANNULER'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'SUPPRIMER',
+              style: TextStyle(color: Colors.redAccent),
+            ),
+          ),
         ],
       ),
     );
@@ -182,17 +224,21 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   void _showNewZoneSheet() {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (_) => MapScreen(
-          triggerZoneCreation: true,
-          zoneService: _zoneService,
-        ),
+        builder: (_) =>
+            MapScreen(triggerZoneCreation: true, zoneService: _zoneService),
       ),
     );
   }
 
   void _snack(String message, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message, style: const TextStyle(color: Colors.white)), backgroundColor: isError ? Colors.redAccent : const Color(0xFF1E3A5F), behavior: SnackBarBehavior.floating));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(color: Colors.white)),
+        backgroundColor: isError ? Colors.redAccent : const Color(0xFF1E3A5F),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -226,9 +272,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildCreateZoneButton(),
-        Expanded(
-          child: _zones.isEmpty ? _buildEmpty() : _buildList(),
-        ),
+        Expanded(child: _zones.isEmpty ? _buildEmpty() : _buildList()),
       ],
     );
   }
@@ -240,9 +284,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
     decoration: const BoxDecoration(
       color: Color(0xFF0D1B2A),
-      border: Border(
-        bottom: BorderSide(color: Color(0xFF1E3A5F), width: 1),
-      ),
+      border: Border(bottom: BorderSide(color: Color(0xFF1E3A5F), width: 1)),
     ),
     child: ElevatedButton.icon(
       onPressed: _showNewZoneSheet,
@@ -257,25 +299,67 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     ),
   );
 
-  Widget _buildDegraded() => Center(child: Padding(padding: const EdgeInsets.all(32), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-    const Icon(Icons.cloud_off, color: Colors.white54, size: 64),
-    const SizedBox(height: 16),
-    const Text('Base de donnees indisponible', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-    const SizedBox(height: 8),
-    const Text('Impossible d\'acceder a ObjectBox.', style: TextStyle(color: Colors.white54)),
-    const SizedBox(height: 24),
-    ElevatedButton(onPressed: _loadZones, child: const Text('Reessayer')),
-  ])));
+  Widget _buildDegraded() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.cloud_off, color: Colors.white54, size: 64),
+          const SizedBox(height: 16),
+          const Text(
+            'Base de donnees indisponible',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Impossible d\'acceder a ObjectBox.',
+            style: TextStyle(color: Colors.white54),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton(onPressed: _loadZones, child: const Text('Reessayer')),
+        ],
+      ),
+    ),
+  );
 
   /// Etat vide discret : aucun asset lourd, juste un message. Le bouton
   /// de creation reste visible au-dessus (gere par [_buildBody]).
-  Widget _buildEmpty() => Center(child: Padding(padding: const EdgeInsets.all(32), child: Column(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-    Icon(Icons.map_outlined, color: Colors.white.withValues(alpha: 0.3), size: 64),
-    const SizedBox(height: 12),
-    const Text('Aucune zone enregistree', style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w500)),
-    const SizedBox(height: 6),
-    const Text('Utilisez le bouton ci-dessus pour en creer une.', style: TextStyle(color: Colors.white38, fontSize: 13), textAlign: TextAlign.center),
-  ])));
+  Widget _buildEmpty() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.map_outlined,
+            color: Colors.white.withValues(alpha: 0.3),
+            size: 64,
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Aucune zone enregistree',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Utilisez le bouton ci-dessus pour en creer une.',
+            style: TextStyle(color: Colors.white38, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    ),
+  );
 
   Widget _buildList() => RefreshIndicator(
     onRefresh: _loadZones,
@@ -292,8 +376,11 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
         final sizeBytes = _zoneSizesBytes[map.uuid];
         return ZoneListTile(
           key: ValueKey(map.uuid),
-          map: map, layers: layers, progress: progress,
-          isDownloading: isDownloading, activeLayerLabel: activeLabel,
+          map: map,
+          layers: layers,
+          progress: progress,
+          isDownloading: isDownloading,
+          activeLayerLabel: activeLabel,
           totalSizeBytes: sizeBytes,
           onDownload: () => _handleDownload(map, layers),
           onCancel: () => _handleCancel(map.uuid),

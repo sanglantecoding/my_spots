@@ -23,7 +23,7 @@ final _entities = <obx_int.ModelEntity>[
   obx_int.ModelEntity(
     id: const obx_int.IdUid(1, 5182520997279946803),
     name: 'OfflineMapLayer',
-    lastPropertyId: const obx_int.IdUid(8, 665590391856139998),
+    lastPropertyId: const obx_int.IdUid(9, 9020149082875792947),
     flags: 0,
     properties: <obx_int.ModelProperty>[
       obx_int.ModelProperty(
@@ -72,6 +72,12 @@ final _entities = <obx_int.ModelEntity>[
         id: const obx_int.IdUid(8, 665590391856139998),
         name: 'downloadedTileCount',
         type: 6,
+        flags: 0,
+      ),
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(9, 9020149082875792947),
+        name: 'lidarLayerId',
+        type: 9,
         flags: 0,
       ),
     ],
@@ -211,7 +217,10 @@ obx_int.ModelDefinition getObjectBoxModel() {
         object.id = id;
       },
       objectToFB: (OfflineMapLayer object, fb.Builder fbb) {
-        fbb.startTable(9);
+        final lidarLayerIdOffset = object.lidarLayerId == null
+            ? null
+            : fbb.writeString(object.lidarLayerId!);
+        fbb.startTable(10);
         fbb.addInt64(0, object.id);
         fbb.addInt64(1, object.offlineMapId);
         fbb.addInt64(2, object.layerTypeIndex);
@@ -220,6 +229,7 @@ obx_int.ModelDefinition getObjectBoxModel() {
         fbb.addInt64(5, object.statusIndex);
         fbb.addInt64(6, object.estimatedTileCount);
         fbb.addInt64(7, object.downloadedTileCount);
+        fbb.addOffset(8, lidarLayerIdOffset);
         fbb.finish(fbb.endTable());
         return object.id;
       },
@@ -274,6 +284,9 @@ obx_int.ModelDefinition getObjectBoxModel() {
           18,
           0,
         );
+        final lidarLayerIdParam = const fb.StringReader(
+          asciiOptimization: true,
+        ).vTableGetNullable(buffer, rootOffset, 20);
         final object = OfflineMapLayer(
           id: idParam,
           offlineMapId: offlineMapIdParam,
@@ -283,6 +296,7 @@ obx_int.ModelDefinition getObjectBoxModel() {
           statusIndex: statusIndexParam,
           estimatedTileCount: estimatedTileCountParam,
           downloadedTileCount: downloadedTileCountParam,
+          lidarLayerId: lidarLayerIdParam,
         );
 
         return object;
@@ -425,6 +439,11 @@ class OfflineMapLayer_ {
   /// See [OfflineMapLayer.downloadedTileCount].
   static final downloadedTileCount = obx.QueryIntegerProperty<OfflineMapLayer>(
     _entities[0].properties[7],
+  );
+
+  /// See [OfflineMapLayer.lidarLayerId].
+  static final lidarLayerId = obx.QueryStringProperty<OfflineMapLayer>(
+    _entities[0].properties[8],
   );
 }
 

@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/litto3d_layer.dart';
@@ -128,7 +128,22 @@ class LidarRegionCatalog {
     LatLngBounds visibleBounds,
   ) {
     final query = expandBounds(visibleBounds, viewMarginKm);
-    return all.where((region) => region.intersects(query)).toList();
+    return all.where((region) {
+      // Vérification manuelle d'intersection (plus fiable que isOverlapping)
+      final intersects =
+          query.south < region.bounds.north &&
+          query.north > region.bounds.south &&
+          query.west < region.bounds.east &&
+          query.east > region.bounds.west;
+
+      debugPrint(
+        '🔎 [DEBUG] Région ${region.id}: intersects=$intersects '
+        '(query: N:${query.north}, S:${query.south}, E:${query.east}, W:${query.west}) '
+        '(region: N:${region.bounds.north}, S:${region.bounds.south}, E:${region.bounds.east}, W:${region.bounds.west})',
+      );
+
+      return intersects;
+    }).toList();
   }
 
   /// Couches Litto3D actives pour la vue courante.

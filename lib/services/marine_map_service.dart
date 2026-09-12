@@ -374,16 +374,34 @@ class MarineMapService {
 
     if (!enabled) return [];
 
-    // When visibleBounds is null (e.g., map hasn't rendered yet),
-    // fall back to zone-level bounds so offline LiDAR still appears.
-    final effectiveBounds = visibleBounds;
-    final layers = effectiveBounds != null
-        ? LidarRegionCatalog.activeLayersForView(effectiveBounds)
-        : <Litto3DLayer>[];
+    // CORRECTION : En mode hors-ligne, on détermine les couches à afficher
+    // en fonction des couches ACTUELLEMENT téléchargées (lidarLayers),
+    // et non en fonction des bounds visibles de la carte.
+    // Cela garantit que les tuiles en cache sont bien affichées.
 
-    debugPrint(
-      '[OFFLINE-LIDAR] activeLayers.count=${layers.length} effectiveBounds=$effectiveBounds',
-    );
+    // DEBUG : Log détaillé de chaque couche
+    for (var i = 0; i < lidarLayers.length; i++) {
+      final layer = lidarLayers[i];
+      debugPrint(
+        '[OFFLINE-LIDAR-DEBUG] Layer $i: lidarLayerId=${layer.lidarLayerId}, '
+        'layerType=${layer.layerType.name}, status=${layer.downloadStatus.name}',
+      );
+    }
+
+    final layers = lidarLayers
+        .map((layer) {
+          final lidarLayerId = layer.lidarLayerId;
+          debugPrint(
+            '[OFFLINE-LIDAR-MAP] Trying to find layer with id: $lidarLayerId',
+          );
+          final found = Litto3DCatalog.findById(lidarLayerId ?? '');
+          debugPrint('[OFFLINE-LIDAR-MAP] Found: ${found?.id ?? "NULL"}');
+          return found;
+        })
+        .whereType<Litto3DLayer>()
+        .toList();
+
+    debugPrint('[OFFLINE-LIDAR] activeLayers.count=${layers.length}');
 
     if (layers.isEmpty) return [];
 

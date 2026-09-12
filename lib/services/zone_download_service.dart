@@ -295,10 +295,12 @@ class FmtcLayerDownloader implements LayerDownloader {
     }
     final negativeRatio = negative / total;
     final failedRatio = failed / total;
-    final ok =
-        successful > 0 &&
-        negativeRatio <= _negativeTolerance &&
-        failedRatio <= _networkFailureTolerance;
+    // On ne juge plus l'échec sur le ratio de tuiles "négatives" (vides).
+    // Il est tout à fait normal qu'une couche (ex: marine 25k au Fort de Brescou)
+    // ne couvre pas toute la zone demandée. Tant qu'il n'y a pas d'erreur
+    // réseau réelle (failed == 0), le processus de téléchargement est considéré comme réussi.
+    final ok = failedRatio <= _networkFailureTolerance;
+
     if (!ok) {
       debugPrint(
         '[FmtcLayerDownloader] Layer assessed FAILED: '
@@ -306,6 +308,7 @@ class FmtcLayerDownloader implements LayerDownloader {
         'failedRatio=${failedRatio.toStringAsFixed(3)} total=$total',
       );
     }
+
     return LayerDownloadResult(
       downloadedTileCount: successful,
       estimatedTileCount: total,
@@ -316,7 +319,6 @@ class FmtcLayerDownloader implements LayerDownloader {
   }
 
   static const int _maxTileCountCeiling = 12000;
-  static const double _negativeTolerance = 0.20;
   static const double _networkFailureTolerance = 0.15;
   static const Duration _stallWindow = Duration(minutes: 15);
 

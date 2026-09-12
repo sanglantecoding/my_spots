@@ -5,7 +5,7 @@
   "entities": [
     {
       "id": "1:5182520997279946803",
-      "lastPropertyId": "8:665590391856139998",
+      "lastPropertyId": "9:9020149082875792947",
       "name": "OfflineMapLayer",
       "properties": [
         {
@@ -48,6 +48,11 @@
           "id": "8:665590391856139998",
           "name": "downloadedTileCount",
           "type": 6
+        },
+        {
+          "id": "9:9020149082875792947",
+          "name": "lidarLayerId",
+          "type": 9
         }
       ],
       "relations": []
