@@ -14,7 +14,10 @@ void main() {
     test("store name follows pattern marine_zone_\$uuid", () {
       const zoneUuid = "550e8400-e29b-41d4-a716-446655440000";
       final store = MapTileCacheService.marineStoreForZone(zoneUuid);
-      expect(store.storeName, "marine_zone_550e8400-e29b-41d4-a716-446655440000");
+      expect(
+        store.storeName,
+        "marine_zone_550e8400-e29b-41d4-a716-446655440000",
+      );
     });
 
     test("different uuids produce different store names", () {
@@ -37,10 +40,13 @@ void main() {
   });
 
   group("Zone store naming — lidar", () {
-    test("store name follows pattern lidar_zone_\$uuid", () {
+    test("store name follows pattern lidar_zone_\$uuid (legacy format)", () {
       const zoneUuid = "660e8400-e29b-41d4-a716-446655440001";
       final store = MapTileCacheService.lidarStoreForZone(zoneUuid);
-      expect(store.storeName, "lidar_zone_660e8400-e29b-41d4-a716-446655440001");
+      expect(
+        store.storeName,
+        "lidar_zone_660e8400-e29b-41d4-a716-446655440001",
+      );
     });
 
     test("marine and lidar stores for same zone are distinct", () {
@@ -69,7 +75,8 @@ void main() {
 
     test("does not throw when called on non-existent zone", () async {
       // Use a uuid that has zero chance of existing
-      const nonExistentZone = "delete-test-zone-00000000-0000-0000-0000-000000000000";
+      const nonExistentZone =
+          "delete-test-zone-00000000-0000-0000-0000-000000000000";
       // Must not throw
       await MapTileCacheService.deleteStoresForZone(nonExistentZone);
     });
@@ -83,31 +90,33 @@ void main() {
   });
 
   group("offlineMarineTileProvider — strict zone-first fallback", () {
-    // Regression test: the previous implementation used
-    // `useOtherStoresAsFallbackOnly: false` and `otherStoresStrategy:
-    // readUpdateCreate`, which meant a tile cached from a previous visit
-    // elsewhere could be served as if it were the zone's data. The fix
-    // makes the general stores a read-only fallback.
-    test("uses cacheFirst loading with strict fallback for non-empty zones",
-        () {
-      final provider = MapTileCacheService.offlineMarineTileProvider(
-        const ['zone-1'],
-      ) as FMTCTileProvider;
-      expect(provider.loadingStrategy, BrowseLoadingStrategy.cacheFirst);
-      expect(provider.useOtherStoresAsFallbackOnly, isTrue);
-      expect(provider.otherStoresStrategy, BrowseStoreStrategy.read);
+    // Regression test: the implementation uses cacheOnly for strict offline mode.
+    // The general stores are never read (otherStoresStrategy: null).
+    test("uses cacheOnly loading with no fallback for non-empty zones", () {
+      final provider =
+          MapTileCacheService.offlineMarineTileProvider(const ['zone-1'])
+              as FMTCTileProvider;
+      expect(provider.loadingStrategy, BrowseLoadingStrategy.cacheOnly);
+      expect(provider.otherStoresStrategy, isNull);
       expect(provider.stores.keys, contains('marine_zone_zone-1'));
     });
 
     test("supports multiple zones simultaneously", () {
-      final provider = MapTileCacheService.offlineMarineTileProvider(
-        const ['zone-a', 'zone-b', 'zone-c'],
-      ) as FMTCTileProvider;
-      expect(provider.stores.keys, containsAll([
-        'marine_zone_zone-a',
-        'marine_zone_zone-b',
-        'marine_zone_zone-c',
-      ]));
+      final provider =
+          MapTileCacheService.offlineMarineTileProvider(const [
+                'zone-a',
+                'zone-b',
+                'zone-c',
+              ])
+              as FMTCTileProvider;
+      expect(
+        provider.stores.keys,
+        containsAll([
+          'marine_zone_zone-a',
+          'marine_zone_zone-b',
+          'marine_zone_zone-c',
+        ]),
+      );
       // Only the requested zones are listed as "explicit" stores.
       expect(provider.stores.length, 3);
     });
@@ -121,15 +130,13 @@ void main() {
   });
 
   group("offlineLidarTileProvider — strict zone-first fallback", () {
-    test("uses cacheFirst loading with strict fallback for non-empty zones",
-        () {
-      final provider = MapTileCacheService.offlineLidarTileProvider(
-        const ['zone-1'],
-      ) as FMTCTileProvider;
-      expect(provider.loadingStrategy, BrowseLoadingStrategy.cacheFirst);
-      expect(provider.useOtherStoresAsFallbackOnly, isTrue);
-      expect(provider.otherStoresStrategy, BrowseStoreStrategy.read);
-      expect(provider.stores.keys, contains('lidar_zone_zone-1'));
+    test("uses cacheOnly loading with no fallback for non-empty zones", () {
+      final provider =
+          MapTileCacheService.offlineLidarTileProvider(const ['zone-1'])
+              as FMTCTileProvider;
+      expect(provider.loadingStrategy, BrowseLoadingStrategy.cacheOnly);
+      expect(provider.otherStoresStrategy, isNull);
+      expect(provider.stores.keys, contains('zone-1'));
     });
 
     test("empty zone list still returns a provider (single legacy store)", () {

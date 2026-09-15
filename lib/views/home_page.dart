@@ -10,6 +10,7 @@ import 'package:my_spots/help_page.dart';
 import 'package:my_spots/views/map_screen.dart';
 import 'package:my_spots/views/waypoints_screen.dart';
 import 'package:my_spots/views/offline_maps_screen.dart';
+import 'package:my_spots/repositories/offline_map_repository.dart';
 import 'dart:async';
 
 class HomePage extends StatefulWidget {
@@ -24,11 +25,6 @@ class _HomePageState extends State<HomePage> {
   Color gpsStatusColor = Colors.orange;
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<GpsState>? _stateSubscription;
-
-  /// Test flag — HORS-LIGNE mode bypasses the network in providers.
-  /// When true, [MapScreen] selects the cache-only tile providers instead of
-  /// the online-first ones. The flag is not persisted; it resets on restart.
-  bool _offlineTestMode = false;
 
   @override
   void initState() {
@@ -64,7 +60,9 @@ class _HomePageState extends State<HomePage> {
       },
     );
 
-    _stateSubscription = GpsController.instance.stateStream.listen((GpsState state) {
+    _stateSubscription = GpsController.instance.stateStream.listen((
+      GpsState state,
+    ) {
       if (mounted) {
         setState(() {
           switch (state) {
@@ -109,7 +107,9 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Aucun port sélectionné. Veuillez configurer un port favori dans les paramètres.'),
+            content: Text(
+              'Aucun port sélectionné. Veuillez configurer un port favori dans les paramètres.',
+            ),
             backgroundColor: Colors.orange,
             duration: Duration(seconds: 3),
           ),
@@ -123,7 +123,9 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('URL météo invalide. Veuillez vérifier la configuration du port.'),
+            content: Text(
+              'URL météo invalide. Veuillez vérifier la configuration du port.',
+            ),
             backgroundColor: Colors.red,
             duration: Duration(seconds: 3),
           ),
@@ -136,7 +138,9 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Impossible d\'ouvrir la météo marine. Vérifiez votre connexion internet.'),
+            content: Text(
+              'Impossible d\'ouvrir la météo marine. Vérifiez votre connexion internet.',
+            ),
             backgroundColor: Colors.red,
             duration: Duration(seconds: 3),
           ),
@@ -147,7 +151,8 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final bool isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
 
     return Scaffold(
       body: Container(
@@ -186,23 +191,36 @@ class _HomePageState extends State<HomePage> {
                               context: context,
                               isScrollControlled: true,
                               backgroundColor: Colors.transparent,
-                              builder: (context) => const SatelliteBottomSheet(),
+                              builder: (context) =>
+                                  const SatelliteBottomSheet(),
                             );
                           },
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.gps_fixed, color: gpsStatusColor, size: isLandscape ? 14 : 16),
+                              Icon(
+                                Icons.gps_fixed,
+                                color: gpsStatusColor,
+                                size: isLandscape ? 14 : 16,
+                              ),
                               const SizedBox(width: 4),
                               Flexible(
                                 child: Text(
                                   gpsStatus,
-                                  style: TextStyle(color: gpsStatusColor, fontSize: isLandscape ? 10 : 12, fontWeight: FontWeight.bold),
+                                  style: TextStyle(
+                                    color: gpsStatusColor,
+                                    fontSize: isLandscape ? 10 : 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                               const SizedBox(width: 2),
-                              Icon(Icons.info_outline, color: gpsStatusColor.withValues(alpha: 0.7), size: isLandscape ? 10 : 12),
+                              Icon(
+                                Icons.info_outline,
+                                color: gpsStatusColor.withValues(alpha: 0.7),
+                                size: isLandscape ? 10 : 12,
+                              ),
                             ],
                           ),
                         ),
@@ -212,13 +230,30 @@ class _HomePageState extends State<HomePage> {
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.center,
-                        child: Text('My Spots', style: TextStyle(fontSize: isLandscape ? 18 : 24, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 2)),
+                        child: Text(
+                          'My Spots',
+                          style: TextStyle(
+                            fontSize: isLandscape ? 18 : 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            letterSpacing: 2,
+                          ),
+                        ),
                       ),
                     ),
                     IconButton(
-                      icon: Icon(Icons.settings, color: Colors.white70, size: isLandscape ? 24 : 28),
+                      icon: Icon(
+                        Icons.settings,
+                        color: Colors.white70,
+                        size: isLandscape ? 24 : 28,
+                      ),
                       onPressed: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen())).then((_) => setState(() {}));
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SettingsScreen(),
+                          ),
+                        ).then((_) => setState(() {}));
                       },
                     ),
                   ],
@@ -227,8 +262,13 @@ class _HomePageState extends State<HomePage> {
               Expanded(
                 child: SingleChildScrollView(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: isLandscape ? 16.0 : 32.0, vertical: isLandscape ? 8.0 : 20.0),
-                    child: isLandscape ? _buildLandscapeLayout(context) : _buildPortraitLayout(context),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isLandscape ? 16.0 : 32.0,
+                      vertical: isLandscape ? 8.0 : 20.0,
+                    ),
+                    child: isLandscape
+                        ? _buildLandscapeLayout(context)
+                        : _buildPortraitLayout(context),
                   ),
                 ),
               ),
@@ -242,11 +282,23 @@ class _HomePageState extends State<HomePage> {
                           child: ElevatedButton.icon(
                             onPressed: _openMarineWeather,
                             icon: const Icon(Icons.waves, color: Colors.white),
-                            label: Text('Météo Marine', style: TextStyle(fontSize: isLandscape ? 14 : 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                            label: Text(
+                              'Météo Marine',
+                              style: TextStyle(
+                                fontSize: isLandscape ? 14 : 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF1E3A5F),
-                              padding: EdgeInsets.symmetric(horizontal: isLandscape ? 16 : 24, vertical: isLandscape ? 8 : 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isLandscape ? 16 : 24,
+                                vertical: isLandscape ? 8 : 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
                           ),
                         ),
@@ -254,16 +306,33 @@ class _HomePageState extends State<HomePage> {
                           right: 0,
                           bottom: 0,
                           child: FloatingActionButton.small(
-                            onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (context) => const HelpPage())); },
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const HelpPage(),
+                                ),
+                              );
+                            },
                             backgroundColor: Colors.grey.shade600,
                             heroTag: 'help',
-                            child: const Icon(Icons.help_outline, color: Colors.white, size: 20),
+                            child: const Icon(
+                              Icons.help_outline,
+                              color: Colors.white,
+                              size: 20,
+                            ),
                           ),
                         ),
                       ],
                     ),
                     SizedBox(height: isLandscape ? 4 : 8),
-                    Text('Version 1.0.0', style: TextStyle(color: Colors.white38, fontSize: isLandscape ? 10 : 12)),
+                    Text(
+                      'Version 1.0.0',
+                      style: TextStyle(
+                        color: Colors.white38,
+                        fontSize: isLandscape ? 10 : 12,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -274,23 +343,131 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// Garde-fou : empêche d'ouvrir la carte en mode hors-ligne si aucune
+  /// zone n'a été téléchargée.
+  Future<void> _onOpenMap() async {
+    // En mode en ligne, on ouvre la carte directement
+    if (!AppSettings.offlineModeEnabled) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const MapScreen()),
+      );
+      return;
+    }
+
+    // En mode hors-ligne, on vérifie qu'au moins une zone est disponible
+    final repo = OfflineMapRepository.instance;
+    final hasZones = repo != null && repo.findReadyOrPartialMaps().isNotEmpty;
+
+    if (hasZones) {
+      // Au moins une zone disponible, on peut ouvrir la carte
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const MapScreen()),
+      );
+      return;
+    }
+
+    // Aucune zone disponible : on affiche un popup explicatif
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF1A2F42),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.cloud_off, color: Colors.orangeAccent, size: 28),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Aucune zone disponible',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Aucune zone hors-ligne n\'a été téléchargée.\n\n'
+          'Pour utiliser la carte hors-ligne, vous devez d\'abord créer '
+          'et télécharger une zone en mode en ligne.',
+          style: TextStyle(color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text(
+              'Annuler',
+              style: TextStyle(color: Colors.white54),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              // Désactive le mode hors-ligne
+              await AppSettings.saveOfflineMode(false);
+
+              if (!mounted || !dialogContext.mounted) return;
+              Navigator.pop(dialogContext);
+
+              // Ouvre la carte en mode en ligne
+              if (!mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const MapScreen()),
+              );
+            },
+            child: const Text(
+              'Passer en ligne',
+              style: TextStyle(
+                color: Colors.greenAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPortraitLayout(BuildContext context) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _buildMenuButton(context, icon: Icons.map, label: 'CARTE', onTap: () {
-          Navigator.push(context, MaterialPageRoute(builder: (context) => MapScreen(initialOfflineTestMode: _offlineTestMode)));
-        }),
+        _buildMenuButton(
+          context,
+          icon: Icons.map,
+          label: 'CARTE',
+          onTap: _onOpenMap,
+        ),
         const SizedBox(height: 16),
-        _buildMenuButton(context, icon: Icons.forest, secondIcon: Icons.anchor, label: 'WAYPOINTS', onTap: () {
-          Navigator.push(context, MaterialPageRoute(builder: (context) => const WaypointsScreen()));
-        }),
+        _buildMenuButton(
+          context,
+          icon: Icons.forest,
+          secondIcon: Icons.anchor,
+          label: 'WAYPOINTS',
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const WaypointsScreen()),
+            );
+          },
+        ),
         const SizedBox(height: 16),
-        _buildMenuButton(context, icon: Icons.map_outlined, label: 'ZONES HORS-LIGNE', onTap: () {
-          Navigator.push(context, MaterialPageRoute(builder: (context) => const OfflineMapsScreen()));
-        }),
+        _buildMenuButton(
+          context,
+          icon: Icons.map_outlined,
+          label: 'ZONES HORS-LIGNE',
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const OfflineMapsScreen(),
+              ),
+            );
+          },
+        ),
         const SizedBox(height: 12),
-        _NetworkModeToggle(offlineTestMode: _offlineTestMode, onChanged: (v) => setState(() => _offlineTestMode = v)),
+        const _NetworkModeToggle(),
       ],
     );
   }
@@ -300,26 +477,60 @@ class _HomePageState extends State<HomePage> {
       children: [
         Row(
           children: [
-            Expanded(child: _buildMenuButton(context, icon: Icons.map, label: 'CARTE', isCompact: true, onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => MapScreen(initialOfflineTestMode: _offlineTestMode)));
-            })),
+            Expanded(
+              child: _buildMenuButton(
+                context,
+                icon: Icons.map,
+                label: 'CARTE',
+                isCompact: true,
+                onTap: _onOpenMap,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 12),
-        _buildMenuButton(context, icon: Icons.forest, secondIcon: Icons.anchor, label: 'WAYPOINTS', isCompact: true, onTap: () {
-          Navigator.push(context, MaterialPageRoute(builder: (context) => const WaypointsScreen()));
-        }),
+        _buildMenuButton(
+          context,
+          icon: Icons.forest,
+          secondIcon: Icons.anchor,
+          label: 'WAYPOINTS',
+          isCompact: true,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const WaypointsScreen()),
+            );
+          },
+        ),
         const SizedBox(height: 12),
-        _buildMenuButton(context, icon: Icons.map_outlined, label: 'ZONES HORS-LIGNE', isCompact: true, onTap: () {
-          Navigator.push(context, MaterialPageRoute(builder: (context) => const OfflineMapsScreen()));
-        }),
+        _buildMenuButton(
+          context,
+          icon: Icons.map_outlined,
+          label: 'ZONES HORS-LIGNE',
+          isCompact: true,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const OfflineMapsScreen(),
+              ),
+            );
+          },
+        ),
         const SizedBox(height: 12),
-        _NetworkModeToggle(offlineTestMode: _offlineTestMode, onChanged: (v) => setState(() => _offlineTestMode = v)),
+        const _NetworkModeToggle(),
       ],
     );
   }
 
-  Widget _buildMenuButton(BuildContext context, {required IconData icon, IconData? secondIcon, required String label, required VoidCallback onTap, bool isCompact = false}) {
+  Widget _buildMenuButton(
+    BuildContext context, {
+    required IconData icon,
+    IconData? secondIcon,
+    required String label,
+    required VoidCallback onTap,
+    bool isCompact = false,
+  }) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -330,11 +541,23 @@ class _HomePageState extends State<HomePage> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [const Color(0xFF1E3A5F).withValues(alpha: 0.8), const Color(0xFF2C5282).withValues(alpha: 0.6)],
+            colors: [
+              const Color(0xFF1E3A5F).withValues(alpha: 0.8),
+              const Color(0xFF2C5282).withValues(alpha: 0.6),
+            ],
           ),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 3))],
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.1),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: Column(
           children: [
@@ -344,12 +567,24 @@ class _HomePageState extends State<HomePage> {
                 Icon(icon, size: isCompact ? 32 : 40, color: Colors.white),
                 if (secondIcon != null) ...[
                   const SizedBox(width: 4),
-                  Icon(secondIcon, size: isCompact ? 32 : 40, color: Colors.white),
+                  Icon(
+                    secondIcon,
+                    size: isCompact ? 32 : 40,
+                    color: Colors.white,
+                  ),
                 ],
               ],
             ),
             SizedBox(height: isCompact ? 6 : 10),
-            Text(label, style: TextStyle(fontSize: isCompact ? 14 : 18, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: isCompact ? 1.5 : 2)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: isCompact ? 14 : 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                letterSpacing: isCompact ? 1.5 : 2,
+              ),
+            ),
           ],
         ),
       ),
@@ -361,33 +596,61 @@ class _HomePageState extends State<HomePage> {
 /// "ZONES HORS-LIGNE" button. The value is owned by [_HomePageState]
 /// (`_offlineTestMode`) and is pushed into [MapScreen] as its initial
 /// value when the user opens the map.
-class _NetworkModeToggle extends StatelessWidget {
-  final bool offlineTestMode;
-  final ValueChanged<bool> onChanged;
-
-  const _NetworkModeToggle({required this.offlineTestMode, required this.onChanged});
+class _NetworkModeToggle extends StatefulWidget {
+  const _NetworkModeToggle();
 
   @override
+  State<_NetworkModeToggle> createState() => _NetworkModeToggleState();
+}
+
+class _NetworkModeToggleState extends State<_NetworkModeToggle> {
+  @override
   Widget build(BuildContext context) {
-    final isOffline = offlineTestMode;
+    final isOffline = AppSettings.offlineModeEnabled;
+
     return Material(
       color: const Color(0xFF0D1B2A).withValues(alpha: 0.78),
       borderRadius: BorderRadius.circular(20),
       child: Tooltip(
-        message: isOffline ? 'Mode hors-ligne (test)' : 'Mode en ligne',
+        message: isOffline ? 'Mode hors-ligne activé' : 'Mode en ligne activé',
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
-          onTap: () => onChanged(!isOffline),
+          onTap: () async {
+            // Bascule l'état et sauvegarde
+            await AppSettings.saveOfflineMode(!isOffline);
+            setState(() {}); // Rafraîchit l'UI localement
+          },
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(isOffline ? Icons.cloud_off : Icons.public, size: 18, color: isOffline ? Colors.redAccent : Colors.greenAccent),
+                Icon(
+                  isOffline ? Icons.cloud_off : Icons.public,
+                  size: 18,
+                  color: isOffline ? Colors.redAccent : Colors.greenAccent,
+                ),
                 const SizedBox(width: 6),
-                Text(isOffline ? 'HORS-LIGNE' : 'EN LIGNE', style: TextStyle(color: isOffline ? Colors.redAccent : Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                Text(
+                  isOffline ? 'HORS-LIGNE' : 'EN LIGNE',
+                  style: TextStyle(
+                    color: isOffline ? Colors.redAccent : Colors.greenAccent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
                 const SizedBox(width: 6),
-                Switch(value: isOffline, onChanged: onChanged, activeThumbColor: Colors.redAccent, inactiveThumbColor: Colors.green, inactiveTrackColor: Colors.green.withValues(alpha: 0.4)),
+                Switch(
+                  value: isOffline,
+                  onChanged: (bool value) async {
+                    await AppSettings.saveOfflineMode(value);
+                    setState(() {}); // Rafraîchit l'UI localement
+                  },
+                  activeThumbColor: Colors.redAccent,
+                  inactiveThumbColor: Colors.green,
+                  inactiveTrackColor: Colors.green.withValues(alpha: 0.4),
+                ),
               ],
             ),
           ),

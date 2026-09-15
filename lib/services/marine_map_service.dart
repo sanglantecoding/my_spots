@@ -154,19 +154,9 @@ class MarineMapService {
       layerOrder = ['RASTER_MARINE_3857_WMTS'];
     }
 
-    // INSTRUMENTATION TEMPORAIRE : log de sélection de couches ONLINE
-    debugPrint(
-      '[MARINE-ZOOM-LAYERS] mode=ONLINE zoom=$currentZoom layers=$layerOrder',
-    );
-
     return layerOrder.map((layerName) {
       final zoom = _zoomByLayer[layerName]!;
       final urlTemplate = '$_clevisuWmtsLayerPrefix$layerName';
-
-      // INSTRUMENTATION TEMPORAIRE : log de création de TileLayer ONLINE
-      debugPrint(
-        '[MARINE-TILELAYER] mode=ONLINE layer=$layerName urlTemplate=$urlTemplate minNativeZoom=${zoom.minNativeZoom} maxNativeZoom=${zoom.maxNativeZoom}',
-      );
 
       return TileLayer(
         key: Key('marine_layer_$layerName'),
@@ -285,28 +275,27 @@ class MarineMapService {
     ErrorTileCallBack? errorTileCallback,
   }) {
     List<String> layerOrder;
+
+    // CORRECTION OFFLINE : On force la présence de la 50k en dessous de 13.0
+    // pour qu'elle s'étire (underzoom) et évite un écran vide.
+    // Les couches 100k, 350k et 1M ne sont pas téléchargées en offline.
     if (currentZoom >= 15.0) {
       layerOrder = [
-        'RASTER_MARINE_50_WMTS_3857',
+        'RASTER_MARINE_50_WMTS_3857', // Fond
         'RASTER_MARINE_25_WMTS_3857',
         'RASTER_MARINE_10_WMTS_3857',
       ];
     } else if (currentZoom >= 13.0) {
-      layerOrder = ['RASTER_MARINE_50_WMTS_3857', 'RASTER_MARINE_25_WMTS_3857'];
-    } else if (currentZoom >= 11.0) {
-      layerOrder = ['RASTER_MARINE_50_WMTS_3857'];
-    } else if (currentZoom >= 9.0) {
-      layerOrder = ['RASTER_MARINE_100_WMTS_3857'];
-    } else if (currentZoom >= 7.0) {
-      layerOrder = ['RASTER_MARINE_350_WMTS_3857'];
+      layerOrder = [
+        'RASTER_MARINE_50_WMTS_3857', // Fond
+        'RASTER_MARINE_25_WMTS_3857',
+      ];
     } else {
-      layerOrder = ['RASTER_MARINE_3857_WMTS'];
+      // En dessous de 13, on ne garde QUE la 50k.
+      // Grâce à minZoom: 0.0 et minNativeZoom: 11, Flutter Map va
+      // automatiquement étirer les tuiles du zoom 11 vers les zooms inférieurs.
+      layerOrder = ['RASTER_MARINE_50_WMTS_3857'];
     }
-
-    // INSTRUMENTATION TEMPORAIRE : log de sélection de couches OFFLINE
-    debugPrint(
-      '[MARINE-ZOOM-LAYERS] mode=OFFLINE zoom=$currentZoom layers=$layerOrder',
-    );
 
     final offlineProvider = MapTileCacheService.offlineMarineTileProvider(
       zoneUuids,
@@ -316,24 +305,17 @@ class MarineMapService {
       final zoom = _zoomByLayer[layerName]!;
       final urlTemplate = '$_clevisuWmtsLayerPrefix$layerName';
 
-      // INSTRUMENTATION TEMPORAIRE : log de création de TileLayer OFFLINE
-      debugPrint(
-        '[MARINE-TILELAYER] mode=OFFLINE layer=$layerName urlTemplate=$urlTemplate minNativeZoom=${zoom.minNativeZoom} maxNativeZoom=${zoom.maxNativeZoom}',
-      );
-
       return TileLayer(
         key: Key('marine_layer_$layerName'),
         urlTemplate: urlTemplate,
         userAgentPackageName: MapTileCacheService.packageName,
-        minZoom: zoom.minZoom,
+        minZoom: 8.0, // ← Active l'underzoom (étirement vers le bas)
         maxZoom: 22.0,
         minNativeZoom: zoom.minNativeZoom,
         maxNativeZoom: zoom.maxNativeZoom,
         tileDimension: 256,
         keepBuffer: 0,
         panBuffer: 0,
-        // Reuse the same provider across all marine layers so a single
-        // FMTCTileProvider handles the cache + network fallback for them.
         tileProvider: offlineProvider,
         errorTileCallback: errorTileCallback ?? (tile, error, stackTrace) {},
         evictErrorTileStrategy: EvictErrorTileStrategy.none,
@@ -363,76 +345,41 @@ class MarineMapService {
   /// (legacy zone), the fallback store name `lidar_zone_<uuid>` is used.
   static List<TileLayer> getOfflineLidarLayers(
     LatLngBounds? visibleBounds,
-    List<OfflineMapLayer> lidarLayers, {
+    List<OfflineMapLayer> lidarLayers,
+    List<String> zoneUuids, {
     double? opacity,
     ErrorTileCallBack? errorTileCallback,
   }) {
     final enabled = AppSettings.bathymetryOverlayEnabled;
-    debugPrint(
-      '[OFFLINE-LIDAR] enabled=$enabled visibleBounds=$visibleBounds lidarLayers=${lidarLayers.length}',
-    );
-
     if (!enabled) return [];
 
-    // CORRECTION : En mode hors-ligne, on détermine les couches à afficher
-    // en fonction des couches ACTUELLEMENT téléchargées (lidarLayers),
-    // et non en fonction des bounds visibles de la carte.
-    // Cela garantit que les tuiles en cache sont bien affichées.
-
-    // DEBUG : Log détaillé de chaque couche
-    for (var i = 0; i < lidarLayers.length; i++) {
-      final layer = lidarLayers[i];
-      debugPrint(
-        '[OFFLINE-LIDAR-DEBUG] Layer $i: lidarLayerId=${layer.lidarLayerId}, '
-        'layerType=${layer.layerType.name}, status=${layer.downloadStatus.name}',
-      );
-    }
-
+    // Déterminer les couches à afficher
     final layers = lidarLayers
         .map((layer) {
-          final lidarLayerId = layer.lidarLayerId;
-          debugPrint(
-            '[OFFLINE-LIDAR-MAP] Trying to find layer with id: $lidarLayerId',
-          );
-          final found = Litto3DCatalog.findById(lidarLayerId ?? '');
-          debugPrint('[OFFLINE-LIDAR-MAP] Found: ${found?.id ?? "NULL"}');
-          return found;
+          return Litto3DCatalog.findById(layer.lidarLayerId ?? '');
         })
         .whereType<Litto3DLayer>()
         .toList();
-
-    debugPrint('[OFFLINE-LIDAR] activeLayers.count=${layers.length}');
 
     if (layers.isEmpty) return [];
 
     final layerOpacity = opacity ?? AppSettings.bathymetryOverlayOpacity;
 
-    // Construire les store names LiDAR pour le provider offline
-    final lidarStoreNames = lidarLayers
-        .map((layer) {
-          final zoneUuid = layer.offlineMap.target?.uuid ?? '';
-          if (layer.lidarLayerId != null && zoneUuid.isNotEmpty) {
-            return 'lidar_zone_${zoneUuid}_${layer.lidarLayerId}';
-          } else if (zoneUuid.isNotEmpty) {
-            return 'lidar_zone_$zoneUuid';
-          }
-          return '';
-        })
-        .where((name) => name.isNotEmpty)
-        .toList();
-
-    final offlineProvider = MapTileCacheService.offlineLidarTileProvider(
-      lidarStoreNames,
-    );
-
-    debugPrint(
-      '[OFFLINE-LIDAR] provider stores=${(offlineProvider as dynamic).stores?.keys}',
-    );
-
+    // CORRECTION : Créer UN provider par couche (pas un provider global)
     return layers.map((layer) {
-      debugPrint(
-        '[OFFLINE-LIDAR-LAYER] name=${layer.id} created=true provider=${offlineProvider.runtimeType}',
+      // Créer le store name pour CETTE couche spécifique
+      final storeNames = <String>[];
+      for (final uuid in zoneUuids) {
+        if (uuid.isNotEmpty && layer.id.isNotEmpty) {
+          storeNames.add('lidar_zone_${uuid}_${layer.id}');
+        }
+      }
+
+      // Créer un provider dédié pour cette couche
+      final offlineProvider = MapTileCacheService.offlineLidarTileProvider(
+        storeNames,
       );
+
       return TileLayer(
         key: Key('lidar_${layer.id}'),
         urlTemplate: inspireWmtsUrl(layer.wmtsLayerName),
@@ -442,13 +389,7 @@ class MarineMapService {
         minNativeZoom: 6,
         maxNativeZoom: 22,
         maxZoom: 22,
-        errorTileCallback:
-            errorTileCallback ??
-            (tile, error, stackTrace) {
-              debugPrint(
-                '[OFFLINE-LIDAR-TILE-DISPOSE] layer=${layer.id} error=$error',
-              );
-            },
+        errorTileCallback: errorTileCallback ?? (tile, error, stackTrace) {},
       );
     }).toList();
   }

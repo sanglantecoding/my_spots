@@ -218,7 +218,6 @@ class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
 
       if (currentPosition == null) {
         // Si impossible d'obtenir la position, continuer avec l'enregistrement
-        debugPrint('Impossible d\'obtenir la position GPS');
         _createWaypoint(name);
         return;
       }

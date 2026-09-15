@@ -1,13 +1,13 @@
 ﻿import 'package:my_spots/models/offline_map.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/objectbox.g.dart';
-import 'package:my_spots/services/zone_download_service.dart';
+import 'package:my_spots/services/zone_download/zone_download.dart';
 
 /// [MapLayerRepository] backed by ObjectBox.
 class OfflineMapRepository implements MapLayerRepository {
   OfflineMapRepository(Store store)
-      : _mapBox = Box<OfflineMap>(store),
-        _layerBox = Box<OfflineMapLayer>(store);
+    : _mapBox = Box<OfflineMap>(store),
+      _layerBox = Box<OfflineMapLayer>(store);
 
   /// Lazily-initialised singleton. Created on first access via
   /// [initWithStore] or [instance].
@@ -56,7 +56,8 @@ class OfflineMapRepository implements MapLayerRepository {
 
   /// Returns all stored maps, ordered by creation date descending.
   List<OfflineMap> findAll() {
-    final query = _mapBox.query()
+    final query = _mapBox
+        .query()
         .order(OfflineMap_.createdAt, flags: Order.descending)
         .build();
     final result = query.find();
@@ -70,8 +71,9 @@ class OfflineMapRepository implements MapLayerRepository {
     if (map == null) return false;
 
     // Delete associated layers first (query by offlineMapId).
-    final layerQuery =
-        _layerBox.query(OfflineMapLayer_.offlineMapId.equals(mapId)).build();
+    final layerQuery = _layerBox
+        .query(OfflineMapLayer_.offlineMapId.equals(mapId))
+        .build();
     final layers = layerQuery.find();
     layerQuery.close();
     for (final layer in layers) {
@@ -116,9 +118,13 @@ class OfflineMapRepository implements MapLayerRepository {
   /// Returns all maps that are ready or partially downloaded (eligible for offline display).
   List<OfflineMap> findReadyOrPartialMaps() {
     final query = _mapBox
-        .query(OfflineMap_.statusIndex
-            .equals(OfflineMapStatus.ready.index)
-            .or(OfflineMap_.statusIndex.equals(OfflineMapStatus.partial.index)))
+        .query(
+          OfflineMap_.statusIndex
+              .equals(OfflineMapStatus.ready.index)
+              .or(
+                OfflineMap_.statusIndex.equals(OfflineMapStatus.partial.index),
+              ),
+        )
         .order(OfflineMap_.createdAt, flags: Order.descending)
         .build();
     final result = query.find();

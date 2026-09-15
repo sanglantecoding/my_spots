@@ -24,7 +24,7 @@ void main() {
         LatLng(49.0, 2.5), // north
       );
       final layers = ZoneConfig.defaultLayersForBounds(inland);
-      expect(layers, containsAll([
+      expect(layers.map((l) => l.layerType), containsAll([
         LayerType.marine50k,
         LayerType.marine25k,
         LayerType.marine10k,
@@ -38,7 +38,7 @@ void main() {
         LatLng(46.0, 3.2),
       );
       final layers = ZoneConfig.defaultLayersForBounds(landlocked);
-      expect(layers, isNot(contains(LayerType.lidarLitto3d)));
+      expect(layers.map((l) => l.layerType), isNot(contains(LayerType.lidarLitto3d)));
     });
 
     test('includes LiDAR layers when bounds intersect a LiDAR region', () {
@@ -48,7 +48,7 @@ void main() {
         LatLng(47.8, -2.0),
       );
       final layers = ZoneConfig.defaultLayersForBounds(bretagne);
-      expect(layers, contains(LayerType.lidarLitto3d));
+      expect(layers.map((l) => l.layerType), contains(LayerType.lidarLitto3d));
     });
 
     test('includes LiDAR layers when bounds intersect Occitanie', () {
@@ -57,7 +57,7 @@ void main() {
         LatLng(43.5, 4.0),
       );
       final layers = ZoneConfig.defaultLayersForBounds(occitanie);
-      expect(layers, contains(LayerType.lidarLitto3d));
+      expect(layers.map((l) => l.layerType), contains(LayerType.lidarLitto3d));
     });
   });
 

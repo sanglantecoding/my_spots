@@ -106,4 +106,52 @@ class FmtcTileCacheRepository implements TileCacheRepository {
       return 0;
     }
   }
+
+  /// Returns the total size in bytes of all stores whose names start with [prefix].
+  /// Uses FMTC internal API to list stores by prefix.
+  Future<int> getTotalSizeByPrefix(String prefix) async {
+    try {
+      final storeNames = await listStores();
+      var totalBytes = 0;
+      for (final name in storeNames) {
+        if (name.startsWith(prefix)) {
+          totalBytes += await getStoreSizeBytes(name);
+        }
+      }
+      return totalBytes;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Lists all FMTC store names using the internal API.
+  Future<List<String>> listStores() async {
+    try {
+      // ignore: invalid_use_of_internal_member, experimental_member_use
+      return await internal.FMTCBackendAccess.internal.listStores();
+    } catch (_) {
+      // Return empty list if FMTC is not initialised or listing fails
+      return [];
+    }
+  }
+
+  /// Deletes all stores whose names start with [prefix].
+  /// Uses FMTC internal API to list stores by prefix.
+  Future<void> deleteStoresByPrefix(String prefix) async {
+    try {
+      final storeNames = await listStores();
+      for (final name in storeNames) {
+        if (name.startsWith(prefix)) {
+          try {
+            final store = FMTCStore(name);
+            await store.manage.delete();
+          } catch (_) {
+            // Ignore errors for individual stores
+          }
+        }
+      }
+    } catch (_) {
+      // Ignore errors if listing fails
+    }
+  }
 }

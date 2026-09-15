@@ -47,7 +47,7 @@ dependencies:
   
   # Pour l'exportation/importation GPX :
   share_plus: ^10.1.2     # Pour partager les fichiers GPX
-  file_picker: 8.1.2     # Pour sélectionner les fichiers à importer
+  file_picker: ^8.1.2     # Pour sélectionner les fichiers à importer
   xml: ^6.5.0             # Pour parser les fichiers GPX
   flutter_map_tile_caching: ^10.1.1
   objectbox: any

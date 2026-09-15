@@ -4,7 +4,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/offline_map.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
-import 'package:my_spots/services/zone_download_service.dart';
+import 'package:my_spots/services/zone_download/zone_download.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/views/map_screen.dart';
 import 'package:my_spots/views/widgets/offline_maps/zone_list_tile.dart';
@@ -47,11 +47,12 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   Future<void> _loadZones() async {
     final repo = _offlineMapRepo;
     if (repo == null) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _isLoading = false;
           _hasError = true;
         });
+      }
       return;
     }
     final zones = repo.findAll();
@@ -83,11 +84,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     OfflineMap map,
     List<OfflineMapLayer> layers,
   ) async {
-    debugPrint(
-      '[UI][${map.uuid}] _handleDownload ENTER _downloadingUuids=${_downloadingUuids.toList()}',
-    );
     if (_downloadingUuids.contains(map.uuid)) {
-      debugPrint('[UI][${map.uuid}] _handleDownload already in set, EXIT');
       return;
     }
     setState(() {
@@ -95,10 +92,6 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
       _progress[map.uuid] = 0.0;
       _activeLabels[map.uuid] = '';
     });
-
-    debugPrint(
-      '🚨 [DEBUG] Bounds sauvegardés dans OfflineMap: N:${map.northLat}, S:${map.southLat}, E:${map.eastLng}, W:${map.westLng}',
-    );
 
     // Reconstruct the zone bounds from the persisted OfflineMap coordinates.
     // This ensures _layerUrl() selects the correct Litto3D dataset
@@ -157,19 +150,10 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   }
 
   void _handleResume(OfflineMap map, List<OfflineMapLayer> layers) {
-    debugPrint(
-      '[UI][${map.uuid}] _handleResume ENTER map.status=${map.status.name}',
-    );
-    debugPrint(
-      '[UI][${map.uuid}] _handleResume calling _handleDownload (new downloadZone attempt)',
-    );
     _handleDownload(map, layers);
   }
 
   Future<void> _handleDelete(OfflineMap map) async {
-    debugPrint(
-      '[DELETE][${map.uuid}] START _zoneService=${_zoneService.hashCode}',
-    );
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -198,17 +182,10 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
       ),
     );
     if (confirm != true) return;
-    debugPrint('[DELETE][${map.uuid}] CANCEL DOWNLOAD START');
     await _zoneService.cancelDownload(map.uuid);
-    debugPrint('[DELETE][${map.uuid}] CANCEL DOWNLOAD DONE');
-    debugPrint('[DELETE][${map.uuid}] DELETE STORES START');
     await MapTileCacheService.deleteStoresForZone(map.uuid);
-    debugPrint('[DELETE][${map.uuid}] DELETE STORES DONE');
     _offlineMapRepo!.deleteByUuid(map.uuid);
-    debugPrint('[DELETE][${map.uuid}] OBJECTBOX DELETE DONE');
     await _loadZones();
-    debugPrint('[DELETE][${map.uuid}] LOAD ZONES DONE _zones.keys (svc)');
-    debugPrint('[DELETE][${map.uuid}] END');
     _snack('Zone supprimee');
   }
 

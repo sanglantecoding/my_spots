@@ -21,7 +21,8 @@ import 'package:my_spots/views/widgets/offline_maps/new_zone_sheet.dart';
 import 'package:my_spots/views/widgets/offline_maps/zone_editor_overlay.dart';
 import 'package:my_spots/models/offline_map.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
-import 'package:my_spots/services/zone_download_service.dart';
+import 'package:my_spots/services/zone_download/zone_download.dart';
+import 'package:my_spots/views/widgets/map/distance_measurement_overlay.dart';
 import 'dart:async';
 
 class MapScreen extends StatefulWidget {
@@ -36,14 +37,12 @@ class MapScreen extends StatefulWidget {
   /// Initial value for the temporary ONLINE / HORS-LIGNE switch owned by
   /// [HomePage]. Not persisted. The in-screen state can still be toggled
   /// at runtime; this is just the initial value pushed in.
-  final bool initialOfflineTestMode;
   final ZoneDownloadService? zoneService;
 
   const MapScreen({
     super.key,
     this.centerOn,
     this.triggerZoneCreation = false,
-    this.initialOfflineTestMode = false,
     this.zoneService,
   });
 
@@ -58,6 +57,9 @@ class _MapScreenState extends State<MapScreen> {
   double _currentZoom = 15.0;
   bool _isLoading = true;
   bool _isFollowingUser = false;
+  bool _isMeasuringDistance = false;
+  LatLng? _measurementPoint1;
+  Timer? _mapCameraUpdateDebounce;
   final TextEditingController _waypointNameController = TextEditingController();
   Waypoint? _selectedWaypoint;
   Waypoint? _navigationTarget; // Waypoint ciblé pour la navigation active
@@ -80,24 +82,191 @@ class _MapScreenState extends State<MapScreen> {
   /// instead of the normal navigation view.
   bool _zoneEditMode = false;
 
-  /// Temporary test flag — OFFLINE mode bypasses the network in providers.
-  /// Seeded from [MapScreen.initialOfflineTestMode] (driven by the
-  /// HomePage switch). Currently read-only; actual provider behaviour will
-  /// be wired in step 2.
-  late bool _offlineTestMode;
-
   /// Configuration (name + layers) collected from NewZoneSheet before
   /// entering _zoneEditMode.
   ZoneConfig? _pendingZoneConfig;
 
+  /// Démarre le mode de mesure de distance
+  void _startDistanceMeasurement(LatLng initialPoint) {
+    setState(() {
+      _isMeasuringDistance = true;
+      _measurementPoint1 = initialPoint;
+    });
+  }
+
+  /// Termine la mesure et affiche le résultat
+  void _finishDistanceMeasurement(
+    LatLng point1,
+    LatLng point2,
+    double distanceMeters,
+  ) {
+    setState(() {
+      _isMeasuringDistance = false;
+      _measurementPoint1 = point1;
+    });
+
+    // Afficher le popup avec le résultat
+    _showDistanceResultPopup(point1, point2, distanceMeters);
+  }
+
+  /// Affiche le popup avec le résultat de la mesure
+  void _showDistanceResultPopup(
+    LatLng point1,
+    LatLng point2,
+    double distanceMeters,
+  ) {
+    final distanceNauticalMiles = distanceMeters / 1852.0;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF0D1B2A),
+        title: const Row(
+          children: [
+            Icon(Icons.straighten, color: Color(0xFF0D6999)),
+            SizedBox(width: 8),
+            Text('Distance mesurée', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(
+                          color: Colors.blue,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Point 1: ${point1.latitude.toStringAsFixed(5)}, ${point1.longitude.toStringAsFixed(5)}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Point 2: ${point2.latitude.toStringAsFixed(5)}, ${point2.longitude.toStringAsFixed(5)}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0D6999).withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Distance:',
+                        style: TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                      Text(
+                        '${distanceMeters.toStringAsFixed(1)} m',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Distance:',
+                        style: TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                      Text(
+                        '${distanceNauticalMiles.toStringAsFixed(3)} nm',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              setState(() {
+                _measurementPoint1 = null;
+              });
+            },
+            child: const Text('Fermer', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _onMapCameraChanged() {
-    final bounds = _mapController.camera.visibleBounds;
-    if (_mapVisibleBounds != null &&
-        _mapVisibleBounds!.isOverlapping(bounds) &&
-        _boundsNearlyEqual(_mapVisibleBounds!, bounds)) {
-      return;
-    }
-    setState(() => _mapVisibleBounds = bounds);
+    // Évite les rebuilds trop fréquents
+    if (_mapCameraUpdateDebounce?.isActive ?? false) return;
+
+    _mapCameraUpdateDebounce = Timer(const Duration(milliseconds: 150), () {
+      final bounds = _mapController.camera.visibleBounds;
+      if (_mapVisibleBounds != null &&
+          _mapVisibleBounds!.isOverlapping(bounds) &&
+          _boundsNearlyEqual(_mapVisibleBounds!, bounds)) {
+        return;
+      }
+      setState(() => _mapVisibleBounds = bounds);
+    });
   }
 
   /// Indicateur de diagnostic TEMPORAIRE : affiche le niveau de zoom courant.
@@ -128,7 +297,8 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _logMapTileError(TileImage tile, Object error, StackTrace? stackTrace) {
-    MapTileErrorLogger.logTileError(tile, error, stackTrace);
+    // Simple logging for tile errors - can be enhanced if needed.
+    debugPrint('Tile error: $tile - $error');
   }
 
   Widget _buildBathymetryOverlayControls() {
@@ -212,8 +382,6 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
 
-    _offlineTestMode = widget.initialOfflineTestMode;
-
     // Initialiser le service d'alarme
     AlarmService.initialize();
 
@@ -255,6 +423,7 @@ class _MapScreenState extends State<MapScreen> {
     _stateSubscription?.cancel();
     _alarmSubscription?.cancel();
     _waypointNameController.dispose();
+    _mapCameraUpdateDebounce?.cancel();
     super.dispose();
   }
 
@@ -444,6 +613,24 @@ class _MapScreenState extends State<MapScreen> {
                 _openNewOfflineZone(point);
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.straighten, color: Color(0xFF0D6999)),
+              title: const Text(
+                "Mesurer une distance",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              subtitle: const Text(
+                "Placer deux points pour mesurer",
+                style: TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _startDistanceMeasurement(point);
+              },
+            ),
             const SizedBox(height: 12),
           ],
         ),
@@ -532,7 +719,9 @@ class _MapScreenState extends State<MapScreen> {
       repo.saveLayer(map, layer);
     }
 
-    final zoneService = ZoneDownloadService(repository: repo);
+    // Use the passed ZoneDownloadService instance if available, otherwise create a new one
+    final zoneService =
+        widget.zoneService ?? ZoneDownloadService(repository: repo);
     zoneService.downloadZone(map: map, layers: layers, zoneBounds: bounds);
 
     // 4) Exit edit mode and refresh.
@@ -739,7 +928,9 @@ class _MapScreenState extends State<MapScreen> {
                     initialCenter:
                         _currentPosition ?? AppSettings.getDefaultMapCenter(),
                     initialZoom: _currentZoom,
-                    minZoom: AppSettings.getMapMinZoom(),
+                    minZoom: AppSettings.offlineModeEnabled
+                        ? 8.0
+                        : AppSettings.getMapMinZoom(),
                     maxZoom: AppSettings.getMapMaxZoom(),
                     onPositionChanged: (position, hasGesture) {
                       // Met à jour _currentZoom seulement en cas de changement significatif
@@ -771,7 +962,7 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                   children: [
                     if (AppSettings.mapType == MapType.marine) ...[
-                      if (_offlineTestMode) ...[
+                      if (AppSettings.offlineModeEnabled) ...[
                         // HORS-LIGNE : never falls back to the general FMTC
                         // store or to the network. getOffline*() is always
                         // called; when _readyZoneUuids is empty the provider
@@ -785,6 +976,7 @@ class _MapScreenState extends State<MapScreen> {
                           ...MarineMapService.getOfflineLidarLayers(
                             _mapVisibleBounds ?? _zoneCombinedBounds,
                             _readyLidarLayers,
+                            _readyZoneUuids,
                             opacity: AppSettings.bathymetryOverlayOpacity,
                           ),
                       ] else ...[
@@ -1070,9 +1262,25 @@ class _MapScreenState extends State<MapScreen> {
                       mapController: _mapController,
                     ),
                   ),
+
+                if (_isMeasuringDistance && _measurementPoint1 != null)
+                  Positioned.fill(
+                    child: DistanceMeasurementOverlay(
+                      initialPoint: _measurementPoint1!,
+                      onMeasureComplete: _finishDistanceMeasurement,
+                      onCancel: () {
+                        setState(() {
+                          _isMeasuringDistance = false;
+                          _measurementPoint1 = null;
+                        });
+                      },
+                      mapController: _mapController,
+                    ),
+                  ),
                 // ── UI masquée pendant le tracé de zone (_zoneEditMode == true) ──
                 // L'utilisateur ne voit QUE : la carte, le rectangle de sélection,
                 // la barre d'annulation (top) et le bouton "Valider" (bottom).
+                // Overlay de mesure de distance (actif quand on mesure une distance)
                 if (!_zoneEditMode) ...[
                   // Sélecteur LiDAR / Bathymétrie (haut-gauche).
                   Positioned(
@@ -1163,7 +1371,10 @@ class _MapScreenState extends State<MapScreen> {
                   left: 16,
                   right: 16,
                   bottom: 16,
-                  child: AppSettings.showSpeedOnMap && !_zoneEditMode
+                  child:
+                      AppSettings.showSpeedOnMap &&
+                          !_zoneEditMode &&
+                          !_isMeasuringDistance
                       ? Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 20,

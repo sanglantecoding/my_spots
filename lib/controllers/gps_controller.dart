@@ -277,12 +277,18 @@ class GpsController extends ChangeNotifier {
     _currentAccuracy = 0.0;
   }
 
-  /// Libère les ressources
-  @override
-  Future<void> dispose() async {
+  /// Libère les ressources de manière asynchrone (fermeture des streams,
+  /// annulation des abonnements, etc.)
+  Future<void> close() async {
     await stop();
     await _positionController.close();
     await _stateController.close();
+  }
+
+  /// Libère les ressources
+  @override
+  void dispose() {
+    close();
     super.dispose();
   }
 

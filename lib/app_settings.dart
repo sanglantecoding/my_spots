@@ -38,6 +38,8 @@ class AppSettings {
   static double waypointLabelFontSize = 15.0; // 15 par défaut
   static MapType mapType = MapType.standard;
   static bool showSpeedOnMap = false; // false par défaut
+  static bool offlineModeEnabled = false;
+  static const String _offlineModeKey = 'offline_mode_enabled';
 
   // Alarme de proximité waypoint
   static bool proximityAlarmEnabled = false;
@@ -98,6 +100,8 @@ class AppSettings {
       selectedPortKey = 'palavas_les_flots';
       await prefs.setString('selected_port', 'palavas_les_flots');
     }
+
+    offlineModeEnabled = prefs.getBool(_offlineModeKey) ?? false;
 
     speedUnit = getEnumFromIndex(
       SpeedUnit.values,
@@ -201,6 +205,12 @@ class AppSettings {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('speed_unit', unit.index);
     speedUnit = unit;
+  }
+
+  static Future<void> saveOfflineMode(bool value) async {
+    offlineModeEnabled = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_offlineModeKey, value);
   }
 
   static Future<void> saveWaypointsVisibility(bool visible) async {

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/models/fishing_port.dart';
-import 'package:my_spots/offline_management_screen.dart';
 import 'package:my_spots/views/settings/widgets/meteo_port_setting.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
@@ -662,40 +661,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black26,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  width: 1,
-                ),
-              ),
-              child: ListTile(
-                leading: const Icon(Icons.storage, color: Colors.blueAccent),
-                title: const Text(
-                  'Gestion du stockage hors-ligne',
-                  style: TextStyle(color: Colors.white, fontSize: 16),
-                ),
-                subtitle: const Text(
-                  'Télécharger ou supprimer les cartes 1:10 000 et le relief LiDAR',
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-                trailing: const Icon(
-                  Icons.chevron_right,
-                  color: Colors.white54,
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const OfflineManagementScreen(),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 32),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(

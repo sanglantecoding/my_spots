@@ -18,38 +18,41 @@ const String _logName = 'MySpots.main';
 
 /// Point d'entree de l'application.
 Future<void> main() async {
-  runZonedGuarded<Future<void>>(() async {
-    WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded<Future<void>>(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
 
-    // 1) Charger le .env depuis les assets package (et non le filesystem).
-    try {
-      await dotenv.load(fileName: 'assets/.env');
-      developer.log('dotenv loaded', name: _logName);
-    } catch (e, st) {
+      // 1) Charger le .env depuis les assets package (et non le filesystem).
+      try {
+        await dotenv.load(fileName: 'assets/.env');
+        developer.log('dotenv loaded', name: _logName);
+      } catch (e, st) {
+        developer.log(
+          'dotenv.load a echoue (non-bloquant)',
+          name: _logName,
+          error: e,
+          stackTrace: st,
+        );
+      }
+
+      // 2) Initialiser les services applicatifs avec timeout dur.
+      //    Si l'un des services critiques bloque au-delà de la fenêtre,
+      //    l'UI est lancée quand même en mode dégradé.
+      await _initializeWithTimeout();
+
+      // 3) Toujours lancer l'UI, meme en cas d'erreur d'init.
+      runApp(const MySpotsApp());
+    },
+    (error, stack) {
       developer.log(
-        'dotenv.load a echoue (non-bloquant)',
+        'Unhandled zone error',
         name: _logName,
-        error: e,
-        stackTrace: st,
+        error: error,
+        stackTrace: stack,
       );
-    }
-
-    // 2) Initialiser les services applicatifs avec timeout dur.
-    //    Si l'un des services critiques bloque au-delà de la fenêtre,
-    //    l'UI est lancée quand même en mode dégradé.
-    await _initializeWithTimeout();
-
-    // 3) Toujours lancer l'UI, meme en cas d'erreur d'init.
-    runApp(const MySpotsApp());
-  }, (error, stack) {
-    developer.log(
-      'Unhandled zone error',
-      name: _logName,
-      error: error,
-      stackTrace: stack,
-    );
-    debugPrint('Unhandled zone error: $error');
-  });
+      debugPrint('Unhandled zone error: $error');
+    },
+  );
 }
 
 /// Lance [AppBootstrap.initialize] sous un timeout dur.
