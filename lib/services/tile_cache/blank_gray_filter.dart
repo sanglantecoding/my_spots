@@ -7,37 +7,19 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:my_spots/services/tile_cache/message_tile_provider.dart';
 import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 
-/// Enrobe un TileProvider pour détecter les tuiles "vides" du serveur SHOM
-/// (100 % transparentes, ou pavé de gris uniforme) et, UNIQUEMENT pour la
-/// couche du BAS de la pile (paintMessage: true), les remplacer par la tuile
-/// message "Dézoomez pour voir la carte".
-///
-/// Règle absolue : les couches du DESSUS (25K, 10K...) ne doivent JAMAIS
-/// peindre le message : leurs tuiles vides restent transparentes pour laisser
-/// voir le contenu valide des couches inférieures. Sinon le message (opaque)
-/// masque la carte → "tuiles noires avec message" au milieu de la carte.
 class BlankGrayFilteringTileProvider extends TileProvider {
   BlankGrayFilteringTileProvider(this.inner, {this.paintMessage = false});
 
   final TileProvider inner;
-
-  /// SEULE la couche du BAS de la pile marine peint le message.
-  /// Toujours false pour les couches supérieures et le LiDAR.
   final bool paintMessage;
 
-  /// Mettre à false une fois le diagnostic terminé (fluidité + logs propres).
-  static bool verboseLogs = true;
-
+  static bool verboseLogs = false;
   static void log(String message) {
     if (verboseLogs) debugPrint('[BlankGrayFilter] $message');
   }
 
   @override
   ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
-    log(
-      '▶ getImage — ${options.key} z=${coordinates.z} x=${coordinates.x} '
-      'y=${coordinates.y} paintMessage=$paintMessage',
-    );
     return BlankGrayFilteringImageProvider(
       inner: inner.getImage(coordinates, options),
       coords: coordinates,
@@ -61,8 +43,9 @@ class BlankGrayFilteringImageProvider
   final String layerKey;
   final bool paintMessage;
 
+  // ✅ Cache uniquement les BYTES, jamais les ui.Image
   static Uint8List? _cachedMessageTileBytes;
-  static ui.Image? _cachedTransparent;
+  static Uint8List? _cachedTransparentBytes;
 
   String get _tag => '$layerKey z=${coords.z} x=${coords.x} y=${coords.y}';
 
@@ -88,181 +71,178 @@ class BlankGrayFilteringImageProvider
     listener = ImageStreamListener(
       (image, synchronousCall) {
         stream.removeListener(listener);
-        _checkAndComplete(image, completer, decode);
+        _processTile(image, completer, decode);
       },
       onError: (Object error, StackTrace? stack) {
         stream.removeListener(listener);
-        // Erreur réseau / FMTC : on RETENTE une fois, puis tuile transparente.
-        // JAMAIS de tuile message ici : un échec ne doit pas faire croire
-        // qu'il n'y a pas de carte à cet endroit.
         BlankGrayFilteringTileProvider.log(
-          '$_tag : ⚠️ ERREUR provider interne : $error → 1 retry',
+          '$_tag : ⚠️ erreur réseau : $error → transparent',
         );
-        _retryOnce().then((info) {
-          if (info != null) {
-            _checkAndComplete(info, completer, decode);
-          } else {
-            BlankGrayFilteringTileProvider.log(
-              '$_tag : ❌ 2e échec → tuile transparente',
-            );
-            _transparentInfo().then(completer.complete);
-          }
-        });
+        _transparentInfo().then(completer.complete);
       },
     );
     stream.addListener(listener);
     return completer.future;
   }
 
-  /// Une seule nouvelle tentative, après un court délai (erreurs transitoires).
-  Future<ImageInfo?> _retryOnce() async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    try {
-      final completer = Completer<ImageInfo>();
-      final stream = inner.resolve(ImageConfiguration.empty);
-      late ImageStreamListener listener;
-      listener = ImageStreamListener(
-        (image, synchronousCall) {
-          stream.removeListener(listener);
-          completer.complete(image);
-        },
-        onError: (Object error, StackTrace? stack) {
-          stream.removeListener(listener);
-          completer.completeError(error, stack);
-        },
-      );
-      stream.addListener(listener);
-      return await completer.future;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  void _checkAndComplete(
+  void _processTile(
     ImageInfo info,
     Completer<ImageInfo> completer,
     ImageDecoderCallback decode,
   ) async {
     try {
-      final data = await info.image.toByteData();
+      final original = info.image;
+      final w = original.width;
+      final h = original.height;
+
+      final data = await original.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      );
       if (data == null) {
-        BlankGrayFilteringTileProvider.log('$_tag : toByteData null → gardée');
         completer.complete(info);
         return;
       }
 
-      final r0 = data.getUint8(0);
-      final g0 = data.getUint8(1);
-      final b0 = data.getUint8(2);
-      final a0 = data.getUint8(3);
+      final bytes = Uint8List.fromList(
+        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      );
 
-      // Tuile "vide" SHOM : 100 % transparente ou pavé de gris uniforme.
-      if (_isFullyTransparent(data) || _isUniformGray(data)) {
+      var hasContent = false;
+      var hasVoid = false;
+      for (var i = 0; i < bytes.length; i += 4) {
+        final a = bytes[i + 3];
+        if (a == 0) {
+          hasVoid = true;
+          continue;
+        }
+        final r = bytes[i];
+        final g = bytes[i + 1];
+        final b = bytes[i + 2];
+
+        final isGrayWhite =
+            (r - g).abs() <= 3 && (g - b).abs() <= 3 && r >= 190;
+
+        if (isGrayWhite) {
+          bytes[i + 3] = 0;
+          hasVoid = true;
+        } else {
+          hasContent = true;
+        }
+      }
+
+      if (!hasVoid) {
+        BlankGrayFilteringTileProvider.log('$_tag : pleine → gardée');
+        completer.complete(info);
+        return;
+      }
+
+      if (!hasContent) {
         if (paintMessage) {
           BlankGrayFilteringTileProvider.log(
-            '$_tag : ✅ tuile VIDE (pixel0 RGBA=$r0,$g0,$b0,$a0) '
-            '+ couche du BAS → MESSAGE',
+            '$_tag : 100% vide + couche BAS → MESSAGE',
           );
-          _messageTileInfo(decode).then((msg) => completer.complete(msg));
+          _messageTileInfo().then(completer.complete);
         } else {
           BlankGrayFilteringTileProvider.log(
-            '$_tag : tuile VIDE (pixel0 RGBA=$r0,$g0,$b0,$a0) '
-            'mais couche du DESSUS → laissée TRANSPARENTE',
+            '$_tag : 100% vide + couche DESSUS → transparent',
           );
-          completer.complete(info);
+          _transparentInfo().then(completer.complete);
         }
         return;
       }
 
       BlankGrayFilteringTileProvider.log(
-        '$_tag : contenu (pixel0 RGBA=$r0,$g0,$b0,$a0) → gardée',
+        '$_tag : tuile mixte (contenu + vides) → compositing',
       );
-    } catch (e) {
-      BlankGrayFilteringTileProvider.log('$_tag : ❌ EXCEPTION $e → gardée');
-    }
-    completer.complete(info);
-  }
+      final modifiedImage = await _imageFromRgba(bytes, w, h);
 
-  /// Tuile "vide" du SHOM = PNG dont TOUS les pixels ont alpha = 0.
-  /// Vérification EXHAUSTIVE (pas d'échantillonnage) : une tuile avec un
-  /// trait fin (côte, isobathe, câble...) ne doit JAMAIS être remplacée.
-  static bool _isFullyTransparent(ByteData data) {
-    final bytes = data.buffer.asUint8List(
-      data.offsetInBytes,
-      data.lengthInBytes,
-    );
-    if (bytes.length < 4) return false;
-    for (var i = 3; i < bytes.length; i += 4) {
-      if (bytes[i] != 0) return false; // pixel opaque → vraie tuile de carte
-    }
-    return true; // tous les alpha = 0 → tuile vide
-  }
-
-  /// Cas secondaire : pavé de gris parfaitement uniforme (r == g == b, clair).
-  /// Les vraies tuiles (eau, terre, traits) ne sont jamais uniformes.
-  static bool _isUniformGray(ByteData data) {
-    if (data.lengthInBytes < 4) return false;
-    final length = data.lengthInBytes;
-    const step = 16 * 4; // 1 pixel sur 16
-
-    final refR = data.getUint8(0);
-    final refG = data.getUint8(1);
-    final refB = data.getUint8(2);
-
-    if ((refR - refG).abs() > 3 || (refG - refB).abs() > 3) return false;
-    if (refR < 190) return false;
-
-    final tol = refR >= 240 ? 14 : 4;
-
-    for (var i = 0; i < length; i += step) {
-      final r = data.getUint8(i);
-      final g = data.getUint8(i + 1);
-      final b = data.getUint8(i + 2);
-      if ((r - refR).abs() > tol ||
-          (g - refG).abs() > tol ||
-          (b - refB).abs() > tol) {
-        return false;
+      if (paintMessage) {
+        final msgImage = await _messageImage();
+        final composited = await _compositeOnMessage(msgImage, modifiedImage);
+        modifiedImage.dispose();
+        msgImage.dispose(); // ✅ Dispose l'image temporaire
+        completer.complete(ImageInfo(image: composited));
+      } else {
+        completer.complete(ImageInfo(image: modifiedImage));
       }
+    } catch (e) {
+      BlankGrayFilteringTileProvider.log('$_tag : ❌ $e');
+      completer.complete(info);
     }
-    // Contrôle du tout dernier pixel (sécurité)
-    final last = length - 4;
-    if ((data.getUint8(last) - refR).abs() > tol ||
-        (data.getUint8(last + 1) - refG).abs() > tol ||
-        (data.getUint8(last + 2) - refB).abs() > tol) {
-      return false;
-    }
-    return true; // la tuile est bien un pavé de gris
   }
 
-  /// Tuile message "Dézoomez pour voir la carte" (générée une seule fois).
-  static Future<ImageInfo> _messageTileInfo(ImageDecoderCallback decode) async {
-    if (_cachedMessageTileBytes != null) {
-      final buffer = await ui.ImmutableBuffer.fromUint8List(
-        _cachedMessageTileBytes!,
-      );
-      final codec = await decode(buffer);
-      final frame = await codec.getNextFrame();
-      return ImageInfo(image: frame.image);
-    }
-    final provider = MessageTileProvider();
-    final bytes = await provider.getTileBytes();
-    _cachedMessageTileBytes = bytes;
-    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    final codec = await decode(buffer);
-    final frame = await codec.getNextFrame();
-    return ImageInfo(image: frame.image);
-  }
-
-  /// Tuile 100 % transparente (fallback en cas d'erreur réseau persistante).
-  static Future<ImageInfo> _transparentInfo() async {
-    if (_cachedTransparent != null) {
-      return ImageInfo(image: _cachedTransparent!);
-    }
-    final codec = await ui.instantiateImageCodec(
-      TileProviderFactory.transparentTilePng,
+  static Future<ui.Image> _imageFromRgba(Uint8List rgba, int w, int h) async {
+    final buffer = await ui.ImmutableBuffer.fromUint8List(rgba);
+    final descriptor = ui.ImageDescriptor.raw(
+      buffer,
+      width: w,
+      height: h,
+      pixelFormat: ui.PixelFormat.rgba8888,
     );
+    final codec = await descriptor.instantiateCodec();
     final frame = await codec.getNextFrame();
-    _cachedTransparent = frame.image;
-    return ImageInfo(image: frame.image);
+    descriptor.dispose();
+    codec.dispose();
+    return frame.image;
   }
+
+  static Future<ui.Image> _compositeOnMessage(
+    ui.Image background,
+    ui.Image overlay,
+  ) async {
+    final w = overlay.width;
+    final h = overlay.height;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final rect = Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble());
+    canvas.drawImageRect(background, rect, rect, Paint());
+    canvas.drawImageRect(overlay, rect, rect, Paint());
+    final picture = recorder.endRecording();
+    final result = await picture.toImage(w, h);
+    picture.dispose();
+    return result;
+  }
+
+  // ✅ Recrée l'image à chaque appel (pas de cache de ui.Image)
+  static Future<ImageInfo> _messageTileInfo() async {
+    return ImageInfo(image: await _messageImage());
+  }
+
+  static Future<ui.Image> _messageImage() async {
+    if (_cachedMessageTileBytes == null) {
+      final provider = MessageTileProvider();
+      _cachedMessageTileBytes = await provider.getTileBytes();
+    }
+    final buffer = await ui.ImmutableBuffer.fromUint8List(
+      _cachedMessageTileBytes!,
+    );
+    final codec = await ui.instantiateImageCodecWithSize(buffer);
+    final frame = await codec.getNextFrame();
+    codec.dispose();
+    return frame.image; // ✅ Nouvelle image à chaque appel
+  }
+
+  static Future<ImageInfo> _transparentInfo() async {
+    return ImageInfo(image: await _transparentImage());
+  }
+
+  static Future<ui.Image> _transparentImage() async {
+    _cachedTransparentBytes ??= TileProviderFactory.transparentTilePng;
+    final codec = await ui.instantiateImageCodec(_cachedTransparentBytes!);
+    final frame = await codec.getNextFrame();
+    codec.dispose();
+    return frame.image; // ✅ Nouvelle image à chaque appel
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is BlankGrayFilteringImageProvider &&
+          other.inner == inner &&
+          other.coords == coords &&
+          other.layerKey == layerKey &&
+          other.paintMessage == paintMessage);
+
+  @override
+  int get hashCode => Object.hash(inner, coords, layerKey, paintMessage);
 }
