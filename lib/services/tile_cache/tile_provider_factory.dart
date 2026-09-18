@@ -5,6 +5,7 @@ import 'package:http/http.dart' show Client;
 import 'package:my_spots/models/litto3d_layer.dart';
 import 'package:my_spots/services/tile_cache/cache_manager.dart';
 import 'package:my_spots/services/negative_tile_filter.dart';
+import 'package:my_spots/services/tile_cache/blank_gray_filter.dart';
 
 class TileProviderFactory {
   static const String packageName = 'com.svc.my_spots';
@@ -112,8 +113,10 @@ class TileProviderFactory {
     String layerName, {
     List<String>? zoneUuids,
   }) {
+    TileProvider rawProvider;
+
     if (zoneUuids == null || zoneUuids.isEmpty) {
-      return _marineTileProviders.putIfAbsent(layerName, () {
+      rawProvider = _marineTileProviders.putIfAbsent(layerName, () {
         return createProvider(
           stores: {
             CacheManager.marineStoreForLayer(layerName):
@@ -122,22 +125,25 @@ class TileProviderFactory {
           headers: shomTileHeaders,
         );
       });
+    } else {
+      final Map<String, BrowseStoreStrategy> stores = {
+        CacheManager.marineStoreForLayer(layerName):
+            BrowseStoreStrategy.readUpdateCreate,
+        for (final uuid in zoneUuids)
+          'marine_zone_$uuid': BrowseStoreStrategy.read,
+      };
+      rawProvider = FMTCTileProvider(
+        stores: stores,
+        otherStoresStrategy: BrowseStoreStrategy.read,
+        loadingStrategy: BrowseLoadingStrategy.onlineFirst,
+        useOtherStoresAsFallbackOnly: true,
+        headers: shomTileHeaders,
+        errorHandler: handleFmtcBrowsingError,
+        httpClient: httpClient,
+      );
     }
-    final Map<String, BrowseStoreStrategy> stores = {
-      CacheManager.marineStoreForLayer(layerName):
-          BrowseStoreStrategy.readUpdateCreate,
-      for (final uuid in zoneUuids)
-        'marine_zone_$uuid': BrowseStoreStrategy.read,
-    };
-    return FMTCTileProvider(
-      stores: stores,
-      otherStoresStrategy: BrowseStoreStrategy.read,
-      loadingStrategy: BrowseLoadingStrategy.onlineFirst,
-      useOtherStoresAsFallbackOnly: true,
-      headers: shomTileHeaders,
-      errorHandler: handleFmtcBrowsingError,
-      httpClient: httpClient,
-    );
+
+    return BlankGrayFilteringTileProvider(rawProvider);
   }
 
   static TileProvider bathymetryTileProviderFor(

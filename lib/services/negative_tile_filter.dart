@@ -29,7 +29,6 @@ class OfflineTransparentTileProvider extends FMTCTileProvider {
       coords: coordinates,
       options: options,
       provider: this,
-      minValidBytes: offlineMinValidTileBytes,
     );
   }
 }
@@ -47,13 +46,11 @@ class NegativeFilteringImageProvider
     required this.coords,
     required this.options,
     required this.provider,
-    required this.minValidBytes,
   });
 
   final TileCoordinates coords;
   final TileLayer options;
   final FMTCTileProvider provider;
-  final int minValidBytes;
 
   /// Cache statique du Codec PNG transparent — décodé UNE SEULE FOIS.
   /// Évite de recréer un ImmutableBuffer + décodage à chaque tuile manquante.
@@ -126,6 +123,21 @@ class NegativeFilteringImageProvider
     return codec;
   }
 
+  /// Une tuile stockée identique au PNG transparent est un placeholder.
+  ///
+  /// ⚠️ On ne filtre PLUS par taille (ancien seuil 3 Ko) : les tuiles SHOM
+  /// d'eau plate sont des PNG très compressés (< 3 Ko) mais parfaitement
+  /// valides. Un seuil par taille créait des trous transparents au milieu
+  /// de la carte (bandes noires dans les bandes d'eau).
+  static bool _isTransparentPlaceholder(Uint8List bytes) {
+    final ref = MapTileCacheService.transparentTilePng;
+    if (bytes.length != ref.length) return false;
+    for (var i = 0; i < ref.length; i++) {
+      if (bytes[i] != ref[i]) return false;
+    }
+    return true;
+  }
+
   Future<Codec> _loadTileAndDecode({
     required ImageDecoderCallback decode,
   }) async {
@@ -169,7 +181,7 @@ class NegativeFilteringImageProvider
 
     // ── 5. Filtrage : remplace les bytes trop courts par le PNG transparent
     final bytes = result.tile!.bytes;
-    if (bytes.length < minValidBytes) {
+    if (_isTransparentPlaceholder(bytes)) {
       return _getTransparentCodec();
     }
 

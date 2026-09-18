@@ -749,8 +749,8 @@ class _MapScreenState extends State<MapScreen> {
 
   /// Zoom ranges aligned with `MarineMapService.getActiveMarineTileLayers`:
   ///   - 50K  : displayed at z >= 11
-  ///   - 25K  : displayed at z >= 13
-  ///   - 10K  : displayed at z >= 15
+  ///   - 25K  : displayed at z >= 12 (before tile zoom rounds to 13 at ~12.5)
+  ///   - 10K  : displayed at z >= 14 (before tile zoom rounds to 15 at ~14.5)
   /// Download `maxZoom` is clamped to 17 by `FmtcLayerDownloader`; this is
   /// compatible with the 10K layer which only needs z=15..17 to cover the
   /// full on-screen use case (the display layer extends to z=22 via
@@ -922,6 +922,10 @@ class _MapScreenState extends State<MapScreen> {
             )
           : Stack(
               children: [
+                // Fond sombre : visible uniquement dans les trous transparents résiduels
+                const Positioned.fill(
+                  child: ColoredBox(color: Color(0xFF0A1929)),
+                ),
                 FlutterMap(
                   mapController: _mapController,
                   options: MapOptions(

@@ -26,7 +26,7 @@ enum SpeedUnit { knots, kmh }
 
 enum DistanceUnit { metric, nautical }
 
-enum MapType { standard, relief, hiking, marine }
+enum MapType { marine, standard, relief, hiking }
 
 class AppSettings {
   static SpeedUnit speedUnit = SpeedUnit.kmh; // km/h par défaut
@@ -36,7 +36,7 @@ class AppSettings {
   static bool showWaypointDateOnMap = false;
   static DistanceUnit distanceUnit = DistanceUnit.metric;
   static double waypointLabelFontSize = 15.0; // 15 par défaut
-  static MapType mapType = MapType.standard;
+  static MapType mapType = MapType.marine;
   static bool showSpeedOnMap = false; // false par défaut
   static bool offlineModeEnabled = false;
   static const String _offlineModeKey = 'offline_mode_enabled';
@@ -125,7 +125,7 @@ class AppSettings {
     mapType = getEnumFromIndex(
       MapType.values,
       prefs.getInt('map_type'),
-      MapType.standard,
+      MapType.marine,
     );
 
     waypointLabelFontSize =
@@ -372,17 +372,17 @@ class AppSettings {
 
   static String getMapTileUrl() {
     switch (mapType) {
+      case MapType.marine:
+        // Empilement multi-échelles via [MarineMapService] — pas d'URL unique.
+        throw StateError(
+          'La carte marine utilise MarineMapService.getLayers(), pas getMapTileUrl().',
+        );
       case MapType.standard:
         return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
       case MapType.relief:
         return 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
       case MapType.hiking:
         return 'https://tile.thunderforest.com/outdoors/{z}/{x}/{y}.png?apikey=$thunderforestApiKey';
-      case MapType.marine:
-        // Empilement multi-échelles via [MarineMapService] — pas d'URL unique.
-        throw StateError(
-          'La carte marine utilise MarineMapService.getLayers(), pas getMapTileUrl().',
-        );
     }
   }
 

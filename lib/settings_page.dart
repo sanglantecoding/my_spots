@@ -533,6 +533,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   RadioListTile<MapType>(
                     title: const Text(
+                      'Carte Marine (SHOM)',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Assemblage RasterMarine SHOM (1:1 000 000 à 1:10 000)',
+                      style: TextStyle(color: Colors.white54),
+                    ),
+                    value: MapType.marine,
+                    // ignore: deprecated_member_use
+                    groupValue: _selectedMapType,
+                    activeColor: Colors.blueAccent,
+                    // ignore: deprecated_member_use
+                    onChanged: (MapType? value) async {
+                      if (value != null) {
+                        setState(() {
+                          _selectedMapType = value;
+                        });
+                        await AppSettings.saveMapType(value);
+                      }
+                    },
+                  ),
+                  RadioListTile<MapType>(
+                    title: const Text(
                       'Standard',
                       style: TextStyle(
                         color: Colors.white,
@@ -629,33 +656,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     height: 1,
                     indent: 16,
                     endIndent: 16,
-                  ),
-                  RadioListTile<MapType>(
-                    title: const Text(
-                      'Carte Marine (SHOM)',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'Assemblage RasterMarine SHOM (1:1 000 000 à 1:10 000)',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    value: MapType.marine,
-                    // ignore: deprecated_member_use
-                    groupValue: _selectedMapType,
-                    activeColor: Colors.blueAccent,
-                    // ignore: deprecated_member_use
-                    onChanged: (MapType? value) async {
-                      if (value != null) {
-                        setState(() {
-                          _selectedMapType = value;
-                        });
-                        await AppSettings.saveMapType(value);
-                      }
-                    },
                   ),
                 ],
               ),

@@ -5,6 +5,8 @@ import 'package:my_spots/models/lidar_region_bounds.dart';
 import 'package:my_spots/models/litto3d_layer.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
+import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
+import 'package:my_spots/services/tile_cache/blank_gray_filter.dart';
 
 /// Plages de zoom par échelle RasterMarine (clevisu SHOM).
 class _MarineLayerZoomConfig {
@@ -61,19 +63,55 @@ class MarineMapService {
       minNativeZoom: 11,
       maxNativeZoom: 14,
     ),
+    // minZoom 12.0 : flutter_map arrondit le zoom tuile à 13 dès ~12.5.
+    // La 25K doit déjà être empilée avant ce palier, sinon les zones
+    // transparentes de la 50K native z=13 laissent voir le fond « Dézoomez ».
     'RASTER_MARINE_25_WMTS_3857': _MarineLayerZoomConfig(
-      minZoom: 13.0,
+      minZoom: 12.0,
       maxZoom: 22.0,
       minNativeZoom: 12,
       maxNativeZoom: 15,
     ),
     'RASTER_MARINE_10_WMTS_3857': _MarineLayerZoomConfig(
-      minZoom: 15.0,
+      minZoom: 14.0,
       maxZoom: 22.0,
       minNativeZoom: 14,
       maxNativeZoom: 16,
     ),
   };
+
+  /// Ordre d'empilement (bas → haut). Les seuils 12.0 / 14.0 sont en deçà
+  /// du demi-niveau (12.5 / 14.5) où flutter_map passe à z entier +1.
+  static List<String> _layerOrderForZoom(
+    double currentZoom, {
+    required bool offline,
+  }) {
+    if (currentZoom >= 14.0) {
+      return const [
+        'RASTER_MARINE_50_WMTS_3857',
+        'RASTER_MARINE_25_WMTS_3857',
+        'RASTER_MARINE_10_WMTS_3857',
+      ];
+    }
+    if (currentZoom >= 12.0) {
+      return const ['RASTER_MARINE_50_WMTS_3857', 'RASTER_MARINE_25_WMTS_3857'];
+    }
+    if (offline) {
+      // 100K / 350K / 1M ne sont pas téléchargés hors-ligne : la 50K
+      // s'étire (minNativeZoom 11, TileLayer.minZoom 8).
+      return const ['RASTER_MARINE_50_WMTS_3857'];
+    }
+    if (currentZoom >= 11.0) {
+      return const ['RASTER_MARINE_50_WMTS_3857'];
+    }
+    if (currentZoom >= 9.0) {
+      return const ['RASTER_MARINE_100_WMTS_3857'];
+    }
+    if (currentZoom >= 7.0) {
+      return const ['RASTER_MARINE_350_WMTS_3857'];
+    }
+    return const ['RASTER_MARINE_3857_WMTS'];
+  }
 
   /// Renvoie UNE SEULE couche active selon le zoom courant (350k inclus).
   static TileLayer getActiveMarineTileLayer(
@@ -88,9 +126,9 @@ class MarineMapService {
       selectedLayer = 'RASTER_MARINE_350_WMTS_3857';
     } else if (currentZoom < 11.5) {
       selectedLayer = 'RASTER_MARINE_100_WMTS_3857';
-    } else if (currentZoom < 13.5) {
+    } else if (currentZoom < 12.5) {
       selectedLayer = 'RASTER_MARINE_50_WMTS_3857';
-    } else if (currentZoom < 15.5) {
+    } else if (currentZoom < 14.5) {
       selectedLayer = 'RASTER_MARINE_25_WMTS_3857';
     } else {
       selectedLayer = 'RASTER_MARINE_10_WMTS_3857';
@@ -106,10 +144,12 @@ class MarineMapService {
       maxZoom: zoom.maxZoom,
       minNativeZoom: zoom.minNativeZoom,
       maxNativeZoom: zoom.maxNativeZoom,
+      retinaMode: false,
       tileDimension: 256,
       keepBuffer: 0,
       panBuffer: 0,
       tileProvider: MapTileCacheService.marineTileProviderFor(selectedLayer),
+      errorImage: MemoryImage(TileProviderFactory.transparentTilePng),
       errorTileCallback: (tile, error, stackTrace) {},
       evictErrorTileStrategy: EvictErrorTileStrategy.none,
     );
@@ -128,58 +168,43 @@ class MarineMapService {
     List<String>? zoneUuids,
     ErrorTileCallBack? errorTileCallback,
   }) {
-    List<String> layerOrder;
+    final layerOrder = _layerOrderForZoom(currentZoom, offline: false);
 
-    if (currentZoom >= 15.0) {
-      // Echelle 10k : empiler [50k, 25k, 10k]
-      layerOrder = [
-        'RASTER_MARINE_50_WMTS_3857',
-        'RASTER_MARINE_25_WMTS_3857',
-        'RASTER_MARINE_10_WMTS_3857',
-      ];
-    } else if (currentZoom >= 13.0) {
-      // Echelle 25k : empiler [50k, 25k]
-      layerOrder = ['RASTER_MARINE_50_WMTS_3857', 'RASTER_MARINE_25_WMTS_3857'];
-    } else if (currentZoom >= 11.0) {
-      // Echelle 50k : couche [50k] uniquement
-      layerOrder = ['RASTER_MARINE_50_WMTS_3857'];
-    } else if (currentZoom >= 9.0) {
-      // Echelle 100k : couche [100k] uniquement
-      layerOrder = ['RASTER_MARINE_100_WMTS_3857'];
-    } else if (currentZoom >= 7.0) {
-      // Echelle 350k : couche [350k] uniquement
-      layerOrder = ['RASTER_MARINE_350_WMTS_3857'];
-    } else {
-      // Echelle 1M / Carte du monde : couche globale [3857_WMTS]
-      layerOrder = ['RASTER_MARINE_3857_WMTS'];
-    }
-
-    return layerOrder.map((layerName) {
+    final marineLayers = layerOrder.asMap().entries.map((entry) {
+      final index = entry.key; // 0 = couche du BAS
+      final layerName = entry.value;
       final zoom = _zoomByLayer[layerName]!;
       final urlTemplate = '$_clevisuWmtsLayerPrefix$layerName';
+      final rawProvider = MapTileCacheService.marineTileProviderFor(
+        layerName,
+        zoneUuids: zoneUuids,
+      );
 
       return TileLayer(
         key: Key('marine_layer_$layerName'),
         urlTemplate: urlTemplate,
         userAgentPackageName: MapTileCacheService.packageName,
         minZoom: zoom.minZoom,
-        maxZoom: 22.0, // Permet l'étirement des tuiles sous-jacentes
+        maxZoom: 22.0,
         minNativeZoom: zoom.minNativeZoom,
         maxNativeZoom: zoom.maxNativeZoom,
+        retinaMode: false,
         tileDimension: 256,
         keepBuffer: 0,
         panBuffer: 0,
-        tileProvider: MapTileCacheService.marineTileProviderFor(
-          layerName,
-          zoneUuids: zoneUuids,
+        // 👇 UNIQUEMENT la couche du bas peint le message ;
+        // les couches du dessus restent transparentes si elles n'ont rien.
+        tileProvider: BlankGrayFilteringTileProvider(
+          rawProvider,
+          paintMessage: index == 0, // SEUL le bas peint le message
         ),
+        errorImage: MemoryImage(TileProviderFactory.transparentTilePng),
         errorTileCallback: errorTileCallback ?? (tile, error, stackTrace) {},
         evictErrorTileStrategy: EvictErrorTileStrategy.none,
-        tileDisplay: TileDisplay.fadeIn(
-          duration: const Duration(milliseconds: 200),
-        ),
+        tileDisplay: TileDisplay.instantaneous(),
       );
     }).toList();
+    return marineLayers;
   }
 
   static const String _inspireWmtsBase =
@@ -274,34 +299,17 @@ class MarineMapService {
     List<String> zoneUuids, {
     ErrorTileCallBack? errorTileCallback,
   }) {
-    List<String> layerOrder;
-
-    // CORRECTION OFFLINE : On force la présence de la 50k en dessous de 13.0
-    // pour qu'elle s'étire (underzoom) et évite un écran vide.
-    // Les couches 100k, 350k et 1M ne sont pas téléchargées en offline.
-    if (currentZoom >= 15.0) {
-      layerOrder = [
-        'RASTER_MARINE_50_WMTS_3857', // Fond
-        'RASTER_MARINE_25_WMTS_3857',
-        'RASTER_MARINE_10_WMTS_3857',
-      ];
-    } else if (currentZoom >= 13.0) {
-      layerOrder = [
-        'RASTER_MARINE_50_WMTS_3857', // Fond
-        'RASTER_MARINE_25_WMTS_3857',
-      ];
-    } else {
-      // En dessous de 13, on ne garde QUE la 50k.
-      // Grâce à minZoom: 0.0 et minNativeZoom: 11, Flutter Map va
-      // automatiquement étirer les tuiles du zoom 11 vers les zooms inférieurs.
-      layerOrder = ['RASTER_MARINE_50_WMTS_3857'];
-    }
+    // Hors-ligne : mêmes seuils 12.0 / 14.0 que l'online. En dessous de 12,
+    // seule la 50K (téléchargée) reste et s'étire.
+    final layerOrder = _layerOrderForZoom(currentZoom, offline: true);
 
     final offlineProvider = MapTileCacheService.offlineMarineTileProvider(
       zoneUuids,
     );
 
-    return layerOrder.map((layerName) {
+    final marineLayers = layerOrder.asMap().entries.map((entry) {
+      final index = entry.key;
+      final layerName = entry.value;
       final zoom = _zoomByLayer[layerName]!;
       final urlTemplate = '$_clevisuWmtsLayerPrefix$layerName';
 
@@ -309,21 +317,25 @@ class MarineMapService {
         key: Key('marine_layer_$layerName'),
         urlTemplate: urlTemplate,
         userAgentPackageName: MapTileCacheService.packageName,
-        minZoom: 8.0, // ← Active l'underzoom (étirement vers le bas)
+        minZoom: 8.0,
         maxZoom: 22.0,
         minNativeZoom: zoom.minNativeZoom,
         maxNativeZoom: zoom.maxNativeZoom,
+        retinaMode: false,
         tileDimension: 256,
         keepBuffer: 0,
         panBuffer: 0,
-        tileProvider: offlineProvider,
+        tileProvider: BlankGrayFilteringTileProvider(
+          offlineProvider,
+          paintMessage: index == 0,
+        ),
+        errorImage: MemoryImage(TileProviderFactory.transparentTilePng),
         errorTileCallback: errorTileCallback ?? (tile, error, stackTrace) {},
         evictErrorTileStrategy: EvictErrorTileStrategy.none,
-        tileDisplay: TileDisplay.fadeIn(
-          duration: const Duration(milliseconds: 200),
-        ),
+        tileDisplay: TileDisplay.instantaneous(),
       );
     }).toList();
+    return marineLayers;
   }
 
   /// LiDAR (Litto3D) tile layers for HORS-LIGNE mode.
