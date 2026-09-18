@@ -13,11 +13,6 @@ class BlankGrayFilteringTileProvider extends TileProvider {
   final TileProvider inner;
   final bool paintMessage;
 
-  static bool verboseLogs = false;
-  static void log(String message) {
-    if (verboseLogs) debugPrint('[BlankGrayFilter] $message');
-  }
-
   @override
   ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
     return BlankGrayFilteringImageProvider(
@@ -47,8 +42,6 @@ class BlankGrayFilteringImageProvider
   static Uint8List? _cachedMessageTileBytes;
   static Uint8List? _cachedTransparentBytes;
 
-  String get _tag => '$layerKey z=${coords.z} x=${coords.x} y=${coords.y}';
-
   @override
   Future<BlankGrayFilteringImageProvider> obtainKey(
     ImageConfiguration configuration,
@@ -75,9 +68,6 @@ class BlankGrayFilteringImageProvider
       },
       onError: (Object error, StackTrace? stack) {
         stream.removeListener(listener);
-        BlankGrayFilteringTileProvider.log(
-          '$_tag : ⚠️ erreur réseau : $error → transparent',
-        );
         _transparentInfo().then(completer.complete);
       },
     );
@@ -131,29 +121,19 @@ class BlankGrayFilteringImageProvider
       }
 
       if (!hasVoid) {
-        BlankGrayFilteringTileProvider.log('$_tag : pleine → gardée');
         completer.complete(info);
         return;
       }
 
       if (!hasContent) {
         if (paintMessage) {
-          BlankGrayFilteringTileProvider.log(
-            '$_tag : 100% vide + couche BAS → MESSAGE',
-          );
           _messageTileInfo().then(completer.complete);
         } else {
-          BlankGrayFilteringTileProvider.log(
-            '$_tag : 100% vide + couche DESSUS → transparent',
-          );
           _transparentInfo().then(completer.complete);
         }
         return;
       }
 
-      BlankGrayFilteringTileProvider.log(
-        '$_tag : tuile mixte (contenu + vides) → compositing',
-      );
       final modifiedImage = await _imageFromRgba(bytes, w, h);
 
       if (paintMessage) {
@@ -165,8 +145,7 @@ class BlankGrayFilteringImageProvider
       } else {
         completer.complete(ImageInfo(image: modifiedImage));
       }
-    } catch (e) {
-      BlankGrayFilteringTileProvider.log('$_tag : ❌ $e');
+    } catch (_) {
       completer.complete(info);
     }
   }

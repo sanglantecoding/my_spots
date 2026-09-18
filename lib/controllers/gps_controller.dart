@@ -102,9 +102,21 @@ class GpsController extends ChangeNotifier {
 
   /// Démarre le suivi GPS
   Future<bool> start() async {
-    if (_state != GpsState.stopped) {
-      // Déjà en cours d'exécution
+    // Déjà actif : rien à faire
+    if (_state == GpsState.initializing ||
+        _state == GpsState.stationary ||
+        _state == GpsState.moving) {
       return true;
+    }
+    // 🔧 CORRECTION : après une erreur, reset automatique pour permettre
+    // un redémarrage sans attendre un clearError() explicite
+    if (_state == GpsState.error) {
+      debugPrint(
+        '[GpsController] start() : reset automatique après erreur ($_errorMessage)',
+      );
+      _errorMessage = null;
+      _state = GpsState.stopped;
+      notifyListeners();
     }
 
     _setState(GpsState.initializing);
@@ -292,18 +304,30 @@ class GpsController extends ChangeNotifier {
     super.dispose();
   }
 
-  /// Obtient la position actuelle une seule fois (sans démarrer le flux)
-  Future<Position?> getCurrentPosition() async {
+  /// Requête ponctuelle de position GPS.
+  ///
+  /// [affectGlobalState] : si false (défaut), un échec ne modifie PAS l'état
+  /// global du singleton — seul le suivi continu (positionStream) peut le faire.
+  Future<Position?> getCurrentPosition({bool affectGlobalState = false}) async {
     try {
-      return await Geolocator.getCurrentPosition(
+      final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 3),
+          accuracy: LocationAccuracy.best,
+          timeLimit: Duration(seconds: 15),
         ),
       );
+      if (affectGlobalState) {
+        // Mise à jour complète (position + vitesse + précision + état)
+        _updatePosition(position);
+      }
+      return position;
     } catch (e) {
-      _setState(GpsState.error, e.toString());
-      return null;
+      debugPrint('[GpsController] getCurrentPosition (ponctuel) en échec : $e');
+      if (affectGlobalState) {
+        // Seul le suivi global a le droit de passer en error
+        _setState(GpsState.error, e.toString());
+      }
+      return null; // ← le caller gère son propre fallback (snackbar, etc.)
     }
   }
 

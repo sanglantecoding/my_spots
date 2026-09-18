@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:latlong2/latlong.dart';
@@ -28,10 +29,55 @@ typedef ZoneProgressCallback =
 /// Callback d'erreur pour une zone en cours de téléchargement.
 typedef ZoneErrorCallback = void Function(String message);
 
+// ─── Raisons d'interruption d'un téléchargement ─────────────────────────────
+
+/// Raison pour laquelle un téléchargement de zone a été interrompu.
+///
+/// Persistée dans [_ZoneState.cancelReason] afin que l'évaluation finale
+/// ([_finalizeZone]) puisse produire un statut (`partial`/`failed`) et un
+/// message (`map.lastError`) adaptés à la cause réelle.
+enum DownloadCancelReason {
+  /// Téléchargement non interrompu (allé jusqu'au bout).
+  none,
+
+  /// Annulation explicite par l'utilisateur.
+  user,
+
+  /// Interrompu par le watchdog (flux gelé).
+  watchdog,
+
+  /// Interrompu car le plafond de tuiles a été dépassé.
+  tileCeiling,
+}
+
+/// Résultat de l'évaluation d'une couche en fin de téléchargement.
+enum LayerOutcome {
+  /// Toutes les tuiles téléchargées, aucun échec.
+  ok,
+
+  /// Certaines tuiles OK mais aussi des échecs réseau.
+  partial,
+
+  /// Seulement des échecs réseau.
+  networkFailure,
+
+  /// 0 tuile réelle téléchargée ET 0 échec réseau = couche hors couverture.
+  /// (ex. LiDAR hors campagne) — ni un succès, ni un échec réseau.
+  noCoverage,
+
+  /// Couche interrompue (par utilisateur, watchdog ou plafond).
+  interrupted,
+}
+
 // ─── État interne d'une zone ────────────────────────────────────────────────
 
 class _ZoneState {
   bool isCancelled = false;
+
+  /// Raison de l'interruption (reste à [DownloadCancelReason.none] si le
+  /// téléchargement est allé jusqu'au bout).
+  DownloadCancelReason cancelReason = DownloadCancelReason.none;
+
   int completedLayers = 0;
   int failedLayers = 0;
   Completer<void>? allDone;
@@ -46,7 +92,8 @@ class _ZoneState {
 /// Gère le cycle de vie complet :
 /// - Téléchargement séquentiel de chaque couche (marine 50k/25k/10k + LiDAR)
 /// - Suivi de la progression et gestion des erreurs
-/// - Évaluation finale (ready / partial / failed)
+/// - Évaluation finale (ready / partial / failed) basée sur la cause réelle
+///   (annulation utilisateur, watchdog, plafond, échecs réseau, sans couverture)
 /// - Annulation, pause et reprise
 class ZoneDownloadService {
   ZoneDownloadService({
@@ -94,6 +141,7 @@ class ZoneDownloadService {
 
     try {
       map.status = OfflineMapStatus.downloading;
+      map.lastError = null; // Reset avant de démarrer
       _repository.save(map);
 
       for (final layer in layers) {
@@ -165,6 +213,25 @@ class ZoneDownloadService {
           continue;
         }
 
+        // 👇 TRADUCTION : DownloadInterruptReason → DownloadCancelReason
+        // Le downloader a détecté watchdog / plafond et posé la raison dans
+        // le LayerDownloadResult. On la propage dans le state global pour
+        // que _finalizeZone puisse produire le bon statut/message.
+        if (state.cancelReason == DownloadCancelReason.none) {
+          switch (result.interruptReason) {
+            case DownloadInterruptReason.watchdog:
+              state.cancelReason = DownloadCancelReason.watchdog;
+              state.isCancelled = true;
+              break;
+            case DownloadInterruptReason.tileCeiling:
+              state.cancelReason = DownloadCancelReason.tileCeiling;
+              state.isCancelled = true;
+              break;
+            case DownloadInterruptReason.none:
+              break;
+          }
+        }
+
         if (state.isCancelled) break;
 
         layer.estimatedTileCount = result.estimatedTileCount;
@@ -187,7 +254,7 @@ class ZoneDownloadService {
         _previousInstanceIds[map.uuid] = lastInstance;
       }
 
-      _finalizeZone(map, state, layers, onError);
+      _finalizeZone(map, state, layers, layerResults, onError);
     } catch (e) {
       initializationFailed = true;
       final msg = 'Erreur initialisation zone: $e';
@@ -206,50 +273,165 @@ class ZoneDownloadService {
     }
   }
 
-  /// Finalise le statut d'une zone après téléchargement de toutes ses couches.
+  /// Évalue le résultat d'une couche en tenant compte de la raison
+  /// d'interruption éventuelle du téléchargement global.
+  LayerOutcome assessLayerResult(
+    LayerDownloadResult r,
+    DownloadCancelReason cancelReason,
+  ) {
+    // Interruption technique ou utilisateur : JAMAIS un succès,
+    // même si des tuiles ont été téléchargées avant l'interruption.
+    if (cancelReason != DownloadCancelReason.none) {
+      return r.downloadedTileCount > 0
+          ? LayerOutcome.partial
+          : LayerOutcome.interrupted;
+    }
+
+    // Aucune tuile réelle téléchargée
+    if (r.downloadedTileCount == 0) {
+      // 0 tuile réelle + 0 échec réseau = couche hors couverture sur la zone
+      // (ex. LiDAR hors campagne) → ni un succès, ni un échec réseau.
+      if (r.failedTileCount == 0) return LayerOutcome.noCoverage;
+      return LayerOutcome.networkFailure;
+    }
+
+    // Des tuiles ont été téléchargées, mais le downloader a jugé la couche
+    // en échec (trop d'échecs réseau selon _networkFailureTolerance) :
+    // on ne doit PAS la compter comme un succès.
+    if (!r.successful) {
+      return LayerOutcome.networkFailure;
+    }
+
+    // Des tuiles OK avec quelques échecs réseau isolés → partiel
+    if (r.failedTileCount > 0) return LayerOutcome.partial;
+    return LayerOutcome.ok;
+  }
+
+  /// Détermine le statut final de la zone à partir des résultats par couche
+  /// et de la raison d'interruption.
+  ///
+  /// Règles :
+  /// - Si toutes les couches sont `ok` et aucune interruption → `ready`.
+  /// - Si interruption utilisateur → `partial` (s'il y a du contenu),
+  ///   sinon `notStarted` ; message clair dans `map.lastError`.
+  /// - Si interruption watchdog/plafond → `partial` (avec contenu) ou `failed`.
+  /// - Si échecs réseau uniquement → `partial` ou `failed` selon qu'il y a
+  ///   au moins une couche avec du contenu.
+  /// - Si toutes les couches sont `noCoverage` → `partial` avec message
+  ///   explicite (jamais `ready`, jamais `failed`).
+  OfflineMapStatus _finalStatus(
+    OfflineMap map,
+    List<LayerOutcome> outcomes,
+    DownloadCancelReason reason,
+  ) {
+    final hasOkOrPartial =
+        outcomes.contains(LayerOutcome.ok) ||
+        outcomes.contains(LayerOutcome.partial);
+
+    switch (reason) {
+      case DownloadCancelReason.user:
+        map.lastError = 'Annulé par l\'utilisateur';
+        return hasOkOrPartial
+            ? OfflineMapStatus.partial
+            : OfflineMapStatus.notStarted;
+
+      case DownloadCancelReason.watchdog:
+        map.lastError = 'Interrompu : téléchargement gelé (watchdog)';
+        return hasOkOrPartial
+            ? OfflineMapStatus.partial
+            : OfflineMapStatus.failed;
+
+      case DownloadCancelReason.tileCeiling:
+        map.lastError =
+            'Interrompu : plafond de tuiles dépassé (zone trop grande)';
+        return hasOkOrPartial
+            ? OfflineMapStatus.partial
+            : OfflineMapStatus.failed;
+
+      case DownloadCancelReason.none:
+        break;
+    }
+
+    // Pas d'interruption : évaluation par résultats des couches
+    if (outcomes.every((o) => o == LayerOutcome.ok)) {
+      map.lastError = null;
+      return OfflineMapStatus.ready;
+    }
+
+    if (outcomes.contains(LayerOutcome.networkFailure)) {
+      final n = outcomes.where((o) => o == LayerOutcome.networkFailure).length;
+      map.lastError = 'Échecs réseau sur $n couche(s)';
+      return hasOkOrPartial
+          ? OfflineMapStatus.partial
+          : OfflineMapStatus.failed;
+    }
+
+    // Couche(s) sans couverture uniquement : partiel avec message clair
+    final noCov = outcomes.where((o) => o == LayerOutcome.noCoverage).length;
+    if (noCov > 0 && !hasOkOrPartial) {
+      map.lastError = '$noCov couche(s) sans couverture sur cette zone';
+      return OfflineMapStatus.partial;
+    }
+
+    // Cas mixte restant (interrompu + ok + partial)
+    map.lastError = null;
+    return hasOkOrPartial ? OfflineMapStatus.partial : OfflineMapStatus.failed;
+  }
+
   void _finalizeZone(
     OfflineMap map,
     _ZoneState state,
-    List<OfflineMapLayer> layers, [
+    List<OfflineMapLayer> layers,
+    Map<LayerType, LayerDownloadResult> layerResults, [
     ZoneErrorCallback? onError,
   ]) {
-    if (state.isCancelled) {
-      map.status = OfflineMapStatus.failed;
-      _repository.save(map);
-      onError?.call('Telechargement annule');
-      return;
-    }
+    // Évaluation fine par couche via assessLayerResult (utilise les compteurs
+    // réels : downloaded / failed / negative), avec fallback si la couche
+    // n'a pas de résultat (exception réseau avant retour du downloader).
+    final outcomes = layers.map((layer) {
+      final result = layerResults[layer.layerType];
+      if (result != null) {
+        return assessLayerResult(result, state.cancelReason);
+      }
+      if (layer.downloadStatus == LayerDownloadStatus.completed) {
+        return LayerOutcome.ok;
+      }
+      if (state.cancelReason != DownloadCancelReason.none) {
+        return LayerOutcome.interrupted;
+      }
+      return LayerOutcome.networkFailure;
+    }).toList();
 
-    var totalDownloaded = 0;
-    for (final layer in layers) {
-      totalDownloaded += layer.downloadedTileCount;
-    }
-
-    if (state.failedLayers == 0) {
-      map.status = OfflineMapStatus.ready;
-      map.completedAt = DateTime.now();
-    } else if (state.completedLayers == 0 && totalDownloaded == 0) {
-      map.status = OfflineMapStatus.failed;
-      onError?.call(
-        'Echec total: aucune tuile telechargee. Verifiez votre connexion et les coordonnees de la zone.',
-      );
-    } else {
-      map.status = OfflineMapStatus.partial;
+    final status = _finalStatus(map, outcomes, state.cancelReason);
+    map.status = status;
+    if (status == OfflineMapStatus.ready ||
+        status == OfflineMapStatus.partial) {
       map.completedAt = DateTime.now();
     }
     _repository.save(map);
 
-    // Invalidate the store names cache after a successful download
-    // to ensure the new stores are properly reflected
+    if (map.lastError != null && onError != null) {
+      onError(map.lastError!);
+    }
+
+    debugPrint(
+      '[ZoneDownload] ${map.uuid}: status=$status, reason=${state.cancelReason.name}, '
+      'outcomes=${outcomes.map((o) => o.name).toList()}, lastError="${map.lastError}"',
+    );
+
     NegativeFilteringImageProvider.clearStoreNamesCache();
   }
 
   /// Annule le téléchargement d'une zone.
+  ///
+  /// Pose la raison [DownloadCancelReason.user] avant de déclencher le
+  /// cancel FMTC, afin que [_finalizeZone] produise le bon statut/message.
   Future<void> cancelDownload(String zoneUuid) async {
     final state = _zones[zoneUuid];
     if (state == null) return;
 
     state.isCancelled = true;
+    state.cancelReason = DownloadCancelReason.user; // ← raison persistée
     final store = state.activeStore;
     final instanceId = state.activeInstanceId;
 
@@ -277,6 +459,27 @@ class ZoneDownloadService {
     final instanceId = state.activeInstanceId;
     if (store != null && instanceId != null) {
       _downloader.resume(zoneUuid, store, instanceId);
+    }
+  }
+
+  /// Attend la fin réelle d'un téléchargement de zone avant de purger.
+  ///
+  /// Utile depuis `deleteZone()` par exemple : on attend que le téléchargeur
+  /// ait vraiment terminé (y compris l'écriture du statut final) avant de
+  /// supprimer le store FMTC et la ligne ObjectBox.
+  ///
+  /// Timeout après [timeout] secondes pour ne pas bloquer indéfiniment.
+  Future<void> waitForCompletion(
+    String zoneUuid, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final state = _zones[zoneUuid];
+    final allDone = state?.allDone;
+    if (allDone == null) return;
+    try {
+      await allDone.future.timeout(timeout);
+    } on TimeoutException {
+      debugPrint('[ZoneDownload] waitForCompletion: timeout pour $zoneUuid');
     }
   }
 

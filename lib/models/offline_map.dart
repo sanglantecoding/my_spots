@@ -1,12 +1,6 @@
 import 'package:objectbox/objectbox.dart';
 
-enum OfflineMapStatus {
-  notStarted,
-  downloading,
-  partial,
-  ready,
-  failed,
-}
+enum OfflineMapStatus { notStarted, downloading, partial, ready, failed }
 
 @Entity()
 class OfflineMap {
@@ -21,6 +15,10 @@ class OfflineMap {
   final double eastLng;
 
   int statusIndex;
+
+  /// Message d'erreur ou d'information après le dernier téléchargement.
+  /// Ex: "Interrompu : plafond de tuiles dépassé", "Échecs réseau sur 2 couche(s)".
+  String? lastError;
 
   @Property(type: PropertyType.date)
   final DateTime createdAt;
@@ -38,6 +36,7 @@ class OfflineMap {
     required this.eastLng,
     required this.statusIndex,
     required this.createdAt,
+    this.lastError,
     DateTime? completedAt,
   }) : completedAt = completedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -50,16 +49,23 @@ class OfflineMap {
     required double eastLng,
   }) {
     return OfflineMap(
-      uuid: uuid, name: name,
-      northLat: northLat, southLat: southLat,
-      westLng: westLng, eastLng: eastLng,
+      uuid: uuid,
+      name: name,
+      northLat: northLat,
+      southLat: southLat,
+      westLng: westLng,
+      eastLng: eastLng,
       statusIndex: OfflineMapStatus.notStarted.index,
       createdAt: DateTime.now(),
+      lastError: null,
     );
   }
 
-  OfflineMapStatus get status => OfflineMapStatus.values[
-      statusIndex.clamp(0, OfflineMapStatus.values.length - 1)];
+  OfflineMapStatus get status =>
+      OfflineMapStatus.values[statusIndex.clamp(
+        0,
+        OfflineMapStatus.values.length - 1,
+      )];
 
   set status(OfflineMapStatus value) {
     statusIndex = value.index;
@@ -68,8 +74,7 @@ class OfflineMap {
   bool get isReady => status == OfflineMapStatus.ready;
   bool get isNotStarted => status == OfflineMapStatus.notStarted;
 
-  bool get isCompleted =>
-      completedAt.millisecondsSinceEpoch > 0;
+  bool get isCompleted => completedAt.millisecondsSinceEpoch > 0;
 
   void markCompleted() {
     completedAt = DateTime.now();

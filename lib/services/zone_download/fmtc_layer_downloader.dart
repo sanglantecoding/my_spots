@@ -147,6 +147,9 @@ class FmtcLayerDownloader implements LayerDownloader {
     var lastEventAt = DateTime.now();
     Timer? watchdog;
 
+    // Raison d'interruption (posée avant chaque cancel)
+    DownloadInterruptReason interruptReason = DownloadInterruptReason.none;
+
     try {
       watchdog = Timer.periodic(const Duration(seconds: 30), (t) {
         if (DateTime.now().difference(lastEventAt) > _stallWindow) {
@@ -154,6 +157,7 @@ class FmtcLayerDownloader implements LayerDownloader {
           debugPrint(
             '[FmtcLayerDownloader] WATCHDOG stall detected - cancelling instance $instanceId.',
           );
+          interruptReason = DownloadInterruptReason.watchdog;
           store.download.cancel(instanceId: instanceId);
         }
       });
@@ -174,6 +178,7 @@ class FmtcLayerDownloader implements LayerDownloader {
           debugPrint(
             '[FmtcLayerDownloader] Tile count $maxTiles > ceiling - aborting.',
           );
+          interruptReason = DownloadInterruptReason.tileCeiling;
           store.download.cancel(instanceId: instanceId);
         }
       }
@@ -188,7 +193,13 @@ class FmtcLayerDownloader implements LayerDownloader {
       await ctrl.close();
     }
 
-    return _assessResult(maxTiles, successful, failed, negative);
+    return _assessResult(
+      maxTiles,
+      successful,
+      failed,
+      negative,
+      interruptReason,
+    );
   }
 
   /// Évalue le résultat d'un téléchargement de couche.
@@ -201,13 +212,15 @@ class FmtcLayerDownloader implements LayerDownloader {
     int successful,
     int failed,
     int negative,
+    DownloadInterruptReason interruptReason,
   ) {
     final total = maxTiles > 0 ? maxTiles : (successful + failed + negative);
     if (total == 0) {
-      return const LayerDownloadResult(
+      return LayerDownloadResult(
         downloadedTileCount: 0,
         estimatedTileCount: 0,
         successful: false,
+        interruptReason: interruptReason,
       );
     }
 
@@ -227,6 +240,7 @@ class FmtcLayerDownloader implements LayerDownloader {
       successful: ok,
       negativeTileCount: negative,
       failedTileCount: failed,
+      interruptReason: interruptReason,
     );
   }
 
