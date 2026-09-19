@@ -4,8 +4,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:my_spots/services/tile_cache/message_tile_provider.dart';
 import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
+import 'package:my_spots/services/tile_cache/message_tile_provider.dart';
 
 class BlankGrayFilteringTileProvider extends TileProvider {
   BlankGrayFilteringTileProvider(this.inner, {this.paintMessage = false});
@@ -39,7 +39,6 @@ class BlankGrayFilteringImageProvider
   final bool paintMessage;
 
   // ✅ Cache uniquement les BYTES, jamais les ui.Image
-  static Uint8List? _cachedMessageTileBytes;
   static Uint8List? _cachedTransparentBytes;
 
   @override
@@ -61,35 +60,46 @@ class BlankGrayFilteringImageProvider
     final completer = Completer<ImageInfo>();
     final stream = inner.resolve(ImageConfiguration.empty);
     late ImageStreamListener listener;
+
     listener = ImageStreamListener(
       (image, synchronousCall) {
         stream.removeListener(listener);
         _processTile(image, completer, decode);
       },
-      onError: (Object error, StackTrace? stack) {
+      onError: (Object error, StackTrace? stack) async {
         stream.removeListener(listener);
-        _transparentInfo().then(completer.complete);
+        try {
+          completer.complete(await _transparentInfo());
+        } catch (e, st) {
+          completer.completeError(e, st);
+        }
       },
     );
     stream.addListener(listener);
     return completer.future;
   }
 
-  void _processTile(
+  Future<void> _processTile(
     ImageInfo info,
     Completer<ImageInfo> completer,
     ImageDecoderCallback decode,
   ) async {
+    ui.Image? original = info.image;
+    final scale = info.scale;
+
     try {
-      final original = info.image;
       final w = original.width;
       final h = original.height;
 
       final data = await original.toByteData(
         format: ui.ImageByteFormat.rawRgba,
       );
+
       if (data == null) {
-        completer.complete(info);
+        final cloned = original.clone();
+        info.dispose(); // Libère le handle du provider intérieur
+        original = null;
+        completer.complete(ImageInfo(image: cloned, scale: scale));
         return;
       }
 
@@ -105,7 +115,6 @@ class BlankGrayFilteringImageProvider
         final g = bytes[i + 1];
         final b = bytes[i + 2];
 
-        // 👇 Utilise la méthode testable
         if (isVoidPixel(r, g, b, a)) {
           bytes[i + 3] = 0; // Rend le pixel transparent
           hasVoid = true;
@@ -115,49 +124,56 @@ class BlankGrayFilteringImageProvider
       }
 
       if (!hasVoid) {
-        completer.complete(info);
+        final cloned = original.clone();
+        info.dispose();
+        original = null;
+        completer.complete(ImageInfo(image: cloned, scale: scale));
         return;
       }
 
       if (!hasContent) {
+        info.dispose();
+        original = null;
         if (paintMessage) {
-          _messageTileInfo().then(completer.complete);
+          completer.complete(await _messageTileInfo());
         } else {
-          _transparentInfo().then(completer.complete);
+          completer.complete(await _transparentInfo());
         }
         return;
       }
+
+      info.dispose(); // L'image originale n'est plus nécessaire
+      original = null;
 
       final modifiedImage = await _imageFromRgba(bytes, w, h);
 
       if (paintMessage) {
         final msgImage = await _messageImage();
-        final composited = await _compositeOnMessage(msgImage, modifiedImage);
-        modifiedImage.dispose();
-        msgImage.dispose();
-        completer.complete(ImageInfo(image: composited));
+        try {
+          final composited = await _compositeOnMessage(msgImage, modifiedImage);
+          modifiedImage.dispose();
+          msgImage.dispose();
+          completer.complete(ImageInfo(image: composited, scale: scale));
+        } catch (e) {
+          modifiedImage.dispose();
+          msgImage.dispose();
+          rethrow;
+        }
       } else {
-        completer.complete(ImageInfo(image: modifiedImage));
+        completer.complete(ImageInfo(image: modifiedImage, scale: scale));
       }
-    } catch (_) {
-      completer.complete(info);
+    } catch (e, st) {
+      if (original != null) {
+        info.dispose();
+      }
+      completer.completeError(e, st);
     }
   }
 
   /// Détermine si un pixel est "vide" (doit devenir transparent).
-  ///
-  /// Un pixel est considéré vide si :
-  /// - Son alpha est 0 (déjà transparent), OU
-  /// - Il est gris/blanc uniforme (r≈g≈b, r≥190) — typique des tuiles
-  ///   "hors couverture" du serveur SHOM.
-  ///
-  /// Exposée pour les tests unitaires.
   @visibleForTesting
   static bool isVoidPixel(int r, int g, int b, int a) {
-    // Déjà transparent
     if (a == 0) return true;
-
-    // Gris/blanc uniforme (tolérance 3 pour le bruit de compression)
     final isGrayWhite = (r - g).abs() <= 3 && (g - b).abs() <= 3 && r >= 190;
     return isGrayWhite;
   }
@@ -172,8 +188,12 @@ class BlankGrayFilteringImageProvider
     );
     final codec = await descriptor.instantiateCodec();
     final frame = await codec.getNextFrame();
+
+    // ✅ Libération explicite des ressources natives
     descriptor.dispose();
     codec.dispose();
+    buffer.dispose();
+
     return frame.image;
   }
 
@@ -195,32 +215,37 @@ class BlankGrayFilteringImageProvider
   }
 
   static Future<ImageInfo> _messageTileInfo() async {
-    return ImageInfo(image: await _messageImage());
+    return ImageInfo(image: await _messageImage(), scale: 1.0);
   }
 
   static Future<ui.Image> _messageImage() async {
-    if (_cachedMessageTileBytes == null) {
-      final provider = MessageTileProvider();
-      _cachedMessageTileBytes = await provider.getTileBytes();
-    }
-    final buffer = await ui.ImmutableBuffer.fromUint8List(
-      _cachedMessageTileBytes!,
-    );
+    // Le générateur est l'unique propriétaire des bytes du message (cache unique).
+    final bytes = await MessageTileProvider.getTileBytes(); // ← appel STATIQUE
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
     final codec = await ui.instantiateImageCodecWithSize(buffer);
     final frame = await codec.getNextFrame();
+
     codec.dispose();
+    buffer.dispose();
+
     return frame.image;
   }
 
   static Future<ImageInfo> _transparentInfo() async {
-    return ImageInfo(image: await _transparentImage());
+    return ImageInfo(image: await _transparentImage(), scale: 1.0);
   }
 
   static Future<ui.Image> _transparentImage() async {
     _cachedTransparentBytes ??= TileProviderFactory.transparentTilePng;
-    final codec = await ui.instantiateImageCodec(_cachedTransparentBytes!);
+    final buffer = await ui.ImmutableBuffer.fromUint8List(
+      _cachedTransparentBytes!,
+    );
+    final codec = await ui.instantiateImageCodecWithSize(buffer);
     final frame = await codec.getNextFrame();
+
     codec.dispose();
+    buffer.dispose();
+
     return frame.image;
   }
 

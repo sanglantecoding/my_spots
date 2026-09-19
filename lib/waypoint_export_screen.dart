@@ -131,10 +131,14 @@ class _WaypointExportScreenState extends State<WaypointExportScreen> {
       await file.writeAsString(gpxContent);
 
       // Partager le fichier
-      await Share.shareXFiles(
-        [XFile(file.path, name: fileName, mimeType: 'application/gpx+xml')],
-        subject: 'Waypoints MySpots',
-        text: '$_selectedCount waypoint(s) de MySpots',
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile(file.path, name: fileName, mimeType: 'application/gpx+xml'),
+          ],
+          subject: 'Waypoints MySpots',
+          text: '$_selectedCount waypoint(s) de MySpots',
+        ),
       );
 
       // Nettoyer le fichier temporaire après un délai
@@ -161,40 +165,27 @@ class _WaypointExportScreenState extends State<WaypointExportScreen> {
       await Future.delayed(const Duration(milliseconds: 100));
 
       // Utiliser FileType.any pour éviter que les fichiers soient grisés
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        allowMultiple: false,
-      );
+      final result = await FilePicker.pickFiles(type: FileType.any);
 
       // Vérifier manuellement l'extension du fichier
-      if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-        final fileName = file.name.toLowerCase();
-        if (!fileName.endsWith('.gpx') && !fileName.endsWith('.xml')) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Veuillez sélectionner un fichier .gpx ou .xml'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-          return;
+      if (result.isEmpty) return;
+
+      final file = result.first;
+      final fileName = file.name.toLowerCase();
+      if (!fileName.endsWith('.gpx') && !fileName.endsWith('.xml')) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Veuillez sélectionner un fichier .gpx ou .xml'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
+        return;
       }
 
-      if (result == null || result.files.isEmpty) return;
-
-      final file = result.files.first;
-
-      // Essayer de récupérer le contenu depuis le chemin d'abord
-      String content;
-      if (file.path != null) {
-        content = await File(file.path!).readAsString();
-      } else if (file.bytes != null) {
-        // Fallback: utiliser les octets si le chemin n'est pas disponible
-        content = String.fromCharCodes(file.bytes!);
-      } else {
+      // Essayer de récupérer le contenu depuis le chemin
+      if (file.path == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -205,6 +196,8 @@ class _WaypointExportScreenState extends State<WaypointExportScreen> {
         }
         return;
       }
+
+      final content = await File(file.path!).readAsString();
 
       final document = XmlDocument.parse(content);
       int importedCount = 0;

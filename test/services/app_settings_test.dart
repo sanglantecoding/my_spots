@@ -39,7 +39,7 @@ void main() {
         await AppSettings.loadSettings();
         expect(AppSettings.selectedPortKey, 'palavas_les_flots');
         expect(AppSettings.speedUnit, SpeedUnit.kmh);
-        expect(AppSettings.mapType, MapType.standard);
+        expect(AppSettings.mapType, MapType.marine);
       });
 
       test('Valeurs chargees depuis SharedPreferences', () async {

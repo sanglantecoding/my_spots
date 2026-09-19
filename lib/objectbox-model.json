@@ -59,7 +59,7 @@
     },
     {
       "id": "2:5621580101653289067",
-      "lastPropertyId": "11:5526990479795015572",
+      "lastPropertyId": "12:7284829012688782740",
       "name": "OfflineMap",
       "properties": [
         {
@@ -112,6 +112,11 @@
           "id": "11:5526990479795015572",
           "name": "completedAt",
           "type": 10
+        },
+        {
+          "id": "12:7284829012688782740",
+          "name": "lastError",
+          "type": 9
         }
       ],
       "relations": []

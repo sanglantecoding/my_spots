@@ -1,21 +1,22 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 
-/// Un TileProvider qui retourne toujours la même tuile PNG contenant
-/// le message "Dézoomez pour voir la carte".
+/// Générateur pur de la tuile PNG 256×256 contenant le message
+/// « Dézoomez pour voir la carte ».
 ///
-/// Utilisé comme couche de fond pour remplacer le gris par défaut
-/// quand aucune carte n'est disponible à ce niveau de zoom.
-class MessageTileProvider extends TileProvider {
-  MessageTileProvider() : super();
+/// Simplifié selon l'audit : plus d'héritage [TileProvider], plus de
+/// `getImage()`, plus de `_MessageImageProvider` — cette classe est
+/// uniquement l'unique propriétaire des bytes PNG du message (cache unique).
+class MessageTileProvider {
+  MessageTileProvider._();
 
-  /// Tuile PNG 256x256 avec le message, générée une seule fois et mise en cache.
+  /// Bytes PNG de la tuile message, générés une seule fois puis mis en cache.
   static Uint8List? _cachedTile;
 
-  /// Retourne les bytes PNG de la tuile de message.
-  Future<Uint8List> getTileBytes() async {
+  /// Retourne les bytes PNG de la tuile message (génération au premier appel).
+  static Future<Uint8List> getTileBytes() async {
     if (_cachedTile != null) return _cachedTile!;
 
     const int size = 256;
@@ -46,7 +47,7 @@ class MessageTileProvider extends TileProvider {
       );
     }
 
-    // On dessine un cercle avec un "-" au centre
+    // Cercle avec un "-" au centre
     final center = Offset(size / 2, size / 2 - 30);
     final circlePaint = Paint()
       ..color = const Color(0xFF0D6999)
@@ -64,9 +65,9 @@ class MessageTileProvider extends TileProvider {
 
     // Texte principal
     final textPainter = TextPainter(
-      text: TextSpan(
+      text: const TextSpan(
         text: 'Dézoomez',
-        style: const TextStyle(
+        style: TextStyle(
           color: Colors.white,
           fontSize: 16,
           fontWeight: FontWeight.bold,
@@ -79,12 +80,13 @@ class MessageTileProvider extends TileProvider {
       canvas,
       Offset((size - textPainter.width) / 2, size / 2 + 10),
     );
+    textPainter.dispose();
 
     // Texte secondaire
     final textPainter2 = TextPainter(
-      text: TextSpan(
+      text: const TextSpan(
         text: 'pour voir la carte',
-        style: const TextStyle(color: Color(0xFF8899AA), fontSize: 12),
+        style: TextStyle(color: Color(0xFF8899AA), fontSize: 12),
       ),
       textDirection: TextDirection.ltr,
     );
@@ -93,52 +95,17 @@ class MessageTileProvider extends TileProvider {
       canvas,
       Offset((size - textPainter2.width) / 2, size / 2 + 32),
     );
+    textPainter2.dispose();
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(size, size);
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+
+    // ✅ Libération explicite des ressources natives (audit point 5)
     picture.dispose();
     image.dispose();
 
     _cachedTile = byteData!.buffer.asUint8List();
     return _cachedTile!;
   }
-
-  @override
-  ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
-    return _MessageImageProvider(getTileBytes: getTileBytes);
-  }
-}
-
-/// ImageProvider qui charge les bytes PNG depuis la méthode asynchrone.
-class _MessageImageProvider extends ImageProvider<_MessageImageProvider> {
-  final Future<Uint8List> Function() getTileBytes;
-
-  const _MessageImageProvider({required this.getTileBytes});
-
-  @override
-  ImageStreamCompleter loadImage(
-    _MessageImageProvider key,
-    ImageDecoderCallback decode,
-  ) {
-    return OneFrameImageStreamCompleter(_loadImageInfo());
-  }
-
-  Future<ImageInfo> _loadImageInfo() async {
-    final bytes = await getTileBytes();
-    final codec = await ui.instantiateImageCodec(bytes);
-    final frame = await codec.getNextFrame();
-    return ImageInfo(image: frame.image); // ← Enveloppe l'image dans ImageInfo
-  }
-
-  @override
-  Future<_MessageImageProvider> obtainKey(ImageConfiguration configuration) {
-    return Future.value(this);
-  }
-
-  @override
-  bool operator ==(Object other) => other is _MessageImageProvider;
-
-  @override
-  int get hashCode => 0; // Toujours la même tuile
 }

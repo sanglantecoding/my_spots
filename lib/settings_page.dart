@@ -97,9 +97,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await file.writeAsString(jsonString);
 
       // Partager le fichier
-      await Share.shareXFiles([
-        XFile(file.path),
-      ], text: 'Sauvegarde complète My Spots');
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          text: 'Sauvegarde complète My Spots',
+        ),
+      );
 
       // Nettoyer après 30 secondes
       Future.delayed(const Duration(seconds: 30), () {
@@ -130,22 +133,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _importAllData() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        allowMultiple: false,
-      );
+      final result = await FilePicker.pickFiles(type: FileType.any);
 
-      if (result == null || result.files.isEmpty) return;
+      if (result.isEmpty) return;
 
-      final file = result.files.first;
-      if (file.path == null && file.bytes == null) return;
+      final file = result.first;
+      if (file.path == null) return;
 
-      String content;
-      if (file.path != null) {
-        content = await File(file.path!).readAsString();
-      } else {
-        content = String.fromCharCodes(file.bytes!);
-      }
+      final content = await File(file.path!).readAsString();
 
       final data = jsonDecode(content) as Map<String, dynamic>;
 

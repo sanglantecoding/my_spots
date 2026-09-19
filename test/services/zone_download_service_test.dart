@@ -245,13 +245,15 @@ void main() {
         results: [
           const LayerDownloadResult(
             downloadedTileCount: 0,
-            estimatedTileCount: 100,
+            estimatedTileCount: 50,
             successful: false,
+            failedTileCount: 50, // Échecs réseau réels
           ),
           const LayerDownloadResult(
             downloadedTileCount: 0,
             estimatedTileCount: 50,
             successful: false,
+            failedTileCount: 50, // Échecs réseau réels
           ),
         ],
       );
@@ -315,7 +317,7 @@ void main() {
   });
 
   group('downloadZone — cancellation', () {
-    test('cancelDownload sets map to failed', () async {
+    test('cancelDownload sets map to notStarted when no content', () async {
       final gate = Completer<void>();
       final d = FakeLayerDownloader(gateCompletion: gate);
       final s2 = ZoneDownloadService(repository: repo, downloader: d);
@@ -327,8 +329,8 @@ void main() {
       await Future.delayed(Duration.zero); // zone enters _zones
       await s2.cancelDownload(map.uuid); // signals isCancelled = true
       gate.complete(); // unblocks download — loop sees isCancelled, breaks
-      await Future.delayed(Duration.zero); // finalize writes status=failed
-      expect(repo.findByUuid(map.uuid)!.status, OfflineMapStatus.failed);
+      await Future.delayed(Duration.zero); // finalize writes status=notStarted
+      expect(repo.findByUuid(map.uuid)!.status, OfflineMapStatus.notStarted);
     });
     test('cancelDownload delegates zone uuid to downloader', () async {
       final gate = Completer<void>();

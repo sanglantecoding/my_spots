@@ -87,7 +87,7 @@ final _entities = <obx_int.ModelEntity>[
   obx_int.ModelEntity(
     id: const obx_int.IdUid(2, 5621580101653289067),
     name: 'OfflineMap',
-    lastPropertyId: const obx_int.IdUid(11, 5526990479795015572),
+    lastPropertyId: const obx_int.IdUid(12, 7284829012688782740),
     flags: 0,
     properties: <obx_int.ModelProperty>[
       obx_int.ModelProperty(
@@ -148,6 +148,12 @@ final _entities = <obx_int.ModelEntity>[
         id: const obx_int.IdUid(11, 5526990479795015572),
         name: 'completedAt',
         type: 10,
+        flags: 0,
+      ),
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(12, 7284829012688782740),
+        name: 'lastError',
+        type: 9,
         flags: 0,
       ),
     ],
@@ -313,7 +319,10 @@ obx_int.ModelDefinition getObjectBoxModel() {
       objectToFB: (OfflineMap object, fb.Builder fbb) {
         final uuidOffset = fbb.writeString(object.uuid);
         final nameOffset = fbb.writeString(object.name);
-        fbb.startTable(12);
+        final lastErrorOffset = object.lastError == null
+            ? null
+            : fbb.writeString(object.lastError!);
+        fbb.startTable(13);
         fbb.addInt64(0, object.id);
         fbb.addOffset(1, uuidOffset);
         fbb.addOffset(2, nameOffset);
@@ -324,6 +333,7 @@ obx_int.ModelDefinition getObjectBoxModel() {
         fbb.addInt64(7, object.statusIndex);
         fbb.addInt64(8, object.createdAt.millisecondsSinceEpoch);
         fbb.addInt64(10, object.completedAt.millisecondsSinceEpoch);
+        fbb.addOffset(11, lastErrorOffset);
         fbb.finish(fbb.endTable());
         return object.id;
       },
@@ -375,6 +385,9 @@ obx_int.ModelDefinition getObjectBoxModel() {
         final createdAtParam = DateTime.fromMillisecondsSinceEpoch(
           const fb.Int64Reader().vTableGet(buffer, rootOffset, 20, 0),
         );
+        final lastErrorParam = const fb.StringReader(
+          asciiOptimization: true,
+        ).vTableGetNullable(buffer, rootOffset, 26);
         final completedAtParam = DateTime.fromMillisecondsSinceEpoch(
           const fb.Int64Reader().vTableGet(buffer, rootOffset, 24, 0),
         );
@@ -388,6 +401,7 @@ obx_int.ModelDefinition getObjectBoxModel() {
           eastLng: eastLngParam,
           statusIndex: statusIndexParam,
           createdAt: createdAtParam,
+          lastError: lastErrorParam,
           completedAt: completedAtParam,
         );
 
@@ -497,5 +511,10 @@ class OfflineMap_ {
   /// See [OfflineMap.completedAt].
   static final completedAt = obx.QueryDateProperty<OfflineMap>(
     _entities[1].properties[9],
+  );
+
+  /// See [OfflineMap.lastError].
+  static final lastError = obx.QueryStringProperty<OfflineMap>(
+    _entities[1].properties[10],
   );
 }
