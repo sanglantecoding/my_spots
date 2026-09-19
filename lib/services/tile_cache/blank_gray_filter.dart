@@ -226,7 +226,6 @@ class BlankGrayFilteringImageProvider
     final frame = await codec.getNextFrame();
 
     codec.dispose();
-    buffer.dispose();
 
     return frame.image;
   }
@@ -244,7 +243,6 @@ class BlankGrayFilteringImageProvider
     final frame = await codec.getNextFrame();
 
     codec.dispose();
-    buffer.dispose();
 
     return frame.image;
   }

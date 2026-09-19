@@ -6,13 +6,10 @@ import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/settings_page.dart';
 import 'package:my_spots/services/gps_service.dart';
 import 'package:my_spots/services/alarm_service.dart';
-import 'package:my_spots/services/marine_map_service.dart';
-import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/widgets/satellite_bottom_sheet.dart';
 import 'package:my_spots/widgets/navigation_overlay.dart';
 import 'package:my_spots/views/dialogs/waypoint_editor_sheet.dart';
 import 'package:my_spots/controllers/gps_controller.dart';
-import 'package:my_spots/views/widgets/map/gps_marker_widget.dart';
 import 'package:my_spots/views/widgets/map/selected_waypoint_panel.dart';
 import 'package:my_spots/views/widgets/map/map_controls_widget.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
@@ -24,6 +21,7 @@ import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/services/zone_download/zone_download.dart';
 import 'package:my_spots/views/widgets/map/distance_measurement_overlay.dart';
 import 'dart:async';
+import 'package:my_spots/views/widgets/map/map_view.dart';
 
 class MapScreen extends StatefulWidget {
   final Waypoint? centerOn;
@@ -824,22 +822,6 @@ class _MapScreenState extends State<MapScreen> {
     return AppSettings.speedUnit == SpeedUnit.knots ? 'nds' : 'km/h';
   }
 
-  IconData _getWaypointCategoryIcon(Waypoint waypoint) {
-    switch (waypoint.category) {
-      case WaypointCategory.mushrooms:
-        return Icons.park; // Champignons / forêt
-      case WaypointCategory.fishing:
-        return Icons.anchor; // Ancre pour la pêche
-      case WaypointCategory.other:
-        // Vérifier si le nom contient "Voiture"
-        if (waypoint.name.toLowerCase().contains('voiture')) {
-          return Icons.directions_car; // Voiture
-        } else {
-          return Icons.location_on; // Icône standard de waypoint
-        }
-    }
-  }
-
   Future<void> _centerOnTargetAndUser() async {
     if (_currentPosition == null || _selectedWaypoint == null) return;
     final bounds = LatLngBounds.fromPoints([
@@ -926,331 +908,39 @@ class _MapScreenState extends State<MapScreen> {
                 const Positioned.fill(
                   child: ColoredBox(color: Color(0xFF0A1929)),
                 ),
-                FlutterMap(
+                MapView(
                   mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter:
-                        _currentPosition ?? AppSettings.getDefaultMapCenter(),
-                    initialZoom: _currentZoom,
-                    minZoom: AppSettings.offlineModeEnabled
-                        ? 8.0
-                        : AppSettings.getMapMinZoom(),
-                    maxZoom: AppSettings.getMapMaxZoom(),
-                    onPositionChanged: (position, hasGesture) {
-                      // Met à jour _currentZoom seulement en cas de changement significatif
-                      if ((position.zoom - _currentZoom).abs() > 0.001) {
-                        setState(() {
-                          _currentZoom = position.zoom;
-                        });
-                      }
-                    },
-                    onMapEvent: (event) {
-                      if (event is MapEventMove ||
-                          event is MapEventRotate ||
-                          event is MapEventNonRotatedSizeChange) {
-                        _onMapCameraChanged();
-                      }
-                    },
-                    onPointerDown: (event, point) {
-                      // Désactiver le suivi automatique quand l'utilisateur déplace la carte manuellement
-                      if (_isFollowingUser) {
-                        setState(() {
-                          _isFollowingUser = false;
-                        });
-                      }
-                    },
-                    onLongPress: (tapPosition, latLng) {
-                      if (_zoneEditMode) return;
-                      _showMapContextMenu(latLng);
-                    },
-                  ),
-                  children: [
-                    if (AppSettings.mapType == MapType.marine) ...[
-                      if (AppSettings.offlineModeEnabled) ...[
-                        // HORS-LIGNE : never falls back to the general FMTC
-                        // store or to the network. getOffline*() is always
-                        // called; when _readyZoneUuids is empty the provider
-                        // uses stores:{} + cacheOnly so every tile is missing
-                        // => transparent PNG, no HTTP request is made.
-                        ...MarineMapService.getOfflineMarineTileLayers(
-                          _currentZoom,
-                          _readyZoneUuids,
+                  mapType: AppSettings.mapType,
+                  zoom: _currentZoom,
+                  offlineMode: AppSettings.offlineModeEnabled,
+                  readyZoneUuids: _readyZoneUuids,
+                  readyLidarLayers: _readyLidarLayers,
+                  currentPosition: _currentPosition,
+                  selectedWaypointPosition: _selectedWaypoint == null
+                      ? null
+                      : LatLng(
+                          _selectedWaypoint!.latitude,
+                          _selectedWaypoint!.longitude,
                         ),
-                        if (AppSettings.bathymetryOverlayEnabled)
-                          ...MarineMapService.getOfflineLidarLayers(
-                            _mapVisibleBounds ?? _zoneCombinedBounds,
-                            _readyLidarLayers,
-                            _readyZoneUuids,
-                            opacity: AppSettings.bathymetryOverlayOpacity,
-                          ),
-                      ] else ...[
-                        ...MarineMapService.getActiveMarineTileLayers(
-                          _currentZoom,
-                          zoneUuids: _readyZoneUuids,
-                        ),
-                        if (AppSettings.bathymetryOverlayEnabled)
-                          ...MarineMapService.getActiveLidarLayers(
-                            _mapVisibleBounds,
-                            zoneUuids: _readyZoneUuids,
-                            opacity: AppSettings.bathymetryOverlayOpacity,
-                          ),
-                      ],
-                    ] else
-                      TileLayer(
-                        key: ValueKey('basemap_${AppSettings.mapType}'),
-                        urlTemplate: AppSettings.getMapTileUrl(),
-                        userAgentPackageName: MapTileCacheService.packageName,
-                        minZoom: AppSettings.getMapMinZoom(),
-                        minNativeZoom: AppSettings.getMapMinNativeZoom(),
-                        maxNativeZoom: AppSettings.getMapMaxNativeZoom(),
-                        maxZoom: AppSettings.getMapMaxZoom(),
-                        tileProvider:
-                            MapTileCacheService.getTileProviderForMapType(
-                              AppSettings.mapType,
-                            ),
-                        errorTileCallback: _logMapTileError,
-                      ),
-                    if (_currentPosition != null && _selectedWaypoint != null)
-                      PolylineLayer(
-                        polylines: [
-                          Polyline(
-                            points: [
-                              _currentPosition!,
-                              LatLng(
-                                _selectedWaypoint!.latitude,
-                                _selectedWaypoint!.longitude,
-                              ),
-                            ],
-                            color: Colors.white70.withValues(alpha: 0.8),
-                            strokeWidth: 2,
-                            pattern: const StrokePattern.dotted(
-                              spacingFactor: 1.8,
-                            ),
-                          ),
-                        ],
-                      ),
-                    MarkerLayer(
-                      markers: [
-                        // Position GPS actuelle (en premier, donc en arrière-plan)
-                        if (_currentPosition != null)
-                          Marker(
-                            point: _currentPosition!,
-                            width: 80,
-                            height: 80,
-                            alignment: Alignment.center,
-                            child: const GpsMarkerWidget(),
-                          ),
-                        // Waypoints de l'utilisateur (en dernier, donc au premier plan)
-                        if (AppSettings.waypointsVisible)
-                          ...WaypointStore.waypoints
-                              .where((waypoint) {
-                                if (waypoint.category ==
-                                        WaypointCategory.fishing &&
-                                    !AppSettings.showFishingWaypointsOnMap) {
-                                  return false;
-                                }
-                                if (waypoint.category ==
-                                        WaypointCategory.mushrooms &&
-                                    !AppSettings.showMushroomWaypointsOnMap) {
-                                  return false;
-                                }
-                                if (waypoint.category ==
-                                        WaypointCategory.other &&
-                                    !AppSettings.showOtherWaypointsOnMap) {
-                                  return false;
-                                }
-                                return true;
-                              })
-                              .map((waypoint) {
-                                final showName =
-                                    AppSettings.showWaypointNamesOnMap;
-                                final showDate =
-                                    AppSettings.showWaypointDateOnMap;
-                                final hasLabel = showName || showDate;
-                                final fontSize =
-                                    AppSettings.waypointLabelFontSize;
-                                final dateStr =
-                                    '${waypoint.createdAt.day.toString().padLeft(2, '0')}/${waypoint.createdAt.month.toString().padLeft(2, '0')}/${waypoint.createdAt.year}';
-                                final iconSize = hasLabel
-                                    ? (24 + fontSize).roundToDouble()
-                                    : 40.0;
-                                final markerWidth = hasLabel
-                                    ? (140 + fontSize * 3)
-                                    : 80.0;
-                                final markerHeight = hasLabel
-                                    ? (65 + fontSize * 2.5)
-                                    : 80.0;
-                                return Marker(
-                                  key: ValueKey(
-                                    'wp_${waypoint.latitude}_${waypoint.longitude}_${waypoint.createdAt.millisecondsSinceEpoch}',
-                                  ),
-                                  point: LatLng(
-                                    waypoint.latitude,
-                                    waypoint.longitude,
-                                  ),
-                                  width: markerWidth,
-                                  height: markerHeight,
-                                  alignment: Alignment.center,
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: () {
-                                      setState(
-                                        () => _selectedWaypoint = waypoint,
-                                      );
-                                    },
-                                    child: hasLabel
-                                        ? Align(
-                                            alignment: Alignment.center,
-                                            child: Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Container(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 6,
-                                                        vertical: 0,
-                                                      ),
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(
-                                                      0xFFFFFDE7,
-                                                    ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          6,
-                                                        ),
-                                                    border: Border.all(
-                                                      color: Colors.black,
-                                                      width: 1,
-                                                    ),
-                                                  ),
-                                                  child: Column(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: [
-                                                      if (showName)
-                                                        Text(
-                                                          waypoint.name,
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          textAlign:
-                                                              TextAlign.center,
-                                                          style: TextStyle(
-                                                            color:
-                                                                Colors.black87,
-                                                            fontSize: fontSize,
-                                                            fontWeight:
-                                                                FontWeight.bold,
-                                                          ),
-                                                        ),
-                                                      if (showName && showDate)
-                                                        const SizedBox(
-                                                          height: 2,
-                                                        ),
-                                                      if (showDate)
-                                                        Text(
-                                                          dateStr,
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          textAlign:
-                                                              TextAlign.center,
-                                                          style: TextStyle(
-                                                            color:
-                                                                Colors.black87,
-                                                            fontSize:
-                                                                fontSize * 0.85,
-                                                            fontWeight:
-                                                                FontWeight.w500,
-                                                          ),
-                                                        ),
-                                                    ],
-                                                  ),
-                                                ),
-                                                Opacity(
-                                                  opacity: 0.65,
-                                                  child: Column(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: [
-                                                      if (showName)
-                                                        Text(
-                                                          waypoint.name,
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          textAlign:
-                                                              TextAlign.center,
-                                                          style: TextStyle(
-                                                            color:
-                                                                Colors.black87,
-                                                            fontSize: fontSize,
-                                                            fontWeight:
-                                                                FontWeight.bold,
-                                                          ),
-                                                        ),
-                                                      const SizedBox(height: 2),
-                                                      if (showDate)
-                                                        Text(
-                                                          dateStr,
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          textAlign:
-                                                              TextAlign.center,
-                                                          style: TextStyle(
-                                                            color:
-                                                                Colors.black87,
-                                                            fontSize:
-                                                                fontSize * 0.85,
-                                                            fontWeight:
-                                                                FontWeight.w500,
-                                                          ),
-                                                        ),
-                                                      Icon(
-                                                        _getWaypointCategoryIcon(
-                                                          waypoint,
-                                                        ),
-                                                        color: waypoint.color,
-                                                        size: iconSize,
-                                                        shadows: const [
-                                                          Shadow(
-                                                            color: Colors.black,
-                                                            blurRadius: 4,
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          )
-                                        : Opacity(
-                                            opacity: 0.65,
-                                            child: Align(
-                                              alignment: Alignment.center,
-                                              child: Icon(
-                                                _getWaypointCategoryIcon(
-                                                  waypoint,
-                                                ),
-                                                color: waypoint.color,
-                                                size: 40,
-                                                shadows: const [
-                                                  Shadow(
-                                                    color: Colors.black,
-                                                    blurRadius: 4,
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                  ),
-                                );
-                              }),
-                      ],
-                    ),
-                  ],
+                  visibleBounds: _mapVisibleBounds,
+                  zoneCombinedBounds: _zoneCombinedBounds,
+                  waypointsVisible: AppSettings.waypointsVisible,
+                  waypoints: WaypointStore.waypoints,
+                  bathymetryEnabled: AppSettings.bathymetryOverlayEnabled,
+                  bathymetryOpacity: AppSettings.bathymetryOverlayOpacity,
+                  onLongPress: (latLng) {
+                    if (_zoneEditMode) return;
+                    _showMapContextMenu(latLng);
+                  },
+                  onTap: (wp) => setState(() => _selectedWaypoint = wp),
+                  onZoomChanged: (z) => setState(() => _currentZoom = z),
+                  onMapCameraChanged: _onMapCameraChanged,
+                  onPointerDown: () {
+                    if (_isFollowingUser) {
+                      setState(() => _isFollowingUser = false);
+                    }
+                  },
+                  onErrorTile: _logMapTileError,
                 ),
                 // Zone-adjustment overlay (active when long-pressing
                 // "Tracer une zone hors-ligne").
