@@ -7,6 +7,8 @@ import 'package:my_spots/objectbox.g.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/services/satellite_service.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 
 /// Orchestrateur du démarrage de l'application.
 ///
@@ -62,6 +64,7 @@ class AppBootstrap {
       _initialiseMapTileCache(),
       _initialiseSatellite(),
       _initialiseObjectBox(),
+      _initialisePackageInfo(),
     ]);
   }
 
@@ -136,6 +139,29 @@ class AppBootstrap {
       AppInitializationStatus.errors['OfflineMapRepository'] = e;
       developer.log(
         'OfflineMapRepository.init a échoué (zones hors-ligne désactivées)',
+        name: _logName,
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+
+  /// TileProviderFactory.appVersion pour que les User-Agent soient corrects.
+  /// Non-bloquant : en cas d'échec, le fallback '1.0.0' (ou ce que tu as mis)
+  /// reste utilisé.
+  static Future<void> _initialisePackageInfo() async {
+    try {
+      final pkg = await PackageInfo.fromPlatform();
+      TileProviderFactory.appVersion = pkg.version;
+      developer.log(
+        'appVersion=${pkg.version} (build=${pkg.buildNumber})',
+        name: _logName,
+      );
+    } catch (e, st) {
+      // Pas de flag AppInitializationStatus : ce n'est pas un service métier.
+      // Le fallback codé dur dans TileProviderFactory reste utilisé.
+      developer.log(
+        'PackageInfo indisponible → fallback appVersion',
         name: _logName,
         error: e,
         stackTrace: st,

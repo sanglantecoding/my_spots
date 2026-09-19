@@ -101,19 +101,13 @@ class BlankGrayFilteringImageProvider
       var hasVoid = false;
       for (var i = 0; i < bytes.length; i += 4) {
         final a = bytes[i + 3];
-        if (a == 0) {
-          hasVoid = true;
-          continue;
-        }
         final r = bytes[i];
         final g = bytes[i + 1];
         final b = bytes[i + 2];
 
-        final isGrayWhite =
-            (r - g).abs() <= 3 && (g - b).abs() <= 3 && r >= 190;
-
-        if (isGrayWhite) {
-          bytes[i + 3] = 0;
+        // 👇 Utilise la méthode testable
+        if (isVoidPixel(r, g, b, a)) {
+          bytes[i + 3] = 0; // Rend le pixel transparent
           hasVoid = true;
         } else {
           hasContent = true;
@@ -140,7 +134,7 @@ class BlankGrayFilteringImageProvider
         final msgImage = await _messageImage();
         final composited = await _compositeOnMessage(msgImage, modifiedImage);
         modifiedImage.dispose();
-        msgImage.dispose(); // ✅ Dispose l'image temporaire
+        msgImage.dispose();
         completer.complete(ImageInfo(image: composited));
       } else {
         completer.complete(ImageInfo(image: modifiedImage));
@@ -148,6 +142,24 @@ class BlankGrayFilteringImageProvider
     } catch (_) {
       completer.complete(info);
     }
+  }
+
+  /// Détermine si un pixel est "vide" (doit devenir transparent).
+  ///
+  /// Un pixel est considéré vide si :
+  /// - Son alpha est 0 (déjà transparent), OU
+  /// - Il est gris/blanc uniforme (r≈g≈b, r≥190) — typique des tuiles
+  ///   "hors couverture" du serveur SHOM.
+  ///
+  /// Exposée pour les tests unitaires.
+  @visibleForTesting
+  static bool isVoidPixel(int r, int g, int b, int a) {
+    // Déjà transparent
+    if (a == 0) return true;
+
+    // Gris/blanc uniforme (tolérance 3 pour le bruit de compression)
+    final isGrayWhite = (r - g).abs() <= 3 && (g - b).abs() <= 3 && r >= 190;
+    return isGrayWhite;
   }
 
   static Future<ui.Image> _imageFromRgba(Uint8List rgba, int w, int h) async {
@@ -182,7 +194,6 @@ class BlankGrayFilteringImageProvider
     return result;
   }
 
-  // ✅ Recrée l'image à chaque appel (pas de cache de ui.Image)
   static Future<ImageInfo> _messageTileInfo() async {
     return ImageInfo(image: await _messageImage());
   }
@@ -198,7 +209,7 @@ class BlankGrayFilteringImageProvider
     final codec = await ui.instantiateImageCodecWithSize(buffer);
     final frame = await codec.getNextFrame();
     codec.dispose();
-    return frame.image; // ✅ Nouvelle image à chaque appel
+    return frame.image;
   }
 
   static Future<ImageInfo> _transparentInfo() async {
@@ -210,7 +221,7 @@ class BlankGrayFilteringImageProvider
     final codec = await ui.instantiateImageCodec(_cachedTransparentBytes!);
     final frame = await codec.getNextFrame();
     codec.dispose();
-    return frame.image; // ✅ Nouvelle image à chaque appel
+    return frame.image;
   }
 
   @override

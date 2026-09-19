@@ -5,11 +5,10 @@ import 'package:http/http.dart' show Client;
 import 'package:my_spots/models/litto3d_layer.dart';
 import 'package:my_spots/services/tile_cache/cache_manager.dart';
 import 'package:my_spots/services/negative_tile_filter.dart';
-import 'package:my_spots/services/tile_cache/blank_gray_filter.dart';
 
 class TileProviderFactory {
   static const String packageName = 'com.svc.my_spots';
-  static const String appVersion = '1.0.0';
+  static String appVersion = '1.0.0';
   static final Client httpClient = Client();
 
   static Map<String, String> get geoplateformeTileHeaders => {
@@ -113,10 +112,8 @@ class TileProviderFactory {
     String layerName, {
     List<String>? zoneUuids,
   }) {
-    TileProvider rawProvider;
-
     if (zoneUuids == null || zoneUuids.isEmpty) {
-      rawProvider = _marineTileProviders.putIfAbsent(layerName, () {
+      return _marineTileProviders.putIfAbsent(layerName, () {
         return createProvider(
           stores: {
             CacheManager.marineStoreForLayer(layerName):
@@ -132,7 +129,7 @@ class TileProviderFactory {
         for (final uuid in zoneUuids)
           'marine_zone_$uuid': BrowseStoreStrategy.read,
       };
-      rawProvider = FMTCTileProvider(
+      return FMTCTileProvider(
         stores: stores,
         otherStoresStrategy: BrowseStoreStrategy.read,
         loadingStrategy: BrowseLoadingStrategy.onlineFirst,
@@ -142,8 +139,6 @@ class TileProviderFactory {
         httpClient: httpClient,
       );
     }
-
-    return BlankGrayFilteringTileProvider(rawProvider);
   }
 
   static TileProvider bathymetryTileProviderFor(

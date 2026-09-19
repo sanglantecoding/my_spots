@@ -16,6 +16,7 @@ import 'package:my_spots/services/zone_download/layer_download_result.dart';
 import 'package:my_spots/services/zone_download/fmtc_layer_downloader.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/services/negative_tile_filter.dart';
+import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 
 // ─── Callbacks publics ──────────────────────────────────────────────────────
 
@@ -315,11 +316,14 @@ class ZoneDownloadService {
   /// - Si interruption utilisateur → `partial` (s'il y a du contenu),
   ///   sinon `notStarted` ; message clair dans `map.lastError`.
   /// - Si interruption watchdog/plafond → `partial` (avec contenu) ou `failed`.
-  /// - Si échecs réseau uniquement → `partial` ou `failed` selon qu'il y a
-  ///   au moins une couche avec du contenu.
-  /// - Si toutes les couches sont `noCoverage` → `partial` avec message
-  ///   explicite (jamais `ready`, jamais `failed`).
-  OfflineMapStatus _finalStatus(
+  /// - Si échecs réseau → `partial` ou `failed` selon qu'il y a au moins
+  ///   une couche avec du contenu.
+  /// - Si des couches sont `noCoverage` (seules OU mixées avec ok/partial)
+  ///   → `partial` avec message explicite (jamais `ready`, jamais `failed`).
+  ///
+  /// Exposée pour les tests unitaires.
+  @visibleForTesting
+  OfflineMapStatus finalStatus(
     OfflineMap map,
     List<LayerOutcome> outcomes,
     DownloadCancelReason reason,
@@ -366,14 +370,16 @@ class ZoneDownloadService {
           : OfflineMapStatus.failed;
     }
 
-    // Couche(s) sans couverture uniquement : partiel avec message clair
+    // Couche(s) sans couverture : partiel avec message clair,
+    // MÊME en cas mixte (ex. marine ok + LiDAR hors campagne) :
+    // l'utilisateur doit savoir pourquoi la zone n'est pas `ready`.
     final noCov = outcomes.where((o) => o == LayerOutcome.noCoverage).length;
-    if (noCov > 0 && !hasOkOrPartial) {
+    if (noCov > 0) {
       map.lastError = '$noCov couche(s) sans couverture sur cette zone';
       return OfflineMapStatus.partial;
     }
 
-    // Cas mixte restant (interrompu + ok + partial)
+    // Cas mixte restant (interrupted + ok + partial)
     map.lastError = null;
     return hasOkOrPartial ? OfflineMapStatus.partial : OfflineMapStatus.failed;
   }
@@ -402,7 +408,7 @@ class ZoneDownloadService {
       return LayerOutcome.networkFailure;
     }).toList();
 
-    final status = _finalStatus(map, outcomes, state.cancelReason);
+    final status = finalStatus(map, outcomes, state.cancelReason);
     map.status = status;
     if (status == OfflineMapStatus.ready ||
         status == OfflineMapStatus.partial) {
@@ -554,7 +560,7 @@ class ZoneDownloadService {
   Map<String, String> _layerHeaders(LayerType type) {
     final base = <String, String>{
       'User-Agent':
-          '${MapTileCacheService.packageName}/1.0 (Flutter Mobile App)',
+          '${MapTileCacheService.packageName}/${TileProviderFactory.appVersion} (Flutter Mobile App)',
       'Accept': 'image/webp,image/png,image/*;q=0.8',
       'Referer': 'https://my-spots.local/',
     };

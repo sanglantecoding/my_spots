@@ -8,6 +8,7 @@ import 'package:http/io_client.dart';
 
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/services/zone_download/layer_download_result.dart';
+import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 
 // ─── Callbacks & interface abstraite ────────────────────────────────────────
 
@@ -89,7 +90,7 @@ class FmtcLayerDownloader implements LayerDownloader {
     final tileHttpClient = IOClient(
       HttpClient()
         ..userAgent =
-            '${MapTileCacheService.packageName}/1.0 (Flutter Mobile App)',
+            '${MapTileCacheService.packageName}/${TileProviderFactory.appVersion} (Flutter Mobile App)',
     );
 
     await store.manage.create();
@@ -193,7 +194,7 @@ class FmtcLayerDownloader implements LayerDownloader {
       await ctrl.close();
     }
 
-    return _assessResult(
+    return assessResult(
       maxTiles,
       successful,
       failed,
@@ -204,10 +205,16 @@ class FmtcLayerDownloader implements LayerDownloader {
 
   /// Évalue le résultat d'un téléchargement de couche.
   ///
-  /// Un téléchargement est considéré comme réussi tant que le ratio d'échecs
-  /// réseau (timeouts, 5xx) reste ≤ [_networkFailureTolerance]. Les tuiles
-  /// "négatives" (404, contenu invalide) ne comptent **pas** comme des échecs.
-  LayerDownloadResult _assessResult(
+  /// Un téléchargement est considéré comme réussi si :
+  /// - Au moins une tuile réelle a été téléchargée (successful > 0)
+  /// - Le ratio d'échecs réseau (timeouts, 5xx) reste ≤ [_networkFailureTolerance]
+  ///
+  /// Les tuiles "négatives" (404, contenu invalide) ne comptent **pas**
+  /// comme des échecs réseau.
+  ///
+  /// Exposée pour les tests unitaires.
+  @visibleForTesting
+  LayerDownloadResult assessResult(
     int maxTiles,
     int successful,
     int failed,
@@ -225,7 +232,10 @@ class FmtcLayerDownloader implements LayerDownloader {
     }
 
     final failedRatio = failed / total;
-    final ok = failedRatio <= _networkFailureTolerance;
+    // P1 audit : au moins UNE tuile réelle exigée pour déclarer succès.
+    // Empêche qu'une couche 100% négative (0 successful, 0 failed, 100 negative)
+    // soit déclarée réussie (failedRatio = 0 → ok = true sans cette garde).
+    final ok = successful > 0 && failedRatio <= _networkFailureTolerance;
 
     if (!ok) {
       debugPrint(

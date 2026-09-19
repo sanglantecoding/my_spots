@@ -113,6 +113,12 @@ class MarineMapService {
     return const ['RASTER_MARINE_3857_WMTS'];
   }
 
+  /// Ordre d'empilement (index 0 = couche du BAS). Table de vérité des
+  /// seuils 12.0 / 14.0 — exposée pour les tests unitaires.
+  @visibleForTesting
+  static List<String> layerOrderForZoom(double zoom, {bool offline = false}) =>
+      _layerOrderForZoom(zoom, offline: offline);
+
   /// Renvoie UNE SEULE couche active selon le zoom courant (350k inclus).
   static TileLayer getActiveMarineTileLayer(
     double currentZoom, {
