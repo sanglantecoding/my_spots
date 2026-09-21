@@ -74,6 +74,23 @@ class FmtcLayerDownloader implements LayerDownloader {
 
   const FmtcLayerDownloader();
 
+  /// Nettoie les sets de tracking (réservé aux tests).
+  @visibleForTesting
+  static void clearTrackingSets() {
+    _activeInstances.clear();
+    _pausedInstances.clear();
+  }
+
+  /// Retourne true si l'instance est marquée comme paused (réservé aux tests).
+  @visibleForTesting
+  static bool isPaused(String instanceId) =>
+      _pausedInstances.contains(instanceId);
+
+  /// Ajoute manuellement une instance aux actifs (réservé aux tests).
+  @visibleForTesting
+  static void addToActive(String instanceId) =>
+      _activeInstances.add(instanceId);
+
   static const int _maxTileCountCeiling = 12000;
   static const double _networkFailureTolerance = 0.15;
   static const Duration _stallWindow = Duration(minutes: 15);

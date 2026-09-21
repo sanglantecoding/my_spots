@@ -343,12 +343,15 @@ class MarineMapService {
     final enabled = AppSettings.bathymetryOverlayEnabled;
     if (!enabled) return [];
 
-    final layers = lidarLayers
-        .map((layer) {
-          return Litto3DCatalog.findById(layer.lidarLayerId ?? '');
-        })
-        .whereType<Litto3DLayer>()
-        .toList();
+    // 👇 Déduplique par campagne : plusieurs zones peuvent partager la même
+    // campagne LiDAR (ex. occitanie_2009) → UNE seule TileLayer par campagne,
+    // qui lit dans les stores de TOUTES les zones concernées (clés uniques).
+    final layersById = <String, Litto3DLayer>{};
+    for (final layer in lidarLayers) {
+      final litto = Litto3DCatalog.findById(layer.lidarLayerId ?? '');
+      if (litto != null) layersById.putIfAbsent(litto.id, () => litto);
+    }
+    final layers = layersById.values.toList();
 
     if (layers.isEmpty) return [];
 

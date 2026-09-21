@@ -707,9 +707,28 @@ class _MapScreenState extends State<MapScreen> {
     repo.save(map);
 
     // 3) Create layers and trigger download.
-    final layers = ZoneConfig.defaultLayersForBounds(
-      bounds,
-    ); // ← Retourne déjà des OfflineMapLayer
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Analyse couverture SHOM...'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+    final layers = await ZoneConfig.resolveLayersForBounds(bounds);
+    if (layers.isEmpty) {
+      _exitZoneEditMode();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Aucune couverture SHOM/LiDAR sur cette zone'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
+
     for (final layer in layers) {
       repo.saveLayer(map, layer);
     }

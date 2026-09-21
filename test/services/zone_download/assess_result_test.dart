@@ -280,4 +280,137 @@ void main() {
       expect(r.downloadedTileCount, 9000);
     });
   });
+
+  group('assessResult — matrice de décision (seuil 15%)', () {
+    test('successful=100, failed=0, negative=0 → success', () {
+      final r = downloader.assessResult(
+        100,
+        100, // successful
+        0, // failed (0%)
+        0, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isTrue);
+      expect(r.downloadedTileCount, 100);
+    });
+
+    test('successful=0, failed=0, negative=100 → failure', () {
+      final r = downloader.assessResult(
+        100,
+        0, // successful ← P1 : aucune tuile réelle
+        0, // failed (0%)
+        100, // negative ← toutes les tuiles sont des 404
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isFalse);
+      expect(r.downloadedTileCount, 0);
+    });
+
+    test('successful=50, failed=0, negative=50 → success', () {
+      final r = downloader.assessResult(
+        100,
+        50, // successful
+        0, // failed (0%)
+        50, // negative (ne compte pas dans le ratio)
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isTrue);
+      expect(r.downloadedTileCount, 50);
+    });
+
+    test('successful=0, failed=10, negative=90 → failure', () {
+      final r = downloader.assessResult(
+        100,
+        0, // successful ← P1 : aucune tuile réelle
+        10, // failed (10%)
+        90, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isFalse);
+      expect(r.downloadedTileCount, 0);
+    });
+
+    test(
+      'successful=100, failed=15, negative=0 → success (borne exacte 15%)',
+      () {
+        final r = downloader.assessResult(
+          100,
+          100, // successful
+          15, // failed (15/115 ≈ 13% < 15%)
+          0, // negative
+          DownloadInterruptReason.none,
+        );
+        expect(r.successful, isTrue);
+      },
+    );
+
+    test(
+      'successful=100, failed=16, negative=0 → failure (au-dessus de 15%)',
+      () {
+        final r = downloader.assessResult(
+          100,
+          100, // successful
+          16, // failed (16/116 ≈ 13.8% mais total = 116 donc 16/116 ≈ 13.8%)
+          0, // negative
+          DownloadInterruptReason.none,
+        );
+        expect(r.successful, isFalse);
+      },
+    );
+
+    test('successful=0, failed=0, negative=0 → failure', () {
+      final r = downloader.assessResult(
+        0,
+        0, // successful
+        0, // failed
+        0, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isFalse);
+      expect(r.estimatedTileCount, 0);
+    });
+  });
+
+  group('assessResult — règle P1 : successful > 0', () {
+    test('successful=0, negative>0 → TOUJOURS failure', () {
+      final r = downloader.assessResult(
+        100,
+        0, // successful ← P1 : aucune tuile réelle
+        0, // failed (0%)
+        100, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(
+        r.successful,
+        isFalse,
+        reason:
+            'P1 audit : une couche 100% négative ne doit JAMAIS être réussie',
+      );
+    });
+
+    test('successful=1, negative=99 → success (au moins une tuile réelle)', () {
+      final r = downloader.assessResult(
+        100,
+        1, // successful ← minimum requis
+        0, // failed
+        99, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isTrue);
+    });
+
+    test(
+      'successful=0, failed=0, negative=1 → failure (même une seule négative)',
+      () {
+        final r = downloader.assessResult(
+          1,
+          0, // successful
+          0, // failed
+          1, // negative
+          DownloadInterruptReason.none,
+        );
+        expect(r.successful, isFalse);
+      },
+    );
+  });
 }

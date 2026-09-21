@@ -58,3 +58,9 @@ key*.json          # Fichiers de clés
 secrets/           # Dossiers secrets
 # Widget Preview related
 .widget_preview/
+
+.bak/
+.widget_preview/
+flutter_logs.txt
+*_caps*.xml
+find_diag*.ps1

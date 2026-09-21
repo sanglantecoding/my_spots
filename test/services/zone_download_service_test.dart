@@ -718,7 +718,7 @@ void main() {
                 'downloadZone must forward a pre-cancel id so FMTC cleans '
                 'up orphan instances from a previous run.',
           );
-          expect(d.preCancels.last.id, '${map.uuid}#0');
+          expect(d.preCancels.last.id, '${map.uuid}#0#marine25k');
           expect(d.preCancels.last.storeName, 'marine_zone_${map.uuid}');
         },
       );

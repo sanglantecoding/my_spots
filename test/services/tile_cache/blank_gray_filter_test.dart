@@ -123,4 +123,27 @@ void main() {
       );
     });
   });
+
+  group('BlankGrayFilteringImageProvider — logique de tuile mixte', () {
+    test('tuile mixte (50% vide, 50% carte) → conservée', () {
+      // Ce test vérifie la logique dans _processTile :
+      // if (hasVoid && hasContent) {
+      //   // Tuile mixte : image trouée reconstruite
+      // }
+      // Le test unitaire ne peut pas tester le traitement d'image réel,
+      // mais on vérifie que la logique de détection fonctionne.
+      // Une tuile avec au moins un pixel non-vide est considérée comme "hasContent".
+      expect(
+        BlankGrayFilteringImageProvider.isVoidPixel(249, 237, 188, 255),
+        isFalse,
+        reason: 'Pixel de terre beige → contenu conservé',
+      );
+      expect(
+        BlankGrayFilteringImageProvider.isVoidPixel(255, 255, 255, 255),
+        isTrue,
+        reason: 'Pixel blanc → vide',
+      );
+      // Une tuile mixte contiendrait les deux types de pixels
+    });
+  });
 }

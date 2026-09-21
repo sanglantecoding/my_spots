@@ -109,6 +109,10 @@ class ZoneDownloadService {
   final LayerDownloader _downloader;
   final Map<String, _ZoneState> _zones = {};
   final Map<String, int> _runCounters = {};
+
+  /// Dernière instanceId utilisée par couple (zone, store) : permet au run
+  /// suivant de pré-annuler l'orphelin du MÊME store uniquement — plus jamais
+  /// d'association croisée « instance d'un run précédent / store d'une autre couche ».
   final Map<String, String> _previousInstanceIds = {};
 
   /// Instance partagée par tous les écrans : un téléchargement lancé depuis
@@ -168,7 +172,6 @@ class ZoneDownloadService {
 
     final state = _zones[zoneUuid] = _ZoneState()..allDone = Completer();
     _runCounters[zoneUuid] = runCount + 1;
-    final preCancelId = _previousInstanceIds[zoneUuid];
     bool initializationFailed = false;
 
     try {
@@ -199,13 +202,21 @@ class ZoneDownloadService {
         final layer = layers[i];
         final layerLabel = _layerLabel(layer);
 
-        final instanceId = '${map.uuid}#$runCount';
         final storeName = _fmtcStoreName(
           map.uuid,
           layer.layerType,
           layer.lidarLayerId,
         );
         final store = FMTCStore(storeName);
+
+        // 👇 Identité unique : zone + run + couche (+ campagne LiDAR).
+        final instanceId = '${map.uuid}#$runCount#${_layerKey(layer)}';
+
+        // 👇 Pre-cancel cohérent : l'orphelin éventuel est celui du MÊME store.
+        final preCancelKey = '${map.uuid}|$storeName';
+        final preCancelId = _previousInstanceIds[preCancelKey];
+        _previousInstanceIds[preCancelKey] = instanceId;
+
         state.activeStore = store;
         state.activeInstanceId = instanceId;
 
@@ -279,11 +290,6 @@ class ZoneDownloadService {
         _repository.saveLayer(map, layer);
 
         layerResults[layer.layerType] = result;
-      }
-
-      final lastInstance = state.activeInstanceId;
-      if (lastInstance != null) {
-        _previousInstanceIds[map.uuid] = lastInstance;
       }
 
       _finalizeZone(map, state, layers, layerResults, onError);
@@ -526,6 +532,12 @@ class ZoneDownloadService {
   }
 
   // ─── Helpers internes ─────────────────────────────────────────────────────
+
+  /// Clé courte et stable identifiant une couche (et sa campagne LiDAR),
+  /// utilisée dans l'instanceId FMTC : `<zone>#<run>#<clé>`.
+  String _layerKey(OfflineMapLayer layer) =>
+      layer.layerType.name +
+      (layer.lidarLayerId != null ? ':${layer.lidarLayerId}' : '');
 
   /// Génère le nom du store FMTC pour une couche.
   String _fmtcStoreName(
