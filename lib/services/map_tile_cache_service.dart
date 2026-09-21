@@ -12,7 +12,6 @@ class MapTileCacheService {
   static const String reliefMapStore = CacheManager.reliefMapStore;
   static const String hikingMapStore = CacheManager.hikingMapStore;
   static const String packageName = TileProviderFactory.packageName;
-  static String get appVersion => TileProviderFactory.appVersion;
 
   static List<String> get bathymetryLayerNames =>
       CacheManager.bathymetryLayerNames;

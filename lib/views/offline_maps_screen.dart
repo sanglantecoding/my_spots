@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -28,19 +30,34 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
 
   late final ZoneDownloadService _zoneService;
   OfflineMapRepository? _offlineMapRepo;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _offlineMapRepo = OfflineMapRepository.instance;
-    _zoneService = ZoneDownloadService(
-      repository: _offlineMapRepo ?? _FailRepo(),
-    );
+    _zoneService = ZoneDownloadService.instance; // 👈 singleton, pas de new
     _loadZones();
+
+    // Rafraîchit automatiquement la liste quand des downloads sont actifs
+    // (pour voir le statut passer au vert sans sortir/revenir)
+    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!mounted) return;
+      // Continue de rafraîchir tant que :
+      // - le service a des téléchargements actifs, OU
+      // - l'écran a lancé des téléchargements, OU
+      // - des zones ont encore le statut "downloading" dans ObjectBox
+      final anyActive =
+          _zoneService.hasActiveZones ||
+          _downloadingUuids.isNotEmpty ||
+          _zones.any((z) => z.status == OfflineMapStatus.downloading);
+      if (anyActive) _loadZones();
+    });
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     super.dispose();
   }
 
@@ -146,11 +163,14 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
 
   void _handlePause(String uuid) {
     _zoneService.pauseDownload(uuid);
+    setState(() {});
     _snack('Telechargement en pause');
   }
 
-  void _handleResume(OfflineMap map, List<OfflineMapLayer> layers) {
-    _handleDownload(map, layers);
+  void _handleResume(String uuid) {
+    _zoneService.resumeDownload(uuid);
+    setState(() {});
+    _snack('Telechargement repris');
   }
 
   Future<void> _handleDelete(OfflineMap map) async {
@@ -348,36 +368,33 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
         final map = _zones[index];
         final layers = _layers[map.uuid] ?? [];
         final progress = _progress[map.uuid] ?? 0.0;
-        final isDownloading = _downloadingUuids.contains(map.uuid);
+
+        // Détecte les downloads actifs via le service (fonctionne aussi
+        // pour les downloads lancés depuis la carte)
+        final isDownloading =
+            _zoneService.isDownloading(map.uuid) ||
+            _downloadingUuids.contains(map.uuid);
+        final isPaused = _zoneService.isPaused(map.uuid);
+
         final activeLabel = _activeLabels[map.uuid] ?? '';
         final sizeBytes = _zoneSizesBytes[map.uuid];
+
         return ZoneListTile(
           key: ValueKey(map.uuid),
           map: map,
           layers: layers,
           progress: progress,
           isDownloading: isDownloading,
+          isPaused: isPaused,
           activeLayerLabel: activeLabel,
           totalSizeBytes: sizeBytes,
           onDownload: () => _handleDownload(map, layers),
           onCancel: () => _handleCancel(map.uuid),
           onPause: () => _handlePause(map.uuid),
-          onResume: () => _handleResume(map, layers),
+          onResume: () => _handleResume(map.uuid),
           onDelete: () => _handleDelete(map),
         );
       },
     ),
   );
-}
-
-/// No-op repository for graceful degradation when ObjectBox is unavailable.
-class _FailRepo implements MapLayerRepository {
-  @override
-  OfflineMap? findByUuid(String uuid) => null;
-  @override
-  OfflineMapLayer? findLayerById(int id) => null;
-  @override
-  void save(OfflineMap map) {}
-  @override
-  void saveLayer(OfflineMap map, OfflineMapLayer layer) {}
 }

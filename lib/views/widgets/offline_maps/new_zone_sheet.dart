@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:my_spots/models/lidar_region_bounds.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
+import 'package:my_spots/services/zone_download/shom_coverage_preflight.dart';
 
 /// Returned by [showNewZoneSheet] when the user confirms the zone name.
 ///
@@ -59,6 +60,49 @@ class ZoneConfig {
       }
     }
 
+    return layers;
+  }
+
+  /// Résout les couches à télécharger pour une zone après preflight SHOM :
+  /// seules les échelles qui couvrent réellement la zone sont créées.
+  ///
+  /// - SHOM injoignable (tous les sondages `null`) → fail-open : comportement
+  ///   actuel (toutes les couches), pour ne jamais bloquer la création ;
+  /// - aucune échelle marine couverte → seule la partie LiDAR est conservée
+  ///   (l'appelant affichera un message si la liste finale est vide).
+  static Future<List<OfflineMapLayer>> resolveLayersForBounds(
+    LatLngBounds bounds, {
+    ShomCoveragePreflight? preflight,
+  }) async {
+    final pf = preflight ?? ShomCoveragePreflight();
+    final fallback = defaultLayersForBounds(bounds);
+    final layers = <OfflineMapLayer>[];
+
+    const scales = [
+      ('RASTER_MARINE_50_WMTS_3857', LayerType.marine50k, 11, 14),
+      ('RASTER_MARINE_25_WMTS_3857', LayerType.marine25k, 12, 15),
+      ('RASTER_MARINE_10_WMTS_3857', LayerType.marine10k, 14, 16),
+    ];
+
+    final results = <LayerType, bool?>{};
+    for (final (url, type, zmin, zmax) in scales) {
+      results[type] = await pf.covers(bounds, url);
+      if (results[type] == true) {
+        layers.add(
+          OfflineMapLayer.create(layerType: type, minZoom: zmin, maxZoom: zmax),
+        );
+      }
+    }
+
+    // Fail-open : SHOM totalement injoignable → comportement actuel.
+    if (results.values.every((v) => v == null)) {
+      layers.addAll(
+        fallback.where((l) => l.layerType != LayerType.lidarLitto3d),
+      );
+    }
+
+    // LiDAR : inchangé (déjà filtré par catalogue régional).
+    layers.addAll(fallback.where((l) => l.layerType == LayerType.lidarLitto3d));
     return layers;
   }
 }

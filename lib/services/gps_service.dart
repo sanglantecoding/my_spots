@@ -15,20 +15,25 @@ import '../models/waypoint.dart';
 ///
 /// Le suivi GPS actif est géré par GpsController
 class GpsService {
-  /// Calcule la distance en mètres entre deux points géographiques
-  /// Formule de Haversine pour calcul précis
-  static double calculateDistance(LatLng from, Waypoint to) {
+  /// Distance en mètres entre deux coordonnées (grande-circle, Haversine).
+  ///
+  /// Source UNIQUE de vérité pour tous les calculs de distance de l'app :
+  /// panneau waypoint, tri par distance, mesure entre deux points.
+  static double distanceBetween(LatLng a, LatLng b) {
     const R = 6371000.0; // Rayon de la Terre en mètres
-    final dLat = _toRad(to.latitude - from.latitude);
-    final dLon = _toRad(to.longitude - from.longitude);
-    final a =
-        pow(sin(dLat / 2), 2) +
-        cos(_toRad(from.latitude)) *
-            cos(_toRad(to.latitude)) *
-            pow(sin(dLon / 2), 2);
-    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    return R * c;
+    final dLat = _toRad(b.latitude - a.latitude);
+    final dLon = _toRad(b.longitude - a.longitude);
+    final halfDLat = sin(dLat / 2);
+    final halfDLon = sin(dLon / 2);
+    final aVal =
+        halfDLat * halfDLat +
+        cos(_toRad(a.latitude)) * cos(_toRad(b.latitude)) * halfDLon * halfDLon;
+    return R * 2 * atan2(sqrt(aVal), sqrt(1 - aVal));
   }
+
+  /// Distance entre une position et un waypoint (délègue à [distanceBetween]).
+  static double calculateDistance(LatLng from, Waypoint to) =>
+      distanceBetween(from, LatLng(to.latitude, to.longitude));
 
   /// Convertit les degrés en radians
   static double _toRad(double deg) => deg * pi / 180;

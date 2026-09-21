@@ -10,6 +10,7 @@ import 'package:my_spots/models/litto3d_layer.dart';
 import 'package:my_spots/models/offline_map.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/services/marine_map_service.dart';
+import 'package:my_spots/repositories/offline_map_repository.dart';
 
 import 'package:my_spots/services/zone_download/repository_interface.dart';
 import 'package:my_spots/services/zone_download/layer_download_result.dart';
@@ -74,6 +75,7 @@ enum LayerOutcome {
 
 class _ZoneState {
   bool isCancelled = false;
+  bool isPaused = false;
 
   /// Raison de l'interruption (reste à [DownloadCancelReason.none] si le
   /// téléchargement est allé jusqu'au bout).
@@ -109,6 +111,23 @@ class ZoneDownloadService {
   final Map<String, int> _runCounters = {};
   final Map<String, String> _previousInstanceIds = {};
 
+  /// Instance partagée par tous les écrans : un téléchargement lancé depuis
+  /// la carte reste pilotable (pause / reprise / suivi) depuis l'écran des
+  /// zones, et inversement. Les tests unitaires continuent d'utiliser le
+  /// constructeur directement avec leurs fakes.
+  static ZoneDownloadService? _instance;
+
+  static ZoneDownloadService get instance {
+    return _instance ??= ZoneDownloadService(
+      repository: OfflineMapRepository.instance ?? _NoopRepo(),
+    );
+  }
+
+  /// Réservé aux tests : permet d'injecter/remettre à zéro le singleton.
+  @visibleForTesting
+  static void overrideInstanceForTest(ZoneDownloadService? service) =>
+      _instance = service;
+
   /// Accès au repository (utile pour les tests).
   MapLayerRepository get repository => _repository;
 
@@ -117,6 +136,18 @@ class ZoneDownloadService {
 
   /// Nombre de zones actuellement en cours de téléchargement.
   int get activeCount => _zones.length;
+
+  /// True si la zone a un téléchargement enregistré (en cours ou en pause).
+  bool hasZone(String zoneUuid) => _zones.containsKey(zoneUuid);
+
+  /// True si un téléchargement tourne actuellement (hors pause).
+  bool isRunning(String zoneUuid) {
+    final s = _zones[zoneUuid];
+    return s != null && !s.isPaused;
+  }
+
+  /// True si au moins une zone a un téléchargement actif ou en pause.
+  bool get hasActiveZones => _zones.isNotEmpty;
 
   /// Télécharge toutes les couches d'une zone.
   ///
@@ -446,27 +477,32 @@ class ZoneDownloadService {
     }
   }
 
-  /// Met en pause le téléchargement d'une zone.
+  /// Met en pause le téléchargement d'une zone (même instance FMTC).
   void pauseDownload(String zoneUuid) {
     final state = _zones[zoneUuid];
     if (state == null) return;
     final store = state.activeStore;
     final instanceId = state.activeInstanceId;
-    if (store != null && instanceId != null) {
-      _downloader.pause(zoneUuid, store, instanceId);
-    }
+    if (store == null || instanceId == null) return;
+    state.isPaused = true;
+    debugPrint('[ZoneDownload] PAUSE $zoneUuid instance=$instanceId');
+    _downloader.pause(zoneUuid, store, instanceId);
   }
 
-  /// Reprend le téléchargement d'une zone précédemment mise en pause.
+  /// Reprend un téléchargement mis en pause (même instance FMTC).
   void resumeDownload(String zoneUuid) {
     final state = _zones[zoneUuid];
     if (state == null) return;
     final store = state.activeStore;
     final instanceId = state.activeInstanceId;
-    if (store != null && instanceId != null) {
-      _downloader.resume(zoneUuid, store, instanceId);
-    }
+    if (store == null || instanceId == null) return;
+    state.isPaused = false;
+    debugPrint('[ZoneDownload] RESUME $zoneUuid instance=$instanceId');
+    _downloader.resume(zoneUuid, store, instanceId);
   }
+
+  /// True si la zone est actuellement en pause.
+  bool isPaused(String zoneUuid) => _zones[zoneUuid]?.isPaused ?? false;
 
   /// Attend la fin réelle d'un téléchargement de zone avant de purger.
   ///
@@ -580,4 +616,16 @@ class ZoneDownloadService {
     }
     return layer.layerType.name;
   }
+}
+
+/// Repository vide pour le mode dégradé (ObjectBox indisponible).
+class _NoopRepo implements MapLayerRepository {
+  @override
+  OfflineMap? findByUuid(String uuid) => null;
+  @override
+  OfflineMapLayer? findLayerById(int id) => null;
+  @override
+  void save(OfflineMap map) {}
+  @override
+  void saveLayer(OfflineMap map, OfflineMapLayer layer) {}
 }

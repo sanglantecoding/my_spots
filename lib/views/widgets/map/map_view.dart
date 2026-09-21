@@ -14,7 +14,7 @@ import 'package:my_spots/views/widgets/map/gps_marker_widget.dart';
 /// [readyZoneUuids], [visibleBounds] ou [bathymetryEnabled] changent.
 /// Les changements de position GPS / vitesse / statut GPS sont gérés par
 /// le parent et ne reconstruisent PAS la carte.
-class MapView extends StatelessWidget {
+class MapView extends StatefulWidget {
   final MapController mapController;
   final MapType mapType;
   final double zoom;
@@ -29,7 +29,6 @@ class MapView extends StatelessWidget {
   final List<Waypoint> waypoints;
   final bool bathymetryEnabled;
   final double bathymetryOpacity;
-
   final void Function(LatLng) onLongPress;
   final void Function(Waypoint) onTap;
   final void Function(double) onZoomChanged;
@@ -62,42 +61,67 @@ class MapView extends StatelessWidget {
   });
 
   @override
+  State<MapView> createState() => _MapViewState();
+}
+
+class _MapViewState extends State<MapView> {
+  bool _tilesReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Différer le chargement des tuiles jusqu'à ce que la carte soit visible
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() {
+          _tilesReady = true;
+        });
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return FlutterMap(
-      mapController: mapController,
+      mapController: widget.mapController,
       options: MapOptions(
-        initialCenter: currentPosition ?? AppSettings.getDefaultMapCenter(),
-        initialZoom: zoom,
-        minZoom: offlineMode ? 8.0 : AppSettings.getMapMinZoom(),
+        initialCenter:
+            widget.currentPosition ?? AppSettings.getDefaultMapCenter(),
+        initialZoom: widget.zoom,
+        minZoom: widget.offlineMode ? 8.0 : AppSettings.getMapMinZoom(),
         maxZoom: AppSettings.getMapMaxZoom(),
         onPositionChanged: (position, hasGesture) {
-          if ((position.zoom - zoom).abs() > 0.001) {
-            onZoomChanged(position.zoom);
+          if ((position.zoom - widget.zoom).abs() > 0.001) {
+            widget.onZoomChanged(position.zoom);
           }
         },
         onMapEvent: (event) {
           if (event is MapEventMove ||
               event is MapEventRotate ||
               event is MapEventNonRotatedSizeChange) {
-            onMapCameraChanged();
+            widget.onMapCameraChanged();
           }
         },
         onPointerDown: (event, point) {
-          onPointerDown();
+          widget.onPointerDown();
         },
         onLongPress: (tapPosition, latLng) {
-          onLongPress(latLng);
+          widget.onLongPress(latLng);
         },
       ),
       children: [
-        // ⚠️ Les couches doivent être des enfants DIRECTS de FlutterMap
+        // ⚠️  Les couches doivent être des enfants DIRECTS de FlutterMap
         // (pas de Column wrapper) :
-        ..._buildTileLayers(),
-        if (currentPosition != null && selectedWaypointPosition != null)
+        if (_tilesReady) ..._buildTileLayers(),
+        if (widget.currentPosition != null &&
+            widget.selectedWaypointPosition != null)
           PolylineLayer(
             polylines: [
               Polyline(
-                points: [currentPosition!, selectedWaypointPosition!],
+                points: [
+                  widget.currentPosition!,
+                  widget.selectedWaypointPosition!,
+                ],
                 color: Colors.white70.withValues(alpha: 0.8),
                 strokeWidth: 2,
                 pattern: const StrokePattern.dotted(spacingFactor: 1.8),
@@ -107,70 +131,77 @@ class MapView extends StatelessWidget {
         MarkerLayer(
           markers: [
             // Position GPS actuelle (en premier, donc en arrière-plan)
-            if (currentPosition != null)
+            if (widget.currentPosition != null)
               Marker(
-                point: currentPosition!,
+                point: widget.currentPosition!,
                 width: 80,
                 height: 80,
                 alignment: Alignment.center,
                 child: const GpsMarkerWidget(),
               ),
             // Waypoints de l'utilisateur (en dernier, donc au premier plan)
-            if (waypointsVisible)
-              ...waypoints.where(_shouldShowWaypoint).map(_buildWaypointMarker),
+            if (widget.waypointsVisible)
+              ...widget.waypoints
+                  .where(_shouldShowWaypoint)
+                  .map(_buildWaypointMarker),
           ],
         ),
       ],
     );
   }
 
-  // ─── Couches de tuiles ────────────────────────────────────────────────────
-
+  // ─── Couches de tuiles ────────────────────────────────────────────────
   List<Widget> _buildTileLayers() {
-    if (mapType == MapType.marine) {
-      return offlineMode ? _offlineMarineLayers() : _onlineMarineLayers();
+    if (widget.mapType == MapType.marine) {
+      return widget.offlineMode
+          ? _offlineMarineLayers()
+          : _onlineMarineLayers();
     }
     return [_standardTileLayer()];
   }
 
-  List<Widget> _offlineMarineLayers() => [
-    ...MarineMapService.getOfflineMarineTileLayers(zoom, readyZoneUuids),
-    if (bathymetryEnabled)
-      ...MarineMapService.getOfflineLidarLayers(
-        visibleBounds ?? zoneCombinedBounds,
-        readyLidarLayers,
-        readyZoneUuids,
-        opacity: bathymetryOpacity,
+  List<Widget> _offlineMarineLayers() {
+    return [
+      ...MarineMapService.getOfflineMarineTileLayers(
+        widget.zoom,
+        widget.readyZoneUuids,
       ),
-  ];
+      if (widget.bathymetryEnabled)
+        ...MarineMapService.getOfflineLidarLayers(
+          widget.visibleBounds ?? widget.zoneCombinedBounds,
+          widget.readyLidarLayers,
+          widget.readyZoneUuids,
+          opacity: widget.bathymetryOpacity,
+        ),
+    ];
+  }
 
   List<Widget> _onlineMarineLayers() => [
     ...MarineMapService.getActiveMarineTileLayers(
-      zoom,
-      zoneUuids: readyZoneUuids,
+      widget.zoom,
+      zoneUuids: widget.readyZoneUuids,
     ),
-    if (bathymetryEnabled)
+    if (widget.bathymetryEnabled)
       ...MarineMapService.getActiveLidarLayers(
-        visibleBounds,
-        zoneUuids: readyZoneUuids,
-        opacity: bathymetryOpacity,
+        widget.visibleBounds,
+        zoneUuids: widget.readyZoneUuids,
+        opacity: widget.bathymetryOpacity,
       ),
   ];
 
   Widget _standardTileLayer() => TileLayer(
-    key: ValueKey('basemap_$mapType'),
+    key: ValueKey('basemap_${widget.mapType}'),
     urlTemplate: AppSettings.getMapTileUrl(),
     userAgentPackageName: MapTileCacheService.packageName,
     minZoom: AppSettings.getMapMinZoom(),
     minNativeZoom: AppSettings.getMapMinNativeZoom(),
     maxNativeZoom: AppSettings.getMapMaxNativeZoom(),
     maxZoom: AppSettings.getMapMaxZoom(),
-    tileProvider: MapTileCacheService.getTileProviderForMapType(mapType),
-    errorTileCallback: onErrorTile,
+    tileProvider: MapTileCacheService.getTileProviderForMapType(widget.mapType),
+    errorTileCallback: widget.onErrorTile,
   );
 
-  // ─── Waypoints ────────────────────────────────────────────────────────────
-
+  // ─── Waypoints ────────────────────────────────────────────────────────
   bool _shouldShowWaypoint(Waypoint waypoint) {
     if (waypoint.category == WaypointCategory.fishing &&
         !AppSettings.showFishingWaypointsOnMap) {
@@ -187,146 +218,7 @@ class MapView extends StatelessWidget {
     return true;
   }
 
-  Marker _buildWaypointMarker(Waypoint waypoint) {
-    final showName = AppSettings.showWaypointNamesOnMap;
-    final showDate = AppSettings.showWaypointDateOnMap;
-    final hasLabel = showName || showDate;
-    final fontSize = AppSettings.waypointLabelFontSize;
-    final dateStr =
-        '${waypoint.createdAt.day.toString().padLeft(2, '0')}/${waypoint.createdAt.month.toString().padLeft(2, '0')}/${waypoint.createdAt.year}';
-    final iconSize = hasLabel ? (24 + fontSize).roundToDouble() : 40.0;
-    final markerWidth = hasLabel ? (140 + fontSize * 3) : 80.0;
-    final markerHeight = hasLabel ? (65 + fontSize * 2.5) : 80.0;
-
-    return Marker(
-      key: ValueKey(
-        'wp_${waypoint.latitude}_${waypoint.longitude}_${waypoint.createdAt.millisecondsSinceEpoch}',
-      ),
-      point: LatLng(waypoint.latitude, waypoint.longitude),
-      width: markerWidth,
-      height: markerHeight,
-      alignment: Alignment.center,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => onTap(waypoint),
-        child: hasLabel
-            ? _buildLabelMarker(waypoint, dateStr, fontSize, iconSize)
-            : _buildIconMarker(waypoint, iconSize),
-      ),
-    );
-  }
-
-  Widget _buildLabelMarker(
-    Waypoint waypoint,
-    String dateStr,
-    double fontSize,
-    double iconSize,
-  ) {
-    final showName = AppSettings.showWaypointNamesOnMap;
-    final showDate = AppSettings.showWaypointDateOnMap;
-
-    return Align(
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFFDE7),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.black, width: 1),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (showName)
-                  Text(
-                    waypoint.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.black87,
-                      fontSize: fontSize,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                if (showName && showDate) const SizedBox(height: 2),
-                if (showDate)
-                  Text(
-                    dateStr,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.black87,
-                      fontSize: fontSize * 0.85,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          Opacity(
-            opacity: 0.65,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (showName)
-                  Text(
-                    waypoint.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.black87,
-                      fontSize: fontSize,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                const SizedBox(height: 2),
-                if (showDate)
-                  Text(
-                    dateStr,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.black87,
-                      fontSize: fontSize * 0.85,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                Icon(
-                  _getWaypointCategoryIcon(waypoint),
-                  color: waypoint.color,
-                  size: iconSize,
-                  shadows: const [Shadow(color: Colors.black, blurRadius: 4)],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildIconMarker(Waypoint waypoint, double iconSize) {
-    return Opacity(
-      opacity: 0.65,
-      child: Align(
-        alignment: Alignment.center,
-        child: Icon(
-          _getWaypointCategoryIcon(waypoint),
-          color: waypoint.color,
-          size: iconSize,
-          shadows: const [Shadow(color: Colors.black, blurRadius: 4)],
-        ),
-      ),
-    );
-  }
-
+  /// Icône de catégorie du waypoint (affichée DANS le rond).
   IconData _getWaypointCategoryIcon(Waypoint waypoint) {
     switch (waypoint.category) {
       case WaypointCategory.mushrooms:
@@ -334,11 +226,109 @@ class MapView extends StatelessWidget {
       case WaypointCategory.fishing:
         return Icons.anchor;
       case WaypointCategory.other:
-        if (waypoint.name.toLowerCase().contains('voiture')) {
-          return Icons.directions_car;
-        } else {
-          return Icons.location_on;
-        }
+        return waypoint.name.toLowerCase().contains('voiture')
+            ? Icons.directions_car
+            : Icons.location_on;
     }
+  }
+
+  /// Marqueur de waypoint : rond coloré centré PILE sur le point GPS,
+  /// avec l'icône de catégorie à l'intérieur et un libellé flottant
+  /// au-dessus (qui ne décale pas le point).
+  Marker _buildWaypointMarker(Waypoint waypoint) {
+    final showName = AppSettings.showWaypointNamesOnMap;
+    final showDate = AppSettings.showWaypointDateOnMap;
+    final hasLabel = showName || showDate;
+    final fontSize = AppSettings.waypointLabelFontSize;
+    final dateStr =
+        '${waypoint.createdAt.day.toString().padLeft(2, '0')}/${waypoint.createdAt.month.toString().padLeft(2, '0')}/${waypoint.createdAt.year}';
+
+    // 👇 Réglages de taille : modifie ici si tu veux plus grand/plus petit.
+    const double circleSize = 30.0; // diamètre du rond
+    const double iconSize = 16.0; // taille de l'icône dans le rond
+
+    return Marker(
+      key: ValueKey(
+        'wp_${waypoint.latitude}_${waypoint.longitude}_${waypoint.createdAt.millisecondsSinceEpoch}',
+      ),
+      point: LatLng(waypoint.latitude, waypoint.longitude),
+      width: circleSize,
+      height: circleSize,
+      // 👈 LE CENTRE du rond = le point GPS exact.
+      alignment: Alignment.center,
+      child: Stack(
+        clipBehavior: Clip.none, // laisse le libellé déborder au-dessus
+        alignment: Alignment.center,
+        children: [
+          // Le rond coloré avec l'icône de catégorie au centre.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => widget.onTap(waypoint),
+            child: Container(
+              width: circleSize,
+              height: circleSize,
+              decoration: BoxDecoration(
+                color: waypoint.color,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Icon(
+                _getWaypointCategoryIcon(waypoint),
+                size: iconSize,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+          // Libellé (nom / date) flottant AU-DESSUS du rond.
+          if (hasLabel)
+            Positioned(
+              bottom: circleSize + 4,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => widget.onTap(waypoint),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (showName)
+                        Text(
+                          waypoint.name,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: fontSize,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      if (showDate)
+                        Text(
+                          dateStr,
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: fontSize - 3,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }

@@ -114,6 +114,7 @@ void main() {
               layers: [_l(LayerType.marine50k)],
               progress: 0.0,
               isDownloading: false,
+              isPaused: false,
               activeLayerLabel: '',
               onDownload: () {},
               onCancel: () {},
@@ -136,6 +137,7 @@ void main() {
               layers: [_l(LayerType.marine50k)],
               progress: 0.5,
               isDownloading: true,
+              isPaused: false,
               activeLayerLabel: 'Cartes 1:50 000',
               onDownload: () {},
               onCancel: () {},
@@ -160,6 +162,7 @@ void main() {
               layers: [_l(LayerType.marine50k)],
               progress: 0.75,
               isDownloading: true,
+              isPaused: false,
               activeLayerLabel: '',
               onDownload: () {},
               onCancel: () {},
@@ -183,6 +186,7 @@ void main() {
                 layers: [_l(LayerType.marine50k)],
                 progress: 0.0,
                 isDownloading: false,
+                isPaused: false,
                 activeLayerLabel: '',
                 onDownload: () {},
                 onCancel: () {},
@@ -214,6 +218,125 @@ void main() {
     test('deleteByUuid returns false for non-existent map', () {
       final repo = FakeMapLayerRepository();
       expect(repo.deleteByUuid('non-existent-uuid'), isFalse);
+    });
+  });
+
+  group('ZoneListTile pause/resume buttons', () {
+    OfflineMap makeMap({
+      OfflineMapStatus status = OfflineMapStatus.notStarted,
+    }) {
+      final map = _m('pause-${DateTime.now().microsecondsSinceEpoch}');
+      map.status = status;
+      return map;
+    }
+
+    testWidgets('shows Pause and Cancel when downloading and not paused', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ZoneListTile(
+              map: makeMap(),
+              layers: [_l(LayerType.marine50k)],
+              progress: 0.5,
+              isDownloading: true,
+              isPaused: false,
+              activeLayerLabel: 'Test layer',
+              onDownload: () {},
+              onCancel: () {},
+              onPause: () {},
+              onResume: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Pause'), findsOneWidget);
+      expect(find.text('Annuler'), findsOneWidget);
+      expect(find.text('Reprendre'), findsNothing);
+    });
+
+    testWidgets('shows Resume and Cancel when paused', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ZoneListTile(
+              map: makeMap(),
+              layers: [_l(LayerType.marine50k)],
+              progress: 0.5,
+              isDownloading: true,
+              isPaused: true,
+              activeLayerLabel: 'Test layer',
+              onDownload: () {},
+              onCancel: () {},
+              onPause: () {},
+              onResume: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Reprendre'), findsOneWidget);
+      expect(find.text('Annuler'), findsOneWidget);
+      expect(find.text('Pause'), findsNothing);
+      expect(find.text('En pause'), findsOneWidget);
+    });
+
+    testWidgets('shows Download button for notStarted zones', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ZoneListTile(
+              map: makeMap(status: OfflineMapStatus.notStarted),
+              layers: [_l(LayerType.marine50k)],
+              progress: 0.0,
+              isDownloading: false,
+              isPaused: false,
+              activeLayerLabel: '',
+              onDownload: () {},
+              onCancel: () {},
+              onPause: () {},
+              onResume: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Telecharger'), findsOneWidget);
+      expect(find.text('Pause'), findsNothing);
+      expect(find.text('Reprendre'), findsNothing);
+    });
+
+    testWidgets('shows Update button for partial/failed zones', (tester) async {
+      for (final status in [
+        OfflineMapStatus.partial,
+        OfflineMapStatus.failed,
+      ]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ZoneListTile(
+                map: makeMap(status: status),
+                layers: [_l(LayerType.marine50k)],
+                progress: 0.0,
+                isDownloading: false,
+                isPaused: false,
+                activeLayerLabel: '',
+                onDownload: () {},
+                onCancel: () {},
+                onPause: () {},
+                onResume: () {},
+                onDelete: () {},
+              ),
+            ),
+          ),
+        );
+        expect(find.text('Mettre à jour la zone'), findsOneWidget);
+        expect(find.text('Pause'), findsNothing);
+        expect(find.text('Reprendre'), findsNothing);
+        await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      }
     });
   });
 }

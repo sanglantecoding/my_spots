@@ -1,8 +1,7 @@
 import 'dart:async';
-
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
-
 import '../app_settings.dart';
 import '../models/waypoint.dart';
 import '../controllers/gps_controller.dart';
@@ -34,29 +33,26 @@ class AlarmEvent {
 
   factory AlarmEvent.speakerIconChanged(bool show) =>
       AlarmEvent._(AlarmEventType.speakerIconChanged, show);
+
   factory AlarmEvent.alarmTriggered() =>
       AlarmEvent._(AlarmEventType.alarmTriggered);
+
   factory AlarmEvent.mutedChanged(bool muted) =>
       AlarmEvent._(AlarmEventType.mutedChanged, muted);
+
   factory AlarmEvent.monitoringStarted(Waypoint target) =>
       AlarmEvent._(AlarmEventType.monitoringStarted, target);
+
   factory AlarmEvent.monitoringStopped() =>
       AlarmEvent._(AlarmEventType.monitoringStopped);
 
-  /// Helper: obtenir le payload [bool] pour les événements typés.
   bool get boolPayload => payload as bool;
-
-  /// Helper: obtenir le payload [Waypoint] pour monitoringStarted.
   Waypoint get waypointPayload => payload as Waypoint;
 }
 
 /// Service centralisé pour la gestion des alarmes de proximité.
 ///
 /// Gère les zones X, Y, Z avec différentes fréquences de bip.
-///
-/// Les widgets s'abonnent via [onAlarmEvent] (broadcast Stream) plutôt
-/// que via [setCallbacks] afin que plusieurs abonnés puissent écouter
-/// simultanément sans s'écraser mutuellement.
 class AlarmService {
   static Timer? _proximityTimer;
   static AudioPlayer? _proximityPlayer;
@@ -68,56 +64,44 @@ class AlarmService {
   static bool _isNavigationActive = false;
   static bool _isProcessingAlarm = false;
   static bool _isPlayingAudio = false;
+
+  // ✅ NOUVEAU : indique si le player a déjà été démarré.
+  // Évite de stopper un player jamais démarré (bruit MediaPlayer inutile).
+  static bool _isPlayerStarted = false;
   static bool _isInitialized = false;
 
   static final StreamController<AlarmEvent> _alarmEventController =
       StreamController<AlarmEvent>.broadcast();
 
   /// Flux broadcast d'événements d'alarme. Multi-abonnements autorisés.
-  /// Ce stream reste ouvert pendant toute la session et n'est fermé
-  /// que lors de la destruction finale de l'application.
   static Stream<AlarmEvent> get onAlarmEvent => _alarmEventController.stream;
 
   /// Initialise le service d'alarme.
   ///
-  /// Cette méthode est idempotente : si le service est déjà initialisé,
-  /// elle ne fait rien et ne recrée pas le player.
-  ///
-  /// Le [StreamController] broadcast reste ouvert pendant toute la session
-  /// et ne doit jamais être fermé par les appels à [dispose].
+  /// ✅ CORRECTION : on ne précharge PLUS le son avec setSource() ici.
+  /// Le préchargement déclenchait une boucle getDuration/seekTo du MediaPlayer
+  /// Android qui polluait les logs. Le son est joué à la demande dans
+  /// [_safePlayBeep] uniquement quand l'alarme sonne réellement.
   static Future<void> initialize() async {
-    if (_isInitialized) {
-      return;
-    }
-
+    if (_isInitialized) return;
     _isInitialized = true;
-
     if (_proximityPlayer != null) {
-      try {
-        await _proximityPlayer!.stop();
-      } catch (_) {}
       try {
         await _proximityPlayer!.dispose();
       } catch (_) {}
       _proximityPlayer = null;
     }
-
     _proximityPlayer = AudioPlayer();
     try {
-      await _proximityPlayer?.setVolume(1.0);
-      await _proximityPlayer?.setReleaseMode(ReleaseMode.stop);
-      // Pré-charger le son pour éviter les délais
-      await _proximityPlayer?.setSource(AssetSource('sounds/beep.mp3'));
-    } catch (_) {
-      // Silencieux en cas d'erreur
+      await _proximityPlayer!.setVolume(1.0);
+      await _proximityPlayer!.setReleaseMode(ReleaseMode.stop);
+      // ⚠️ PAS de setSource() ici : le préchargement laissait le player
+      // dans un état où le play() suivant échouait silencieusement.
+    } catch (e) {
+      debugPrint('[AlarmService] init player: $e');
     }
   }
 
-  /// @deprecated Utilisez [AlarmService.onAlarmEvent] (Stream multi-abonnés)
-  /// plutôt que ces callbacks à inscription unique.
-  ///
-  /// Conservé temporairement pour la rétrocompatibilité : s'abonne
-  /// au flux et relaie les événements aux closures fournies.
   @Deprecated('Utilisez AlarmService.onAlarmEvent (Stream multi-abonnés)')
   static void setCallbacks({
     Function(bool)? onSpeakerIconChanged,
@@ -145,7 +129,6 @@ class AlarmService {
   /// Met à jour la position actuelle depuis le flux GPS principal
   static void updatePosition(LatLng position) {
     _currentPosition = position;
-    // Calcul synchrone de la distance et mise à jour de l'alarme
     _updateProximityAlarm();
   }
 
@@ -165,7 +148,7 @@ class AlarmService {
     _stopProximityAlarm();
   }
 
-  /// Définit le waypoint cible pour les alarmes (méthode obsolète, utiliser startMonitoring)
+  /// Définit le waypoint cible pour les alarmes
   static void setTargetWaypoint(Waypoint? waypoint) {
     _targetWaypoint = waypoint;
     _updateProximityAlarm();
@@ -178,48 +161,58 @@ class AlarmService {
     }
   }
 
-  /// Garantit que le player est disponible et actif (non null et non disposé).
-  static bool get _hasActivePlayer => _proximityPlayer != null;
+  /// Vrai si le player existe ET a déjà été démarré.
+  static bool get _hasActivePlayer =>
+      _proximityPlayer != null && _isPlayerStarted;
 
-  /// Stop + dispose un player en toute sécurité, sans exception.
+  /// Stoppe le player en toute sécurité.
+  ///
+  /// ✅ CORRECTION : on ne stoppe que si le player a réellement été démarré,
+  /// pour éviter de stopper un player à l'arrêt à chaque tick GPS
+  /// (ce qui déclenchait la boucle getDuration/seekTo du MediaPlayer).
   static Future<void> _safeStopPlayer() async {
-    final p = _proximityPlayer;
-    if (p == null) return;
+    if (!_hasActivePlayer) return;
     try {
-      await p.stop();
+      await _proximityPlayer!.stop();
     } catch (_) {}
+    _isPlayerStarted = false;
   }
 
-  /// Joue le bip en toute sécurité (guarde les erreurs natives/état).
+  /// Joue le bip en toute sécurité, à la demande uniquement.
   static Future<void> _safePlayBeep() async {
     if (_isMuted) return;
-    final p = _proximityPlayer;
-    if (p == null) return;
     try {
-      await p.stop();
+      var p = _proximityPlayer;
+      if (p == null) {
+        p = _proximityPlayer = AudioPlayer();
+        await p.setVolume(1.0);
+        await p.setReleaseMode(ReleaseMode.stop);
+      }
+      // play(source) remet à zéro et joue : pas besoin de stop() avant.
       await p.play(AssetSource('sounds/beep.mp3'));
-    } catch (_) {
-      // Player disposé, source indisponible, etc.
+    } catch (e) {
+      debugPrint('[AlarmService] beep échoué: $e → recréation du player');
+      try {
+        await _proximityPlayer?.dispose();
+      } catch (_) {}
+      _proximityPlayer = null; // sera recréé au prochain bip
     }
   }
 
   /// Met à jour l'alarme de proximité selon la distance actuelle au waypoint
-  /// Gère 3 zones d'alarme avec différentes fréquences de bip
-  /// - Zone Z (≤5m) : bip continu toutes les 500ms
-  /// - Zone Y (≤20m) : bip-bip toutes les 2s
-  /// - Zone X (≤100m) : bip lent toutes les 4s
   static void _updateProximityAlarm() {
-    // Verrou d'exécution pour éviter la concurrence
     if (_isProcessingAlarm) return;
     _isProcessingAlarm = true;
-
     try {
-      // Ne déclencher l'alarme que si la navigation est explicitement active
       if (!_isNavigationActive ||
           _targetWaypoint == null ||
           _currentPosition == null ||
           !AppSettings.proximityAlarmEnabled) {
-        _stopProximityAlarm();
+        // ✅ CORRECTION : on ne stoppe que si quelque chose tourne réellement,
+        // pour éviter de re-stopper un player à l'arrêt à chaque tick GPS.
+        if (_proximityTimer != null || _lastProximityZone != null) {
+          _stopProximityAlarm();
+        }
         if (_showSpeakerIcon) {
           _showSpeakerIcon = false;
           _emit(AlarmEvent.speakerIconChanged(false));
@@ -227,28 +220,24 @@ class AlarmService {
         return;
       }
 
-      // Calcul synchrone de la distance et définition des zones de proximité
       final d = _distanceInMeters(_currentPosition!, _targetWaypoint!);
-      final x =
-          AppSettings.proximityDistanceX; // Zone extérieure (100m par défaut)
-      final y =
-          AppSettings.proximityDistanceY; // Zone intermédiaire (20m par défaut)
-      final z = AppSettings.proximityDistanceZ; // Zone proche (5m par défaut)
+      final x = AppSettings.proximityDistanceX;
+      final y = AppSettings.proximityDistanceY;
+      final z = AppSettings.proximityDistanceZ;
 
-      // Silence total si hors de la zone X (plus de 100m par défaut)
       if (d > x) {
+        if (_proximityTimer != null || _lastProximityZone != null) {
+          _stopProximityAlarm();
+        }
         if (_showSpeakerIcon) {
           _showSpeakerIcon = false;
           _emit(AlarmEvent.speakerIconChanged(false));
         }
-        _stopProximityAlarm();
         return;
       }
 
-      // Détermination de la zone de proximité et période de bip associée
       Duration period;
       String zone;
-
       if (d <= z) {
         zone = 'Z';
         period = const Duration(milliseconds: 500);
@@ -260,17 +249,12 @@ class AlarmService {
         period = const Duration(seconds: 4);
       }
 
-      // Optimisation : ne recréer le timer que si la zone de proximité change
       if (_lastProximityZone != zone) {
         _lastProximityZone = zone;
-
-        // Afficher l'icône de haut-parleur
         if (!_showSpeakerIcon) {
           _showSpeakerIcon = true;
           _emit(AlarmEvent.speakerIconChanged(true));
         }
-
-        // Annuler l'ancien timer avant d'en créer un nouveau
         _proximityTimer?.cancel();
         _proximityTimer = Timer.periodic(period, (timer) async {
           if (_targetWaypoint == null ||
@@ -279,8 +263,6 @@ class AlarmService {
             _stopProximityAlarm();
             return;
           }
-
-          // Vérification continue de la distance à chaque tick du timer
           final dist = _distanceInMeters(_currentPosition!, _targetWaypoint!);
           if (dist > x) {
             _stopProximityAlarm();
@@ -288,17 +270,10 @@ class AlarmService {
             _emit(AlarmEvent.speakerIconChanged(false));
             return;
           }
-
-          // Synchronisation audio pour une meilleure expérience utilisateur
-          // Verrou pour éviter le chevauchement audio
           if (_isPlayingAudio) return;
           _isPlayingAudio = true;
-
           try {
-            // Ne jouer le son que si non muet et player actif
-            if (_hasActivePlayer) {
-              await _safePlayBeep();
-            }
+            await _safePlayBeep();
             _emit(AlarmEvent.alarmTriggered());
           } finally {
             _isPlayingAudio = false;
@@ -320,7 +295,6 @@ class AlarmService {
 
   /// Calcule la distance en mètres entre deux points GPS
   static double _distanceInMeters(LatLng from, Waypoint to) {
-    // Utiliser GpsController.distanceBetween pour la cohérence
     return GpsController.distanceBetween(
       from.latitude,
       from.longitude,
@@ -329,38 +303,23 @@ class AlarmService {
     );
   }
 
-  /// Indique si l'icône de haut-parleur doit être affichée
   static bool get showSpeakerIcon => _showSpeakerIcon;
-
-  /// Indique si le son est coupé
   static bool get isMuted => _isMuted;
 
-  /// Coupe ou réactive le son
   static void setMuted(bool muted) {
     _isMuted = muted;
     _emit(AlarmEvent.mutedChanged(muted));
   }
 
-  /// Bascule l'état muet
   static void toggleMuted() {
     _isMuted = !_isMuted;
     _emit(AlarmEvent.mutedChanged(_isMuted));
   }
 
   /// Libère les ressources du service liées au monitoring.
-  ///
-  /// Cette méthode ne ferme PAS le [StreamController] broadcast, car celui-ci
-  /// est une ressource globale nécessaire au fonctionnement continu de
-  /// l'application. Fermer le stream depuis un widget enfant (comme MapScreen)
-  /// empêcherait tout abonnement futur.
-  ///
-  /// Ressources libérées :
-  /// - Timer de proximité (annulé) ;
-  /// - AudioPlayer (arrêté et disposé si existant).
   static Future<void> dispose() async {
     _proximityTimer?.cancel();
     _proximityTimer = null;
-
     final p = _proximityPlayer;
     if (p != null) {
       try {
@@ -370,10 +329,8 @@ class AlarmService {
         await p.dispose();
       } catch (_) {}
       _proximityPlayer = null;
+      _isPlayerStarted = false;
     }
-
     // NOTE: Le StreamController broadcast N'EST PAS fermé ici.
-    // Il reste disponible pour les prochains abonnements.
-    // Le stream ne sera fermé que lors de la destruction finale de l'application.
   }
 }

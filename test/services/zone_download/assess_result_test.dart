@@ -28,6 +28,7 @@ void main() {
       expect(r.estimatedTileCount, 100);
       expect(r.failedTileCount, 0);
       expect(r.negativeTileCount, 0);
+      expect(r.interruptReason, DownloadInterruptReason.none);
     });
 
     test('ratio échecs = 15% (borne exacte) → successful', () {
@@ -53,6 +54,18 @@ void main() {
       );
       expect(r.successful, isTrue);
       expect(r.negativeTileCount, 50);
+    });
+
+    test('au moins 1 tuile successful + ratio OK → successful', () {
+      final r = downloader.assessResult(
+        100, // maxTiles
+        1, // successful ← au moins une tuile réelle
+        14, // failed (14/100 = 14% < 15%)
+        85, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isTrue);
+      expect(r.downloadedTileCount, 1);
     });
   });
 
@@ -91,6 +104,18 @@ void main() {
       expect(r.downloadedTileCount, 0);
       expect(r.estimatedTileCount, 0);
     });
+
+    test('successful > 0 mais ratio échecs > 15% → échec', () {
+      final r = downloader.assessResult(
+        100, // maxTiles
+        80, // successful
+        20, // failed (20/100 = 20% > 15%)
+        0, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isFalse);
+      expect(r.downloadedTileCount, 80);
+    });
   });
 
   group('assessResult — P1 audit : couche 100% négative', () {
@@ -125,8 +150,21 @@ void main() {
           DownloadInterruptReason.none,
         );
         expect(r.successful, isFalse);
+        expect(r.downloadedTileCount, 0);
       },
     );
+
+    test('0 successful + 100% failed → NON successful', () {
+      final r = downloader.assessResult(
+        100, // maxTiles
+        0, // successful
+        100, // failed
+        0, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isFalse);
+      expect(r.failedTileCount, 100);
+    });
   });
 
   group('assessResult — propagation de interruptReason', () {
@@ -162,6 +200,18 @@ void main() {
       );
       expect(r.interruptReason, DownloadInterruptReason.none);
     });
+
+    test('interruption propagée même en cas d\'échec', () {
+      final r = downloader.assessResult(
+        100, // maxTiles
+        0, // successful
+        100, // failed
+        0, // negative
+        DownloadInterruptReason.watchdog,
+      );
+      expect(r.successful, isFalse);
+      expect(r.interruptReason, DownloadInterruptReason.watchdog);
+    });
   });
 
   group('assessResult — calcul de total quand maxTiles = 0', () {
@@ -179,5 +229,55 @@ void main() {
         expect(r.successful, isTrue); // failedRatio = 10/100 = 10% < 15%
       },
     );
+
+    test('maxTiles = 0 avec tous les compteurs à 0 → échec', () {
+      final r = downloader.assessResult(
+        0, // maxTiles
+        0, // successful
+        0, // failed
+        0, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isFalse);
+      expect(r.estimatedTileCount, 0);
+    });
+
+    test('maxTiles = 0 avec ratio échecs > 15% → échec', () {
+      final r = downloader.assessResult(
+        0, // maxTiles (inconnu)
+        70, // successful
+        30, // failed (30/100 = 30% > 15%)
+        0, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isFalse);
+      expect(r.estimatedTileCount, 100);
+    });
+  });
+
+  group('assessResult — cas limites', () {
+    test('successful = 1 avec ratio limite → successful', () {
+      final r = downloader.assessResult(
+        100,
+        1, // successful (minimum requis par P1)
+        15, // failed (15/16 ≈ 93.75% mais total = 100 donc 15%)
+        84, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isTrue);
+    });
+
+    test('grande quantité de tuiles → calcul correct', () {
+      final r = downloader.assessResult(
+        10000,
+        9000, // successful
+        1000, // failed (1000/10000 = 10% < 15%)
+        0, // negative
+        DownloadInterruptReason.none,
+      );
+      expect(r.successful, isTrue);
+      expect(r.estimatedTileCount, 10000);
+      expect(r.downloadedTileCount, 9000);
+    });
   });
 }

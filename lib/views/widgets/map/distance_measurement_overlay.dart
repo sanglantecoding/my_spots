@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:my_spots/services/gps_service.dart';
 
 /// Overlay pour mesurer une distance entre deux points.
 class DistanceMeasurementOverlay extends StatefulWidget {
@@ -36,15 +36,6 @@ class _DistanceMeasurementOverlayState
     _point1 = widget.initialPoint;
   }
 
-  double _calculateDistance(LatLng point1, LatLng point2) {
-    return Geolocator.distanceBetween(
-      point1.latitude,
-      point1.longitude,
-      point2.latitude,
-      point2.longitude,
-    );
-  }
-
   /// Valide le point en cours (point 1 ou point 2)
   void _validateCurrentPoint() {
     if (!_isPlacingPoint2) {
@@ -54,9 +45,8 @@ class _DistanceMeasurementOverlayState
         _point2 = _point1; // Point 2 commence à la même position
       });
     } else {
-      // On valide le point 2, on termine la mesure
       if (_point2 != null) {
-        final distance = _calculateDistance(_point1, _point2!);
+        final distance = GpsService.distanceBetween(_point1, _point2!);
         widget.onMeasureComplete(_point1, _point2!, distance);
       }
     }

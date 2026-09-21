@@ -64,6 +64,14 @@ class _DownloadOnlyTileProvider extends TileProvider {
 /// Gère le téléchargement en foreground via [FMTCStore.download.startForeground],
 /// avec un watchdog anti-stall et une évaluation finale du résultat.
 class FmtcLayerDownloader implements LayerDownloader {
+  /// Instances actuellement en cours de téléchargement.
+  /// Utilisé pour valider que pause/resume sont appelés sur des instances valides.
+  static final Set<String> _activeInstances = {};
+
+  /// Instances actuellement en pause : le watchdog ne doit PAS les
+  /// considérer comme gelées (une pause n'est pas un stall).
+  static final Set<String> _pausedInstances = {};
+
   const FmtcLayerDownloader();
 
   static const int _maxTileCountCeiling = 12000;
@@ -120,6 +128,10 @@ class FmtcLayerDownloader implements LayerDownloader {
     final ctrl = StreamController<DownloadProgress>.broadcast();
     late final StreamSubscription<DownloadProgress> bridgeSub;
 
+    debugPrint(
+      '[FmtcLayerDownloader] START instance=$instanceId zooms=$minZoom..$maxZoom',
+    );
+
     final fgReturn = store.download.startForeground(
       region: region,
       instanceId: instanceId,
@@ -138,8 +150,10 @@ class FmtcLayerDownloader implements LayerDownloader {
       },
       onDone: () => ctrl.close(),
     );
-
     ctrl.onCancel = () => bridgeSub.cancel();
+
+    // 👇 Track l'instance comme active
+    _activeInstances.add(instanceId);
 
     var maxTiles = 0;
     var successful = 0;
@@ -153,6 +167,10 @@ class FmtcLayerDownloader implements LayerDownloader {
 
     try {
       watchdog = Timer.periodic(const Duration(seconds: 30), (t) {
+        if (_pausedInstances.contains(instanceId)) {
+          lastEventAt = DateTime.now(); // pause ≠ stall
+          return;
+        }
         if (DateTime.now().difference(lastEventAt) > _stallWindow) {
           t.cancel();
           debugPrint(
@@ -184,14 +202,21 @@ class FmtcLayerDownloader implements LayerDownloader {
         }
       }
     } catch (e, st) {
-      debugPrint('[FmtcLayerDownloader] Isolate stream error: $e\n$st');
+      debugPrint('[FmtcLayerDownloader] Isolate stream error: $e$st');
       rethrow;
     } finally {
+      // 👇 Nettoie le tracking
+      _activeInstances.remove(instanceId);
+      _pausedInstances.remove(instanceId);
       watchdog?.cancel();
       try {
         tileHttpClient.close();
       } catch (_) {}
-      await ctrl.close();
+      try {
+        await store.download.cancel(instanceId: instanceId);
+      } catch (e) {
+        debugPrint('[FmtcLayerDownloader] cancel error: $e');
+      }
     }
 
     return assessResult(
@@ -203,16 +228,14 @@ class FmtcLayerDownloader implements LayerDownloader {
     );
   }
 
-  /// Évalue le résultat d'un téléchargement de couche.
+  /// Évalue le résultat d'une couche.
   ///
-  /// Un téléchargement est considéré comme réussi si :
-  /// - Au moins une tuile réelle a été téléchargée (successful > 0)
-  /// - Le ratio d'échecs réseau (timeouts, 5xx) reste ≤ [_networkFailureTolerance]
-  ///
-  /// Les tuiles "négatives" (404, contenu invalide) ne comptent **pas**
-  /// comme des échecs réseau.
-  ///
-  /// Exposée pour les tests unitaires.
+  /// Règles métier VERROUILLÉES par
+  /// `test/services/zone_download/assess_result_test.dart` :
+  /// - tolérance aux échecs réseau : 15 % du total ;
+  /// - **P1** : au moins UNE tuile réelle exigée pour déclarer un succès
+  ///   (une couche 100 % négative / 404 ne doit JAMAIS être « réussie ») ;
+  /// - total inconnu (maxTiles = 0) → recalculé depuis les compteurs.
   @visibleForTesting
   LayerDownloadResult assessResult(
     int maxTiles,
@@ -230,11 +253,9 @@ class FmtcLayerDownloader implements LayerDownloader {
         interruptReason: interruptReason,
       );
     }
-
     final failedRatio = failed / total;
+
     // P1 audit : au moins UNE tuile réelle exigée pour déclarer succès.
-    // Empêche qu'une couche 100% négative (0 successful, 0 failed, 100 negative)
-    // soit déclarée réussie (failedRatio = 0 → ok = true sans cette garde).
     final ok = successful > 0 && failedRatio <= _networkFailureTolerance;
 
     if (!ok) {
@@ -269,11 +290,35 @@ class FmtcLayerDownloader implements LayerDownloader {
 
   @override
   void pause(String zoneUuid, FMTCStore store, String instanceId) {
-    store.download.pause(instanceId: instanceId);
+    // 👇 Vérifie que l'instance est active avant de pauser
+    if (!_activeInstances.contains(instanceId)) {
+      debugPrint(
+        '[FmtcLayerDownloader] pause() ignoré : instance $instanceId inactive',
+      );
+      return;
+    }
+    try {
+      store.download.pause(instanceId: instanceId);
+      _pausedInstances.add(instanceId);
+    } catch (e) {
+      debugPrint('[FmtcLayerDownloader] pause() échoué : $e');
+    }
   }
 
   @override
   void resume(String zoneUuid, FMTCStore store, String instanceId) {
-    store.download.resume(instanceId: instanceId);
+    // 👇 Vérifie que l'instance est active avant de resume
+    if (!_activeInstances.contains(instanceId)) {
+      debugPrint(
+        '[FmtcLayerDownloader] resume() ignoré : instance $instanceId inactive',
+      );
+      return;
+    }
+    try {
+      store.download.resume(instanceId: instanceId);
+      _pausedInstances.remove(instanceId);
+    } catch (e) {
+      debugPrint('[FmtcLayerDownloader] resume() échoué : $e');
+    }
   }
 }

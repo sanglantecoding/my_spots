@@ -3,6 +3,8 @@ import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:my_spots/models/litto3d_layer.dart';
 import 'package:my_spots/repositories/fmtc_tile_cache_repository.dart';
 import 'package:my_spots/services/negative_tile_filter.dart';
+import 'package:my_spots/services/tile_cache/tile_provider_factory.dart'
+    show TileProviderFactory;
 
 class CacheManager {
   static const String baseMapStore = 'baseMapStore';
@@ -105,6 +107,7 @@ class CacheManager {
 
     // Invalidate the store names cache to avoid stale references
     NegativeFilteringImageProvider.clearStoreNamesCache();
+    TileProviderFactory.clearZoneProviderCaches();
   }
 
   static Future<int> getZoneSizeBytes(String zoneUuid) async {

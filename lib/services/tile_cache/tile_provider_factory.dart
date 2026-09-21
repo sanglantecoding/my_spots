@@ -108,6 +108,21 @@ class TileProviderFactory {
     );
   }
 
+  // ── Caches de providers : instances STABLES ─────────────────────────────
+  // flutter_map reset les tuiles d'une TileLayer quand l'instance de
+  // tileProvider change. Comme MapView se reconstruit à chaque tick GPS,
+  // on mémoïse les providers par clé structurelle (couche + zones) pour
+  // que les rebuilds ne rechargent jamais les tuiles.
+  static final Map<String, TileProvider> _marineTileProviders = {};
+  static final Map<String, TileProvider> _marineZoneProviders = {};
+  static final Map<String, TileProvider> _bathymetryTileProviders = {};
+  static final Map<String, TileProvider> _bathymetryZoneProviders = {};
+  static final Map<String, TileProvider> _offlineMarineProviders = {};
+  static final Map<String, TileProvider> _offlineLidarProviders = {};
+
+  static String _zonesKey(List<String> zones) =>
+      (List<String>.from(zones)..sort()).join(',');
+
   static TileProvider marineTileProviderFor(
     String layerName, {
     List<String>? zoneUuids,
@@ -122,15 +137,16 @@ class TileProviderFactory {
           headers: shomTileHeaders,
         );
       });
-    } else {
-      final Map<String, BrowseStoreStrategy> stores = {
-        CacheManager.marineStoreForLayer(layerName):
-            BrowseStoreStrategy.readUpdateCreate,
-        for (final uuid in zoneUuids)
-          'marine_zone_$uuid': BrowseStoreStrategy.read,
-      };
+    }
+    final key = '$layerName|${_zonesKey(zoneUuids)}';
+    return _marineZoneProviders.putIfAbsent(key, () {
       return FMTCTileProvider(
-        stores: stores,
+        stores: {
+          CacheManager.marineStoreForLayer(layerName):
+              BrowseStoreStrategy.readUpdateCreate,
+          for (final uuid in zoneUuids)
+            'marine_zone_$uuid': BrowseStoreStrategy.read,
+        },
         otherStoresStrategy: BrowseStoreStrategy.read,
         loadingStrategy: BrowseLoadingStrategy.onlineFirst,
         useOtherStoresAsFallbackOnly: true,
@@ -138,7 +154,7 @@ class TileProviderFactory {
         errorHandler: handleFmtcBrowsingError,
         httpClient: httpClient,
       );
-    }
+    });
   }
 
   static TileProvider bathymetryTileProviderFor(
@@ -158,75 +174,87 @@ class TileProviderFactory {
     }
     final lidarLayer = Litto3DCatalog.findByWmtsName(layerName);
     final lidarLayerId = lidarLayer?.id;
-    final Map<String, BrowseStoreStrategy> stores = {
-      CacheManager.bathymetryStoreForLayer(layerName):
-          BrowseStoreStrategy.readUpdateCreate,
-      for (final uuid in zoneUuids)
-        if (lidarLayerId != null)
-          'lidar_zone_${uuid}_$lidarLayerId': BrowseStoreStrategy.read
-        else
-          'lidar_zone_$uuid': BrowseStoreStrategy.read,
-    };
-    return FMTCTileProvider(
-      stores: stores,
-      otherStoresStrategy: BrowseStoreStrategy.read,
-      loadingStrategy: BrowseLoadingStrategy.onlineFirst,
-      useOtherStoresAsFallbackOnly: true,
-      headers: shomTileHeaders,
-      errorHandler: handleFmtcBrowsingError,
-      httpClient: httpClient,
-    );
+    final key = '$layerName|${_zonesKey(zoneUuids)}|${lidarLayerId ?? ''}';
+    return _bathymetryZoneProviders.putIfAbsent(key, () {
+      return FMTCTileProvider(
+        stores: {
+          CacheManager.bathymetryStoreForLayer(layerName):
+              BrowseStoreStrategy.readUpdateCreate,
+          for (final uuid in zoneUuids)
+            if (lidarLayerId != null)
+              'lidar_zone_${uuid}_$lidarLayerId': BrowseStoreStrategy.read
+            else
+              'lidar_zone_$uuid': BrowseStoreStrategy.read,
+        },
+        otherStoresStrategy: BrowseStoreStrategy.read,
+        loadingStrategy: BrowseLoadingStrategy.onlineFirst,
+        useOtherStoresAsFallbackOnly: true,
+        headers: shomTileHeaders,
+        errorHandler: handleFmtcBrowsingError,
+        httpClient: httpClient,
+      );
+    });
+  }
+
+  static void clearZoneProviderCaches() {
+    _marineZoneProviders.clear();
+    _bathymetryZoneProviders.clear();
   }
 
   static TileProvider offlineMarineTileProvider(List<String> zoneUuids) {
-    if (zoneUuids.isEmpty) {
-      return FMTCTileProvider(
-        stores: const <String, BrowseStoreStrategy>{},
+    final key = _zonesKey(zoneUuids);
+    return _offlineMarineProviders.putIfAbsent(key, () {
+      if (zoneUuids.isEmpty) {
+        return FMTCTileProvider(
+          stores: const <String, BrowseStoreStrategy>{},
+          otherStoresStrategy: null,
+          loadingStrategy: BrowseLoadingStrategy.cacheOnly,
+          headers: shomTileHeaders,
+          errorHandler: handleFmtcBrowsingError,
+          httpClient: httpClient,
+        );
+      }
+      return OfflineTransparentTileProvider(
+        stores: {
+          for (final uuid in zoneUuids)
+            'marine_zone_$uuid': BrowseStoreStrategy.read,
+        },
         otherStoresStrategy: null,
         loadingStrategy: BrowseLoadingStrategy.cacheOnly,
+        useOtherStoresAsFallbackOnly: false,
         headers: shomTileHeaders,
         errorHandler: handleFmtcBrowsingError,
         httpClient: httpClient,
       );
-    }
-    final Map<String, BrowseStoreStrategy> explicitStores = {
-      for (final uuid in zoneUuids)
-        'marine_zone_$uuid': BrowseStoreStrategy.read,
-    };
-    return OfflineTransparentTileProvider(
-      stores: explicitStores,
-      otherStoresStrategy: null,
-      loadingStrategy: BrowseLoadingStrategy.cacheOnly,
-      useOtherStoresAsFallbackOnly: false,
-      headers: shomTileHeaders,
-      errorHandler: handleFmtcBrowsingError,
-      httpClient: httpClient,
-    );
+    });
   }
 
   static TileProvider offlineLidarTileProvider(List<String> zoneUuids) {
-    if (zoneUuids.isEmpty) {
+    final key = _zonesKey(zoneUuids);
+    return _offlineLidarProviders.putIfAbsent(key, () {
+      if (zoneUuids.isEmpty) {
+        return OfflineTransparentTileProvider(
+          stores: const <String, BrowseStoreStrategy>{},
+          otherStoresStrategy: null,
+          loadingStrategy: BrowseLoadingStrategy.cacheOnly,
+          headers: shomTileHeaders,
+          errorHandler: handleFmtcBrowsingError,
+          httpClient: httpClient,
+        );
+      }
       return OfflineTransparentTileProvider(
-        stores: const <String, BrowseStoreStrategy>{},
+        stores: {
+          for (final storeName in zoneUuids)
+            storeName: BrowseStoreStrategy.read,
+        },
         otherStoresStrategy: null,
         loadingStrategy: BrowseLoadingStrategy.cacheOnly,
+        useOtherStoresAsFallbackOnly: false,
         headers: shomTileHeaders,
         errorHandler: handleFmtcBrowsingError,
         httpClient: httpClient,
       );
-    }
-    final Map<String, BrowseStoreStrategy> explicitStores = {
-      for (final storeName in zoneUuids) storeName: BrowseStoreStrategy.read,
-    };
-    return OfflineTransparentTileProvider(
-      stores: explicitStores,
-      otherStoresStrategy: null,
-      loadingStrategy: BrowseLoadingStrategy.cacheOnly,
-      useOtherStoresAsFallbackOnly: false,
-      headers: shomTileHeaders,
-      errorHandler: handleFmtcBrowsingError,
-      httpClient: httpClient,
-    );
+    });
   }
 
   static TileProvider? _lidarOmbrageTileProvider;
@@ -243,7 +271,4 @@ class TileProviderFactory {
       httpClient: httpClient,
     );
   }
-
-  static final Map<String, TileProvider> _bathymetryTileProviders = {};
-  static final Map<String, TileProvider> _marineTileProviders = {};
 }

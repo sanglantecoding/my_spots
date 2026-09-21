@@ -1,27 +1,28 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
-import 'package:my_spots/models/waypoint.dart';
-import 'package:my_spots/settings_page.dart';
-import 'package:my_spots/services/gps_service.dart';
-import 'package:my_spots/services/alarm_service.dart';
-import 'package:my_spots/widgets/satellite_bottom_sheet.dart';
-import 'package:my_spots/widgets/navigation_overlay.dart';
-import 'package:my_spots/views/dialogs/waypoint_editor_sheet.dart';
 import 'package:my_spots/controllers/gps_controller.dart';
-import 'package:my_spots/views/widgets/map/selected_waypoint_panel.dart';
-import 'package:my_spots/views/widgets/map/map_controls_widget.dart';
-import 'package:my_spots/repositories/offline_map_repository.dart';
-import 'package:my_spots/views/offline_maps_screen.dart';
-import 'package:my_spots/views/widgets/offline_maps/new_zone_sheet.dart';
-import 'package:my_spots/views/widgets/offline_maps/zone_editor_overlay.dart';
 import 'package:my_spots/models/offline_map.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
+import 'package:my_spots/models/waypoint.dart';
+import 'package:my_spots/repositories/offline_map_repository.dart';
+import 'package:my_spots/services/alarm_service.dart';
+import 'package:my_spots/services/gps_service.dart';
 import 'package:my_spots/services/zone_download/zone_download.dart';
+import 'package:my_spots/settings_page.dart';
+import 'package:my_spots/views/dialogs/waypoint_editor_sheet.dart';
+import 'package:my_spots/views/offline_maps_screen.dart';
 import 'package:my_spots/views/widgets/map/distance_measurement_overlay.dart';
-import 'dart:async';
+import 'package:my_spots/views/widgets/map/map_controls_widget.dart';
 import 'package:my_spots/views/widgets/map/map_view.dart';
+import 'package:my_spots/views/widgets/map/selected_waypoint_panel.dart';
+import 'package:my_spots/views/widgets/offline_maps/new_zone_sheet.dart';
+import 'package:my_spots/views/widgets/offline_maps/zone_editor_overlay.dart';
+import 'package:my_spots/widgets/navigation_overlay.dart';
+import 'package:my_spots/widgets/satellite_bottom_sheet.dart';
 
 class MapScreen extends StatefulWidget {
   final Waypoint? centerOn;
@@ -511,6 +512,11 @@ class _MapScreenState extends State<MapScreen> {
     final maps = repo.findReadyOrPartialMaps();
     final lidarLayers = <MapEntry<String, OfflineMapLayer>>[];
     for (final map in maps) {
+      debugPrint(
+        '[ZoneBounds] uuid=${map.uuid} '
+        'northLat=${map.northLat} southLat=${map.southLat} '
+        'westLng=${map.westLng} eastLng=${map.eastLng}',
+      );
       final layers = repo.findLayersForMap(map);
       for (final layer in layers) {
         if (layer.layerType == LayerType.lidarLitto3d) {
@@ -537,15 +543,6 @@ class _MapScreenState extends State<MapScreen> {
         );
       }
     });
-  }
-
-  /// Opens the offline zones management screen.
-  void _openOfflineZones() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const OfflineMapsScreen()),
-    );
-    _loadOfflineZones();
   }
 
   /// Shows the context menu (BottomSheet) at the long-pressed map point.
@@ -718,8 +715,7 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     // Use the passed ZoneDownloadService instance if available, otherwise create a new one
-    final zoneService =
-        widget.zoneService ?? ZoneDownloadService(repository: repo);
+    final zoneService = widget.zoneService ?? ZoneDownloadService.instance;
     zoneService.downloadZone(map: map, layers: layers, zoneBounds: bounds);
 
     // 4) Exit edit mode and refresh.
@@ -978,15 +974,15 @@ class _MapScreenState extends State<MapScreen> {
                 if (!_zoneEditMode) ...[
                   // Sélecteur LiDAR / Bathymétrie (haut-gauche).
                   Positioned(
-                    left: 16,
-                    top: 16,
+                    left: 6,
+                    top: 10,
                     child: _buildBathymetryOverlayControls(),
                   ),
                   // Boutons : recentrage GPS, toggle waypoints, + waypoint,
                   // accès zones hors-ligne (haut-droite).
                   Positioned(
-                    right: 16,
-                    top: 16,
+                    right: 6,
+                    top: 10,
                     child: MapControlsWidget(
                       onRecenter: _recenterMap,
                       onToggleWaypoints: () async {
@@ -999,16 +995,14 @@ class _MapScreenState extends State<MapScreen> {
                         );
                       },
                       onAddWaypoint: _showAddWaypointDialog,
-                      onOpenOfflineZones: _openOfflineZones,
                       waypointsVisible: AppSettings.waypointsVisible,
-                      offlineZoneCount: _readyZoneUuids.length,
                     ),
                   ),
-                  if (_selectedWaypoint != null)
+                  if (_selectedWaypoint != null && !_isMeasuringDistance)
                     Positioned(
-                      left: 16,
-                      right: 16,
-                      bottom: 95,
+                      left: 25,
+                      right: 25,
+                      bottom: 98,
                       child: SelectedWaypointPanel(
                         waypoint: _selectedWaypoint!,
                         currentPosition: _currentPosition,

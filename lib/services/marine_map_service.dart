@@ -5,8 +5,11 @@ import 'package:my_spots/models/lidar_region_bounds.dart';
 import 'package:my_spots/models/litto3d_layer.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
-import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 import 'package:my_spots/services/tile_cache/blank_gray_filter.dart';
+import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
+
+/// Logs de construction des couches (1 à 3 Hz). Laisser à false.
+const bool kVerboseLayers = false;
 
 /// Plages de zoom par échelle RasterMarine (clevisu SHOM).
 class _MarineLayerZoomConfig {
@@ -113,19 +116,15 @@ class MarineMapService {
     return const ['RASTER_MARINE_3857_WMTS'];
   }
 
-  /// Ordre d'empilement (index 0 = couche du BAS). Table de vérité des
-  /// seuils 12.0 / 14.0 — exposée pour les tests unitaires.
   @visibleForTesting
   static List<String> layerOrderForZoom(double zoom, {bool offline = false}) =>
       _layerOrderForZoom(zoom, offline: offline);
 
-  /// Renvoie UNE SEULE couche active selon le zoom courant (350k inclus).
   static TileLayer getActiveMarineTileLayer(
     double currentZoom, {
     ErrorTileCallBack? errorTileCallback,
   }) {
     String selectedLayer;
-
     if (currentZoom < 7.5) {
       selectedLayer = 'RASTER_MARINE_3857_WMTS';
     } else if (currentZoom < 9.5) {
@@ -141,7 +140,6 @@ class MarineMapService {
     }
 
     final zoom = _zoomByLayer[selectedLayer]!;
-
     return TileLayer(
       key: Key('marine_layer_$selectedLayer'),
       urlTemplate: '$_clevisuWmtsLayerPrefix$selectedLayer',
@@ -161,14 +159,6 @@ class MarineMapService {
     );
   }
 
-  /// Renvoie une LISTE de couches empilées selon l'échelle active pour éviter le fond blanc.
-  /// Les couches sont empilées de la plus générale (en bas) à la plus précise (en haut).
-  /// Chaque couche a maxZoom: 22.0 pour permettre l'étirement des tuiles sous-jacentes.
-  ///
-  /// If [zoneUuids] is non-empty, the marine [TileProvider] is built with the
-  /// given zones as read-only fallback stores (in addition to the network and
-  /// the general store). When null or empty, the historical cached
-  /// single-store provider is used — i.e. behaviour is strictly unchanged.
   static List<TileLayer> getActiveMarineTileLayers(
     double currentZoom, {
     List<String>? zoneUuids,
@@ -198,11 +188,11 @@ class MarineMapService {
         tileDimension: 256,
         keepBuffer: 0,
         panBuffer: 0,
-        // 👇 UNIQUEMENT la couche du bas peint le message ;
-        // les couches du dessus restent transparentes si elles n'ont rien.
+        // En mode online : le filtre rend transparentes les zones grises
+        // pour laisser voir la couche en dessous.
         tileProvider: BlankGrayFilteringTileProvider(
           rawProvider,
-          paintMessage: index == 0, // SEUL le bas peint le message
+          paintMessage: index == 0,
         ),
         errorImage: MemoryImage(TileProviderFactory.transparentTilePng),
         errorTileCallback: errorTileCallback ?? (tile, error, stackTrace) {},
@@ -210,6 +200,7 @@ class MarineMapService {
         tileDisplay: TileDisplay.instantaneous(),
       );
     }).toList();
+
     return marineLayers;
   }
 
@@ -221,22 +212,9 @@ class MarineMapService {
       '&TILEMATRIXSET=3857'
       '&TILEMATRIX={z}&TILECOL={x}&TILEROW={y}';
 
-  /// Builds an INSPIRE WMTS URL for a given WMTS layer name.
-  /// Used by LiDAR (Litto3D) and LiDAR ombrage layers.
   static String inspireWmtsUrl(String wmtsLayerName) =>
       '$_inspireWmtsBase&LAYER=$wmtsLayerName';
 
-  /// Active LiDAR (Litto3D) tile layers for the current view.
-  ///
-  /// Campaign selection is *strictly* delegated to
-  /// [LidarRegionCatalog.activeLayersForView] — order, bounds and filtering
-  /// are unchanged.
-  ///
-  /// If [zoneUuids] is non-empty, the bathymetry [TileProvider] is built
-  /// with the given zones as read-only fallback stores (in addition to the
-  /// network and the general store). When null or empty, the historical
-  /// cached single-store provider is used — i.e. behaviour is strictly
-  /// unchanged.
   static List<TileLayer> getActiveLidarLayers(
     LatLngBounds? visibleBounds, {
     List<String>? zoneUuids,
@@ -285,28 +263,19 @@ class MarineMapService {
     );
   }
 
-  // --- Offline-aware layers (uses FMTC zone stores with network fallback) ---
-
-  /// Marine tile layers for HORS-LIGNE mode.
+  /// Couches marines en mode HORS-LIGNE.
   ///
-  /// Layer selection (which scales are shown at a given zoom) is
-  /// **identical** to [getActiveMarineTileLayers] — same `layerOrder`
-  /// thresholds, same `minZoom` / `maxZoom`, same stacking order.
-  ///
-  /// The only difference from ONLINE is the [TileProvider]:
-  /// - `loadingStrategy: cacheOnly` — no network requests.
-  /// - `stores` contains only `marine_zone_<uuid>` stores; the general
-  ///   `marineBase_*` FMTC store is never consulted.
-  /// - `TileLayer.key` uses the same values as ONLINE
-  ///   (`'marine_layer_$layerName'`), so flutter_map treats both
-  ///   modes as the same layer and swaps only the provider on change.
+  /// Le filtre [BlankGrayFilteringTileProvider] distingue lui-même les deux cas :
+  /// - tuile 100 % vide **opaque** (SHOM sans couverture) → message « Dézoomez »
+  ///   sur la couche du bas ;
+  /// - tuile 100 % **transparente** (absente du cache / hors zone, alpha = 0)
+  ///   → transparent pur, jamais de message → pas de papier peint hors des
+  ///   zones téléchargées.
   static List<TileLayer> getOfflineMarineTileLayers(
     double currentZoom,
     List<String> zoneUuids, {
     ErrorTileCallBack? errorTileCallback,
   }) {
-    // Hors-ligne : mêmes seuils 12.0 / 14.0 que l'online. En dessous de 12,
-    // seule la 50K (téléchargée) reste et s'étire.
     final layerOrder = _layerOrderForZoom(currentZoom, offline: true);
 
     final offlineProvider = MapTileCacheService.offlineMarineTileProvider(
@@ -314,10 +283,15 @@ class MarineMapService {
     );
 
     final marineLayers = layerOrder.asMap().entries.map((entry) {
-      final index = entry.key;
+      final index = entry.key; // 0 = couche du BAS
       final layerName = entry.value;
       final zoom = _zoomByLayer[layerName]!;
       final urlTemplate = '$_clevisuWmtsLayerPrefix$layerName';
+      if (kVerboseLayers) {
+        debugPrint(
+          '[MarineService] Layer[$index] $layerName: minNativeZoom=${zoom.minNativeZoom} maxNativeZoom=${zoom.maxNativeZoom}',
+        );
+      }
 
       return TileLayer(
         key: Key('marine_layer_$layerName'),
@@ -331,36 +305,34 @@ class MarineMapService {
         tileDimension: 256,
         keepBuffer: 0,
         panBuffer: 0,
-        tileProvider: BlankGrayFilteringTileProvider(
-          offlineProvider,
-          paintMessage: index == 0,
-        ),
+        // ✅ Plus de paintMessage ici : une tuile absente/vide devient
+        //    transparente, et c'est la couche-message DE SOUS qui apparaît.
+        tileProvider: BlankGrayFilteringTileProvider(offlineProvider),
         errorImage: MemoryImage(TileProviderFactory.transparentTilePng),
         errorTileCallback: errorTileCallback ?? (tile, error, stackTrace) {},
         evictErrorTileStrategy: EvictErrorTileStrategy.none,
         tileDisplay: TileDisplay.instantaneous(),
       );
     }).toList();
-    return marineLayers;
+
+    // 👇 Couche-message SOUS toutes les couches marines : visible partout où
+    //    aucune tuile téléchargée n'apporte de contenu (miss ou 100 % vide),
+    //    à TOUS les zooms — plus aucune dépendance au seuil 13.5.
+    return [
+      TileLayer(
+        key: const Key('offline_message_base'),
+        urlTemplate: 'https://offline.message.local/{z}/{x}/{y}',
+        userAgentPackageName: MapTileCacheService.packageName,
+        minZoom: 1.0,
+        maxZoom: 22.0,
+        tileProvider: MessageBaseTileProvider(),
+        tileDisplay: TileDisplay.instantaneous(),
+      ),
+      ...marineLayers,
+    ];
   }
 
-  /// LiDAR (Litto3D) tile layers for HORS-LIGNE mode.
-  ///
-  /// Campaign selection and bounds filtering are **identical** to
-  /// [getActiveLidarLayers] — both delegate to
-  /// [LidarRegionCatalog.activeLayersForView] with the same `visibleBounds`.
-  ///
-  /// The only difference from ONLINE is the [TileProvider]:
-  /// - `loadingStrategy: cacheOnly` — no network requests.
-  /// - `stores` contains only `lidar_zone_<uuid>_<lidarLayerId>` stores; the general
-  ///   `bathymetryOverlay_*` FMTC store is never consulted.
-  /// - `TileLayer.key` uses the same values as ONLINE
-  ///   (`'lidar_${layer.id}'`), so flutter_map treats both
-  ///   modes as the same layer and swaps only the provider on change.
-  ///
-  /// [lidarLayers] are the downloaded LiDAR layers for the ready/partial zones,
-  /// each carrying its [OfflineMapLayer.lidarLayerId]. If `lidarLayerId` is null
-  /// (legacy zone), the fallback store name `lidar_zone_<uuid>` is used.
+  /// Couches LiDAR en mode HORS-LIGNE.
   static List<TileLayer> getOfflineLidarLayers(
     LatLngBounds? visibleBounds,
     List<OfflineMapLayer> lidarLayers,
@@ -371,7 +343,6 @@ class MarineMapService {
     final enabled = AppSettings.bathymetryOverlayEnabled;
     if (!enabled) return [];
 
-    // Déterminer les couches à afficher
     final layers = lidarLayers
         .map((layer) {
           return Litto3DCatalog.findById(layer.lidarLayerId ?? '');
@@ -383,9 +354,7 @@ class MarineMapService {
 
     final layerOpacity = opacity ?? AppSettings.bathymetryOverlayOpacity;
 
-    // CORRECTION : Créer UN provider par couche (pas un provider global)
     return layers.map((layer) {
-      // Créer le store name pour CETTE couche spécifique
       final storeNames = <String>[];
       for (final uuid in zoneUuids) {
         if (uuid.isNotEmpty && layer.id.isNotEmpty) {
@@ -393,7 +362,6 @@ class MarineMapService {
         }
       }
 
-      // Créer un provider dédié pour cette couche
       final offlineProvider = MapTileCacheService.offlineLidarTileProvider(
         storeNames,
       );
