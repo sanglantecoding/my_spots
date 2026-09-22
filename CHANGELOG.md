@@ -4,6 +4,78 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 
 ---
 
+## 🆕 [v1.1.0] - 22 Septembre 2026
+
+### ✨ Nouvelles fonctionnalités majeures
+
+#### 🌊 **Cartes marines hors-ligne (SHOM)**
+- **Téléchargement de zones marines** pour navigation sans connexion internet
+- **3 échelles SHOM** : 50K (large), 25K (moyenne), 10K (détail)
+- **Empilement dynamique** : Couches adaptées selon le niveau de zoom
+- **Préflight SHOM** : Vérification de couverture avant téléchargement
+- **Écran OfflineMapsScreen** : Interface dédiée pour gérer les zones téléchargées
+
+#### 🗺️ **Couches LiDAR Litto3D**
+- **Bathymétrie haute résolution** par région (campagnes 2009, 2011, 2014-2015)
+- **Catalogue régional** : Sélection automatique selon la zone géographique
+- **Déduplication par campagne** : Plusieurs zones peuvent partager la même campagne LiDAR
+- **Opacité ajustable** : Slider pour contrôler la transparence des couches bathymétriques
+
+#### 💾 **Cache intelligent FMTC**
+- **Flutter Map Tile Caching** : Système de cache optimisé pour tuiles hors-ligne
+- **Gestion d'instances** : InstanceId unique par zone, run et couche
+- **Pause/Resume** : Gestion des téléchargements en cours avec possibilité de pause et reprise
+- **Synchronisation suppression** : Annulation propre avant suppression de stores (cancelAndAwaitEnd)
+
+#### 🎨 **Filtrage de tuiles**
+- **BlankGrayFilteringTileProvider** : Pixels blancs/gris rendus transparents
+- **Tolérance configurable** : Seuil de luminosité 190 et tolérance achromatique 3
+- **Tuiles mixtes** : Conservation des tuiles avec contenu partiel
+- **Message "Dézoomez"** : Affiché quand aucune tuile n'est disponible au zoom actuel
+
+### 🔧 Améliorations techniques
+
+#### 🏗️ **Architecture de téléchargement**
+- **ZoneDownloadService** : Orchestration du téléchargement de zones marines (~650 lignes)
+- **FmtcLayerDownloader** : Downloader FMTC avec pause/resume (~200 lignes)
+- **ShomCoveragePreflight** : Vérification de couverture SHOM avant téléchargement (~90 lignes)
+- **LayerDownloadAssessor** : Évaluation des résultats (seuil 15% d'échecs tolérés)
+- **Repository pattern** : OfflineMapRepository pour ObjectBox, TileCacheRepository pour FMTC
+
+#### 📊 **Persistance ObjectBox**
+- **OfflineMap** : Modèle pour les zones téléchargées (uuid, bounds, status, layers)
+- **OfflineMapLayer** : Modèle pour les couches (layerType, minZoom, maxZoom, downloaded, total)
+- **Statuts** : notStarted, downloading, ready, partial, failed
+- **Relation 1-N** : Une zone peut avoir plusieurs couches
+
+#### 🧪 **Tests unitaires complets**
+- **zone_config_test.dart** : Tests du préflight SHOM (scénarios A-E + fail-open)
+- **instance_id_test.dart** : Tests d'unicité des instanceId FMTC
+- **precancel_test.dart** : Tests d'indépendance des clés preCancel par store
+- **pause_resume_test.dart** : Tests pause/resume FmtcLayerDownloader
+- **assess_result_test.dart** : Tests d'évaluation des téléchargements (seuil 15%)
+- **blank_gray_filter_test.dart** : Tests du filtre de tuiles
+- **marine_layer_stacking_test.dart** : Tests de l'empilement des couches marines
+- **zone_download_service_test.dart** : Tests du service ZoneDownloadService (incluant cancelAndAwaitEnd)
+
+#### 🎯 **Logique métier**
+- **Règle P1** : successful > 0 requis pour succès (pas de succès avec 0 tuiles réelles)
+- **Seuil 15%** : Tolérance d'échecs réseau jusqu'à 15%
+- **Fail-open SHOM** : Comportement actuel si SHOM totalement injoignable
+- **LiDAR indépendant** : Couches LiDAR ajoutées même sans couverture marine
+
+### 📊 Statistiques de la version
+- **+8 fichiers de test** créés pour le téléchargement de zones
+- **+2000 lignes** de code ajoutées (services, modèles, repositories, tests)
+- **1 nouvel écran** : OfflineMapsScreen
+- **3 nouveaux modèles** : OfflineMap, OfflineMapLayer, Litto3DLayer
+- **3 nouveaux repositories** : OfflineMapRepository, TileCacheRepository, FmtcTileCacheRepository
+- **6 nouveaux services** : ZoneDownloadService, FmtcLayerDownloader, ShomCoveragePreflight, LayerDownloadAssessor, PortService, NegativeTileFilter
+- **4 nouveaux widgets** : GpsMarkerWidget, SelectedWaypointPanel, MapControlsWidget, DistanceMeasurementOverlay
+- **Architecture améliorée** : Séparation des responsabilités, repository pattern, tests unitaires
+
+---
+
 ## 🆕 [v1.0.1+2] - 24 Août 2026
 
 ### ✨ Refactoring architectural majeur
@@ -308,13 +380,12 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 
 ## 🚀 Roadmap prévisionnelle
 
-### v1.02 (Planifié)
-- **Mode hors-ligne** : Téléchargement des cartes
+### v1.2 (Planifié)
 - **Partage en temps réel** : Position avec amis
 - **Historique des trajets** : Enregistrement des parcours
 - **Multi-langues** : Anglais, Espagnol, Allemand
 
-### v1.03 (Étudié)
+### v1.3 (Étudié)
 - **Mode avancé** : Calques personnalisés
 - **Statistiques** : Distance parcourue, temps passé
 - **Cloud sync** : Synchronisation automatique
@@ -348,4 +419,4 @@ Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de
 
 ---
 
-*Version 1.0.1+2 - Architecture unifiée et refactoring progressif*
+*Version 1.1.0 - Cartes marines SHOM hors-ligne et téléchargement intelligent*

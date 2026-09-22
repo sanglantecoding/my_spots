@@ -2,7 +2,7 @@
 
 ## Vue d'ensemble
 
-**My Spots** est une application Flutter de cartographie et de gestion de waypoints (spots de pêche, champignons, etc.) avec navigation GPS en temps réel, alarmes de proximité, et affichage de cartes marines SHOM / LiDAR.
+**My Spots** est une application Flutter de cartographie et de gestion de waypoints (spots de pêche, champignons, etc.) avec navigation GPS en temps réel, alarmes de proximité, affichage de cartes marines SHOM / LiDAR, et téléchargement de zones hors-ligne.
 
 ---
 
@@ -10,27 +10,70 @@
 
 ```
 lib/
-├── main.dart                          # Point d'entrée (~2768 lignes) — Écrans Home, Map, Waypoints, éditeur
+├── main.dart                          # Point d'entrée (~400 lignes) — AppBootstrap, initialisation
 ├── app_settings.dart                  # Configuration globale (SharedPreferences) — 333 lignes
-├── settings_page.dart                 # Écran de paramètres (~1674 lignes) — Ports, unités, alarmes, sauvegarde
+├── settings_page.dart                 # Écran de paramètres (~1420 lignes) — Ports, unités, alarmes, sauvegarde
 ├── help_page.dart                     # Page d'aide (affiche CHANGELOG.md) — 200 lignes
 ├── waypoint_export_screen.dart        # Export/Import GPX — 522 lignes
+├── controllers/
+│   └── gps_controller.dart            # Contrôleur GPS unifié (tracking, streaming) — ~200 lignes
+├── core/
+│   ├── app_bootstrap.dart             # Initialisation de l'application — ~100 lignes
+│   └── app_initialization_status.dart # Statut d'initialisation — ~50 lignes
 ├── models/
-│   └── waypoint.dart                  # Modèle Waypoint + WaypointStore (SharedPreferences) — 97 lignes
+│   ├── waypoint.dart                  # Modèle Waypoint + WaypointStore (SharedPreferences) — 97 lignes
+│   ├── offline_map.dart              # Modèle OfflineMap (ObjectBox) — ~100 lignes
+│   ├── offline_map_layer.dart        # Modèle OfflineMapLayer (ObjectBox) — ~80 lignes
+│   ├── fishing_port.dart              # Modèle FishingPort (ports météo) — ~60 lignes
+│   ├── litto3d_layer.dart             # Modèle Litto3DLayer (catalogue LiDAR) — ~70 lignes
+│   └── lidar_region_bounds.dart      # Modèle LidarRegionBounds (limites régionales) — ~50 lignes
+├── repositories/
+│   ├── offline_map_repository.dart    # Repository OfflineMap (ObjectBox) — ~150 lignes
+│   ├── tile_cache_repository.dart     # Interface repository cache tuiles — ~50 lignes
+│   └── fmtc_tile_cache_repository.dart # Repository FMTC (implémentation) — ~200 lignes
 ├── services/
-│   ├── gps_service.dart               # Service GPS centralisé (Haversine, statuts, tracking adaptatif) — 297 lignes
+│   ├── gps_service.dart               # Service GPS utilitaire (Haversine, statuts, formatage) — 297 lignes
 │   ├── alarm_service.dart             # Alarmes de proximité (zones X/Y/Z, bips audio) — 224 lignes
 │   ├── satellite_service.dart         # Simulation de données satellites — 199 lignes
-│   ├── audio_service.dart             # Service audio (redondant avec alarm_service) — 85 lignes
-│   ├── location_permission_service.dart # Gestion des permissions GPS — 79 lignes
 │   ├── waypoint_sort_service.dart     # Tri des waypoints par distance — 139 lignes
-│   ├── bathymetry_overlay_service.dart # Overlay LiDAR/Bathymétrie SHOM (WMTS) — 52 lignes
-│   ├── marine_map_service.dart        # Cartes marines RasterMarine SHOM (clevisu WMTS) — 45 lignes
-│   ├── map_tile_cache_service.dart    # Cache de tuiles FMTC (hors-ligne) — 99 lignes
-│   └── resource_manager.dart          # Gestionnaire de ressources (timers, streams, audio) — 96 lignes
+│   ├── port_service.dart              # Service ports météo — ~100 lignes
+│   ├── marine_map_service.dart        # Cartes marines RasterMarine SHOM (clevisu WMTS) — ~350 lignes
+│   ├── map_tile_cache_service.dart    # Cache de tuiles FMTC (hors-ligne) — ~200 lignes
+│   ├── negative_tile_filter.dart      # Filtre de tuiles négatives — ~200 lignes
+│   ├── zone_layer_config.dart        # Configuration des couches par zone — ~100 lignes
+│   ├── layer_download_assessor.dart  # Évaluation des téléchargements — ~150 lignes
+│   ├── tile_cache/
+│   │   ├── blank_gray_filter.dart    # Filtre pixels blancs/gris — ~270 lignes
+│   │   ├── cache_manager.dart        # Gestionnaire de cache — ~150 lignes
+│   │   ├── message_tile_provider.dart # Provider tuiles message "Dézoomez" — ~100 lignes
+│   │   └── tile_provider_factory.dart # Factory providers tuiles — ~80 lignes
+│   └── zone_download/
+│       ├── zone_download_service.dart # Service téléchargement zones — ~650 lignes
+│       ├── fmtc_layer_downloader.dart # Downloader FMTC (pause/resume) — ~200 lignes
+│       ├── shom_coverage_preflight.dart # Préflight SHOM — ~90 lignes
+│       ├── layer_download_result.dart # Résultat téléchargement — ~50 lignes
+│       ├── repository_interface.dart  # Interface repository zone download — ~30 lignes
+│       └── zone_download.dart         # Types et enums zone download — ~50 lignes
 ├── utils/
 │   ├── date_utils.dart                # Formatage de dates — 52 lignes
 │   └── gps_status_utils.dart          # Utilitaires statut GPS (couleurs, icônes, labels) — 70 lignes
+├── views/
+│   ├── home_page.dart                 # Écran d'accueil — ~300 lignes
+│   ├── map_screen.dart                # Écran carte — ~900 lignes
+│   ├── waypoints_screen.dart          # Écran waypoints — ~400 lignes
+│   ├── offline_maps_screen.dart       # Écran cartes hors-ligne — ~500 lignes
+│   ├── dialogs/
+│   │   └── waypoint_editor_sheet.dart # Éditeur waypoint (bottom sheet) — ~300 lignes
+│   ├── settings/
+│   │   └── widgets/
+│   │       └── meteo_port_setting.dart # Widget paramètre port météo — ~100 lignes
+│   └── widgets/
+│       └── map/
+│           ├── map_view.dart          # Vue carte principale — ~400 lignes
+│           ├── gps_marker_widget.dart # Widget marqueur GPS — ~150 lignes
+│           ├── selected_waypoint_panel.dart # Panneau waypoint sélectionné — ~200 lignes
+│           ├── map_controls_widget.dart # Contrôles carte — ~150 lignes
+│           └── distance_measurement_overlay.dart # Overlay mesure distance — ~100 lignes
 └── widgets/
     ├── gps_status_indicator.dart      # Indicateur GPS compact — 90 lignes
     ├── navigation_overlay.dart        # Bandeau de navigation active (cap, distance, ETA) — 300 lignes
@@ -58,6 +101,8 @@ lib/
 | `file_picker` ^8.1.2 | Sélection de fichiers pour import |
 | `intl` ^0.20.2 | Internationalisation (dates) |
 | `path_provider` ^2.1.3 | Chemins de fichiers temporaires |
+| `objectbox` ^4.0.0 | Base de données locale (OfflineMap, OfflineMapLayer) |
+| `objectbox_flutter_libs` ^4.0.0 | Librairies natives ObjectBox pour Flutter |
 
 ---
 
@@ -71,7 +116,25 @@ lib/
 
 ### `AppSettings`
 - **Stockage** : `SharedPreferences` (clés individuelles)
-- **Paramètres** : unité de vitesse (kmh/knots), unité de distance (metric/nautical), type de carte (standard/relief/hiking/marine), visibilité waypoints, alarmes de proximité (zones X/Y/Z), overlay bathymétrie, ports favoris météo marine, mode économie d'énergie
+- **Paramètres** : unité de vitesse (kmh/knots), unité de distance (metric/nautical), type de carte (standard/relief/hiking/marine), visibilité waypoints, alarmes de proximité (zones X/Y/Z), overlay bathymétrie, ports favoris météo marine, mode économie d'énergie, opacité bathymétrie
+
+### `OfflineMap`
+- **Stockage** : ObjectBox via `OfflineMapRepository`
+- **Champs** : `uuid`, `name`, `bounds` (LatLngBounds), `status` (notStarted/downloading/ready/partial/failed), `createdAt`, `downloadedBytes`, `totalBytes`, `layers` (relation 1-N avec OfflineMapLayer)
+- **Statuts** : `OfflineMapStatus.notStarted`, `.downloading`, `.ready`, `.partial`, `.failed`
+
+### `OfflineMapLayer`
+- **Stockage** : ObjectBox (relation avec OfflineMap)
+- **Champs** : `layerType` (marine50k/marine25k/marine10k/lidarLitto3d), `minZoom`, `maxZoom`, `downloaded`, `total`, `status`, `lidarLayerId` (optionnel pour LiDAR)
+- **Types** : `LayerType.marine50k`, `.marine25k`, `.marine10k`, `.lidarLitto3d`
+
+### `FishingPort`
+- **Stockage** : Code statique (catalogue ports)
+- **Champs** : `id`, `name`, `region`, `url` (météo marine)
+
+### `Litto3DLayer`
+- **Stockage** : Code statique (catalogue LiDAR)
+- **Champs** : `id`, `name`, `region`, `wmtsLayerName`, `bounds`
 
 ---
 
@@ -82,14 +145,18 @@ lib/
 - Utilisation de `setState()` dans les `StatefulWidget`
 - Services statiques (singletons) avec variables statiques mutables
 - `AppSettings` : classe statique avec champs statiques modifiés directement
+- `GpsController` : contrôleur GPS unifié pour tracking et streaming
 
 ### Persistance
 - `WaypointStore` : charge/sauvegarde la liste complète des waypoints en JSON via `SharedPreferences`
 - `AppSettings` : chaque paramètre a sa propre clé `SharedPreferences`
-- `MapTileCacheService` : cache de tuiles FMTC (ObjectBox) pour usage hors-ligne
+- `OfflineMapRepository` : repository ObjectBox pour OfflineMap et OfflineMapLayer
+- `MapTileCacheService` : cache de tuiles FMTC pour usage hors-ligne
+- `FmtcTileCacheRepository` : repository FMTC isolant les dépendances internes
 
 ### Géolocalisation
-- `GpsService` : service centralisé avec tracking adaptatif (stationnaire vs mobile)
+- `GpsController` : contrôleur unifié pour tracking GPS (remplace GpsService pour le tracking)
+- `GpsService` : service utilitaire pour calculs Haversine, statuts, formatage
 - Seuils de précision GPS unifiés : 0-8m (Vert/Excellent), 8-15m (Ambre/OK), 15-30m (Orange/Moyen), >30m (Rouge/Faible)
 - Streaming GPS avec adaptation de la fréquence selon la vitesse
 - `SatelliteService` : simulation de données satellites (pas d'API réelle)
@@ -97,8 +164,18 @@ lib/
 ### Cartes
 - **4 types de cartes** : Standard (OSM), Relief (OpenTopoMap), Randonnée (Thunderforest), Marine (SHOM)
 - **Carte marine** : empilement WMTS SHOM clevisu (3 échelles : 1:50k, 1:25k, 1:10k)
-- **Overlay bathymétrie** : empilement WMTS SHOM INSPIRE Litto3D (3 millésimes : 2009, 2011, 2014-2015)
-- Cache FMTC dédié par couche pour éviter les collisions de cache
+- **Overlay bathymétrie** : empilement WMTS SHOM INSPIRE Litto3D (campagnes régionales)
+- **Cache FMTC** : téléchargement de zones hors-ligne avec gestion d'instances
+- **Filtre de tuiles** : `BlankGrayFilteringTileProvider` rend les pixels blancs/gris transparents
+- **Message "Dézoomez"** : affiché quand aucune tuile n'est disponible au zoom actuel
+- **Empilement dynamique** : couches adaptées selon le niveau de zoom
+
+### Téléchargement de zones
+- `ZoneDownloadService` : orchestration du téléchargement de zones marines
+- `FmtcLayerDownloader` : downloader FMTC avec pause/resume
+- `ShomCoveragePreflight` : vérification de couverture SHOM avant téléchargement
+- `LayerDownloadAssessor` : évaluation des résultats de téléchargement (seuil 15%)
+- `cancelAndAwaitEnd` : synchronisation avant suppression de stores
 
 ### Navigation et alarmes
 - `NavigationOverlay` : bandeau affichant distance, cap, vitesse, ETA vers un waypoint cible
@@ -109,43 +186,52 @@ lib/
 
 ## Écrans principaux
 
-1. **HomePage** (`main.dart`) : Menu principal avec boutons CARTE et WAYPOINTS, statut GPS, météo marine
-2. **MapScreen** (`main.dart`) : Carte interactive avec waypoints, navigation, overlay bathymétrie, ajout/édition de waypoints
-3. **WaypointsScreen** (`main.dart`) : Liste des waypoints triés par distance, édition, suppression
-4. **SettingsScreen** (`settings_page.dart`) : Paramètres complets (port, unités, carte, alarmes, sauvegarde/restauration)
-5. **WaypointExportScreen** (`waypoint_export_screen.dart`) : Export/Import GPX avec sélection multiple
-6. **HelpPage** (`help_page.dart`) : Aide affichant le CHANGELOG.md
+1. **HomePage** (`views/home_page.dart`) : Menu principal avec boutons CARTE et WAYPOINTS, statut GPS, météo marine
+2. **MapScreen** (`views/map_screen.dart`) : Carte interactive avec waypoints, navigation, overlay bathymétrie, ajout/édition de waypoints
+3. **WaypointsScreen** (`views/waypoints_screen.dart`) : Liste des waypoints triés par distance, édition, suppression
+4. **OfflineMapsScreen** (`views/offline_maps_screen.dart`) : Gestion des cartes marines hors-ligne (téléchargement, pause/resume, suppression)
+5. **SettingsScreen** (`settings_page.dart`) : Paramètres complets (port, unités, carte, alarmes, sauvegarde/restauration)
+6. **WaypointExportScreen** (`waypoint_export_screen.dart`) : Export/Import GPX avec sélection multiple
+7. **HelpPage** (`help_page.dart`) : Aide affichant le CHANGELOG.md
 
 ---
 
 ## Points d'attention / Refactoring potentiel
 
 ### Fichiers volumineux
-- **`main.dart`** : **~2768 lignes** — contient 3 écrans majeurs (HomePage, MapScreen, WaypointsScreen) + l'éditeur de waypoints. **Priorité de refactoring** : extraire MapScreen, WaypointsScreen et _WaypointEditorSheet dans des fichiers séparés.
-- **`settings_page.dart`** : **~1674 lignes** — très long, pourrait être découpé en sous-widgets ou sections.
+- **`settings_page.dart`** : **~1420 lignes** — très long, pourrait être découpé en sous-widgets ou sections.
+- **`zone_download_service.dart`** : **~650 lignes** — service complexe pour téléchargement de zones, pourrait être découpé en sous-services.
 
 ### Redondances
-- **`audio_service.dart`** vs **`alarm_service.dart`** : `AudioService` semble être une version antérieure du système audio, partiellement redondant avec `AlarmService`. Vérifier si encore utilisé.
 - **Calculs de distance Haversine** : dupliqués dans `GpsService`, `AlarmService`, `WaypointSortService`, `NavigationOverlay`. `GpsService.calculateDistance()` est la version centralisée, mais les autres services ont leur propre implémentation.
 - **`GpsStatusUtils`** vs **`GpsService`** : logique de statut GPS dupliquée entre les deux.
 
 ### Problèmes potentiels
 - **Services statiques** : utilisation intensive de variables statiques mutables — pas idéal pour les tests et le cycle de vie.
 - **`SatelliteService`** : données satellites **simulées** (pas de vraie API Android GNSS). Les utilisateurs pourraient être induits en erreur.
-- **Permissions** : la logique de permission est dupliquée dans `main.dart` (HomePage), `GpsService`, et `LocationPermissionService`.
-- **`NavigationOverlay`** : crée son propre stream GPS (`Geolocator.getPositionStream`) en parallèle de celui de `GpsService` — double consommation de batterie.
+- **Permissions** : la logique de permission est dupliquée dans plusieurs fichiers.
+- **`NavigationOverlay`** : utilise `GpsController` pour le streaming GPS (meilleur qu'avant).
 - **`AlarmService`** : utilise `_distanceInMeters()` avec Haversine manuelle au lieu de `GpsService.calculateDistance()`.
 
 ### Tests
-- Un seul fichier de test : `test/gps_service_test.dart` (98 lignes) — couvre les seuils de précision GPS.
-- Pas de tests pour les autres services, modèles, ou widgets.
+- **Tests unitaires complets** pour le téléchargement de zones :
+  - `test/views/zone_config_test.dart` : Tests du préflight SHOM
+  - `test/services/zone_download/instance_id_test.dart` : Tests d'unicité des instanceId FMTC
+  - `test/services/zone_download/precancel_test.dart` : Tests d'indépendance des clés preCancel
+  - `test/services/zone_download/pause_resume_test.dart` : Tests pause/resume FmtcLayerDownloader
+  - `test/services/zone_download/assess_result_test.dart` : Tests d'évaluation des téléchargements
+  - `test/services/tile_cache/blank_gray_filter_test.dart` : Tests du filtre de tuiles
+  - `test/services/marine_layer_stacking_test.dart` : Tests de l'empilement des couches marines
+  - `test/services/zone_download_service_test.dart` : Tests du service ZoneDownloadService
+- **Tests GPS** : `test/gps_service_test.dart` (98 lignes) — couvre les seuils de précision GPS
+- **Couverture de tests** : Bonne couverture pour les fonctionnalités de téléchargement de zones, mais limitée pour les autres services et widgets.
 
 ---
 
 ## Versions et environnement
 
 - **Flutter SDK** : ^3.10.7
-- **Version app** : 1.0.0+1
+- **Version app** : 1.1.0
 - **Package name** : `com.svc.my_spots`
 - **Localisation** : Français uniquement (`fr_FR`)
 - **Thème** : Dark mode (couleur de fond `#0A1929`)

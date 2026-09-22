@@ -724,4 +724,73 @@ void main() {
       );
     },
   );
+
+  group('cancelAndAwaitEnd — synchronisation avant suppression', () {
+    test(
+      'waitForCompletion bloque jusqu\'à la fin réelle après cancel',
+      () async {
+        final gate = Completer<void>();
+        final d = FakeLayerDownloader(gateCompletion: gate);
+        final s2 = ZoneDownloadService(repository: repo, downloader: d);
+        final map = _m('delete-race');
+        repo.save(map);
+        final layer = _l(LayerType.marine25k);
+        repo.saveLayer(map, layer);
+
+        unawaited(s2.downloadZone(map: map, layers: [layer]));
+        await Future.delayed(Duration.zero);
+
+        await s2.cancelDownload(map.uuid);
+        expect(s2.isDownloading(map.uuid), isTrue);
+
+        var waitedDone = false;
+        final waitFut = s2
+            .waitForCompletion(map.uuid, timeout: const Duration(seconds: 3))
+            .then((_) => waitedDone = true);
+        await Future.delayed(const Duration(milliseconds: 50));
+        expect(
+          waitedDone,
+          isFalse,
+          reason:
+              'waitForCompletion doit bloquer tant que downloadZone finalise',
+        );
+
+        gate.complete(); // libère le downloader → downloadZone se termine
+        await waitFut;
+        expect(waitedDone, isTrue);
+        expect(s2.isDownloading(map.uuid), isFalse);
+        // ← ce n'est qu'ici que _handleDelete peut supprimer stores + ObjectBox
+      },
+    );
+
+    test('cancelAndAwaitEnd combine cancel + waitForCompletion', () async {
+      final gate = Completer<void>();
+      final d = FakeLayerDownloader(gateCompletion: gate);
+      final s2 = ZoneDownloadService(repository: repo, downloader: d);
+      final map = _m('cancel-await');
+      repo.save(map);
+      final layer = _l(LayerType.marine25k);
+      repo.saveLayer(map, layer);
+
+      unawaited(s2.downloadZone(map: map, layers: [layer]));
+      await Future.delayed(Duration.zero);
+
+      var awaited = false;
+      final awaitFut = s2
+          .cancelAndAwaitEnd(map.uuid, timeout: const Duration(seconds: 3))
+          .then((_) => awaited = true);
+
+      await Future.delayed(const Duration(milliseconds: 50));
+      expect(
+        awaited,
+        isFalse,
+        reason: 'cancelAndAwaitEnd doit bloquer tant que downloadZone finalise',
+      );
+
+      gate.complete();
+      await awaitFut;
+      expect(awaited, isTrue);
+      expect(s2.isDownloading(map.uuid), isFalse);
+    });
+  });
 }

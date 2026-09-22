@@ -202,7 +202,13 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
       ),
     );
     if (confirm != true) return;
-    await _zoneService.cancelDownload(map.uuid);
+
+    // 👇 Annule ET attend la fin réelle du téléchargement (sortie de boucle,
+    // _finalizeZone, saves ObjectBox compris) avant de supprimer les stores
+    // et la ligne ObjectBox. Élimine la course "cancel → delete stores →
+    // delete DB" pendant que downloadZone finalise encore en arrière-plan.
+    await _zoneService.cancelAndAwaitEnd(map.uuid);
+
     await MapTileCacheService.deleteStoresForZone(map.uuid);
     _offlineMapRepo!.deleteByUuid(map.uuid);
     await _loadZones();

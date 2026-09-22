@@ -16,6 +16,17 @@
 - **Bouton d'arrêt** intégré dans le bandeau
 - **Contrôle audio** : Bouton Mute pour couper/réactiver les bips
 
+### 🗺️ Cartes marines hors-ligne (SHOM)
+- **Téléchargement de zones marines** pour navigation sans connexion
+- **3 échelles SHOM** : 50K (large), 25K (moyenne), 10K (détail)
+- **Couches LiDAR Litto3D** pour bathymétrie haute résolution
+- **Préflight SHOM** : Vérification de couverture avant téléchargement
+- **Cache intelligent FMTC** : Flutter Map Tile Caching optimisé
+- **Filtre de tuiles vides** : Pixels blancs/gris rendus transparents
+- **Empilement dynamique** : Couches adaptées selon le zoom
+- **Pause/Resume** : Gestion des téléchargements en cours
+- **Synchronisation suppression** : Annulation propre avant suppression de stores
+
 ### 🗺️ Navigation GPS en temps réel
 - **Suivi GPS continu** avec indicateur de précision coloré
 - **4 niveaux de précision** : Excellent (<8m), Correct (8-15m), Moyen (15-30m), Faible (>30m)
@@ -113,6 +124,9 @@
 
 ### 🗺️ Cartographie interactive
 - **3 types de fonds** : Standard, Relief, Randonnée
+- **Cartes marines SHOM** : Téléchargement hors-ligne pour navigation maritime
+- **3 échelles marines** : 50K, 25K, 10K selon le niveau de détail
+- **Bathymétrie LiDAR** : Couches haute résolution pour profondeurs
 - **Zoom fluide** : Du niveau local au niveau régional
 - **Marqueurs dynamiques** : Adaptation selon le niveau de zoom
 - **Mode plein écran** : Navigation sans distraction
@@ -218,11 +232,34 @@
 - **Carte** : Type de fond préféré
 - **Alarmes** : Distances des 3 zones
 - **Affichage** : Visibilité des catégories
+- **Bathymétrie** : Opacité des couches LiDAR
 
 #### **Exportation des préférences**
 - **Toutes les configurations** sont automatiquement sauvegardées
 - **Restauration** automatique au redémarrage
 - **Compatibilité** multi-appareils via synchronisation
+
+### 🌊 Utiliser les cartes marines hors-ligne
+
+#### **Télécharger une zone marine**
+1. **Aller** dans l'écran des cartes hors-ligne
+2. **Créer une nouvelle zone** en dessinant sur la carte
+3. **Sélectionner les couches** : 50K, 25K, 10K selon vos besoins
+4. **Ajouter des couches LiDAR** si disponibles dans la région
+5. **Lancer le téléchargement**
+6. **Surveiller la progression** avec les indicateurs de téléchargement
+
+#### **Gérer les téléchargements**
+- **Pause** : Mettre en pause un téléchargement en cours
+- **Resume** : Reprendre un téléchargement interrompu
+- **Cancel** : Annuler un téléchargement (avec synchronisation propre)
+- **Delete** : Supprimer une zone et ses stores FMTC
+
+#### **Utiliser les cartes hors-ligne**
+- **Activer le mode hors-ligne** dans les paramètres de carte
+- **Les couches disponibles** s'affichent automatiquement
+- **L'empilement s'adapte** au niveau de zoom
+- **Les tuiles vides** sont transparentes pour voir les couches inférieures
 
 ---
 
@@ -243,6 +280,17 @@
 ---
 
 ## 📝 Notes de version
+
+### 🆕 v1.1.0 - 22 Septembre 2026
+- **Cartes marines SHOM hors-ligne** : Téléchargement de zones pour navigation sans connexion
+- **3 échelles SHOM** : 50K (large), 25K (moyenne), 10K (détail) avec empilement dynamique
+- **Couches LiDAR Litto3D** : Bathymétrie haute résolution par région
+- **Préflight SHOM** : Vérification de couverture avant téléchargement
+- **Cache FMTC optimisé** : Flutter Map Tile Caching avec gestion d'instances
+- **Filtre de tuiles vides** : Pixels blancs/gris rendus transparents
+- **Pause/Resume téléchargements** : Gestion des téléchargements en cours
+- **Synchronisation suppression** : Annulation propre avant suppression de stores
+- **Tests unitaires complets** : Couverture des fonctionnalités de téléchargement
 
 ### 🆕 v1.0.1+2 - 24 Août 2026
 - **Architecture GPS unifiée** : GpsController comme unique source de tracking GPS
@@ -320,4 +368,4 @@ Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de
 
 **Développé avec ❤️ en Flutter pour les amateurs de plein air**
 
-*Version 1.0.1+2 - Architecture unifiée et refactoring progressif*
+*Version 1.1.0 - Cartes marines SHOM hors-ligne et téléchargement intelligent*

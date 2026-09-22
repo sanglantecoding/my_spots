@@ -57,7 +57,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _exportAllData() async {
     try {
-      // Créer le dictionnaire de données complètes
       final backupData = {
         'version': '1.0',
         'timestamp': DateTime.now().toIso8601String(),
@@ -87,16 +86,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         },
       };
 
-      // Convertir en JSON
       final jsonString = const JsonEncoder.withIndent('  ').convert(backupData);
 
-      // Créer un fichier temporaire
       final directory = await getTemporaryDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final file = File('${directory.path}/my_spots_backup_$timestamp.json');
       await file.writeAsString(jsonString);
 
-      // Partager le fichier
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path)],
@@ -104,7 +100,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
 
-      // Nettoyer après 30 secondes
       Future.delayed(const Duration(seconds: 30), () {
         if (file.existsSync()) {
           file.deleteSync();
@@ -144,19 +139,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       final data = jsonDecode(content) as Map<String, dynamic>;
 
-      // Validation des clés principales
       if (!data.containsKey('version') ||
           !data.containsKey('waypoints') ||
           !data.containsKey('settings')) {
         throw Exception('Fichier de sauvegarde incomplet ou corrompu');
       }
 
-      // Vérifier la version
       if (data['version'] != '1.0') {
         throw Exception('Version de sauvegarde incompatible');
       }
 
-      // Importer les waypoints avec validation
       final waypointsData = data['waypoints'] as List<dynamic>?;
       if (waypointsData == null) {
         throw Exception('Aucune donnée de waypoints trouvée');
@@ -175,15 +167,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       }
 
-      // Remplacer les waypoints existants
       WaypointStore.waypoints.clear();
       WaypointStore.waypoints.addAll(importedWaypoints);
       await WaypointStore.save();
 
-      // Importer les réglages avec null safety
       final settings = data['settings'] as Map<String, dynamic>? ?? {};
 
-      // Valeurs par défaut sécurisées avec opérateur ??
       AppSettings.speedUnit = AppSettings.getEnumFromIndex(
         SpeedUnit.values,
         settings['speedUnit'] as int?,
@@ -231,7 +220,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       AppSettings.energySavingMode =
           settings['energySavingMode'] as bool? ?? false;
 
-      // Import des ports favoris avec validation
       final portsData = settings['favoritePorts'] as List<dynamic>?;
       if (portsData != null) {
         AppSettings.favoritePorts = portsData
@@ -251,7 +239,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         AppSettings.favoritePorts = [];
       }
 
-      // Sauvegarder tous les réglages
       await AppSettings.saveSpeedUnit(AppSettings.speedUnit);
       await AppSettings.saveWaypointsVisibility(AppSettings.waypointsVisible);
       await AppSettings.saveWaypointCategoryVisibility(
@@ -313,7 +300,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final y = double.tryParse(_proximityYController.text) ?? 20.0;
     final z = double.tryParse(_proximityZController.text) ?? 5.0;
 
-    // Validation de la logique X > Y > Z
     if (y >= x) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -400,7 +386,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Icon(Icons.speed, color: Colors.greenAccent, size: 20),
                   SizedBox(width: 12),
                   Text(
-                    'UNITÉ DE VITESSE',
+                    'UNITÉS',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -423,6 +409,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               child: Column(
                 children: [
+                  SwitchListTile(
+                    title: const Text(
+                      'Afficher la vitesse sur la carte',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    value: _showSpeedOnMap,
+                    activeThumbColor: Colors.blueAccent,
+                    onChanged: (bool value) async {
+                      setState(() {
+                        _showSpeedOnMap = value;
+                      });
+                      await AppSettings.saveSpeedOnMap(value);
+                    },
+                  ),
+                  const Divider(
+                    color: Colors.white12,
+                    height: 1,
+                    indent: 16,
+                    endIndent: 16,
+                  ),
                   RadioListTile<SpeedUnit>(
                     title: const Text(
                       'Nœuds (nds)',
@@ -437,11 +447,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: Colors.white54),
                     ),
                     value: SpeedUnit.knots,
-                    // ignore: deprecated_member_use
                     groupValue: _selectedUnit,
-                    toggleable: true,
                     activeColor: Colors.blueAccent,
-                    // ignore: deprecated_member_use
                     onChanged: (SpeedUnit? value) async {
                       if (value != null) {
                         setState(() {
@@ -471,16 +478,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: Colors.white54),
                     ),
                     value: SpeedUnit.kmh,
-                    // ignore: deprecated_member_use
                     groupValue: _selectedUnit,
                     activeColor: Colors.blueAccent,
-                    // ignore: deprecated_member_use
                     onChanged: (SpeedUnit? value) async {
                       if (value != null) {
                         setState(() {
                           _selectedUnit = value;
                         });
                         await AppSettings.saveSpeedUnit(value);
+                      }
+                    },
+                  ),
+                  const Divider(
+                    color: Colors.white24,
+                    height: 2,
+                    indent: 16,
+                    endIndent: 16,
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Distance',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                    ),
+                  ),
+                  RadioListTile<DistanceUnit>(
+                    title: const Text(
+                      'Mètres / Kilomètres',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'm jusqu\'à 1000 m, puis km',
+                      style: TextStyle(color: Colors.white54),
+                    ),
+                    value: DistanceUnit.metric,
+                    groupValue: _distanceUnit,
+                    activeColor: Colors.blueAccent,
+                    onChanged: (DistanceUnit? value) async {
+                      if (value != null) {
+                        setState(() {
+                          _distanceUnit = value;
+                        });
+                        await AppSettings.saveDistanceUnit(value);
+                      }
+                    },
+                  ),
+                  const Divider(
+                    color: Colors.white12,
+                    height: 1,
+                    indent: 16,
+                    endIndent: 16,
+                  ),
+                  RadioListTile<DistanceUnit>(
+                    title: const Text(
+                      'Milles nautiques',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'nm (navigation maritime)',
+                      style: TextStyle(color: Colors.white54),
+                    ),
+                    value: DistanceUnit.nautical,
+                    groupValue: _distanceUnit,
+                    activeColor: Colors.blueAccent,
+                    onChanged: (DistanceUnit? value) async {
+                      if (value != null) {
+                        setState(() {
+                          _distanceUnit = value;
+                        });
+                        await AppSettings.saveDistanceUnit(value);
                       }
                     },
                   ),
@@ -748,6 +830,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     indent: 16,
                     endIndent: 16,
                   ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Taille des étiquettes',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.blueAccent.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${_labelFontSize.round()}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Slider(
+                    value: _labelFontSize,
+                    min: 10,
+                    max: 20,
+                    divisions: 10,
+                    activeColor: Colors.blueAccent,
+                    onChanged: (double value) async {
+                      setState(() {
+                        _labelFontSize = value;
+                      });
+                      await AppSettings.saveWaypointLabelFontSize(value);
+                    },
+                  ),
+                  const Divider(
+                    color: Colors.white12,
+                    height: 1,
+                    indent: 16,
+                    endIndent: 16,
+                  ),
                   SwitchListTile(
                     title: const Text(
                       'Afficher les spots de Pêche',
@@ -824,94 +959,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         showMushrooms: _showMushroomWaypointsOnMap,
                         showOther: _showOtherWaypointsOnMap,
                       );
-                    },
-                  ),
-                  SwitchListTile(
-                    title: const Text(
-                      'Afficher la vitesse',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    value: _showSpeedOnMap,
-                    activeThumbColor: Colors.blueAccent,
-                    onChanged: (bool value) async {
-                      setState(() {
-                        _showSpeedOnMap = value;
-                      });
-                      await AppSettings.saveSpeedOnMap(value);
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-            const Text(
-              'TAILLE DE LA POLICE (ÉTIQUETTES)',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white70,
-                letterSpacing: 1.5,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.black26,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  width: 1,
-                ),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Taille des étiquettes sur la carte',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.blueAccent.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          '${_labelFontSize.round()}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Slider(
-                    value: _labelFontSize,
-                    min: 10,
-                    max: 20,
-                    divisions: 10,
-                    activeColor: Colors.blueAccent,
-                    onChanged: (double value) async {
-                      setState(() {
-                        _labelFontSize = value;
-                      });
-                      await AppSettings.saveWaypointLabelFontSize(value);
                     },
                   ),
                 ],
@@ -1052,104 +1099,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: _saveProximityDistances,
-                    icon: const Icon(
-                      Icons.save,
-                      color: Colors.blueAccent,
-                      size: 20,
-                    ),
-                    label: const Text(
-                      'Enregistrer les distances',
-                      style: TextStyle(color: Colors.blueAccent),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-            const Text(
-              'UNITÉ DE DISTANCE',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white70,
-                letterSpacing: 1.5,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black26,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  width: 1,
-                ),
-              ),
-              child: Column(
-                children: [
-                  RadioListTile<DistanceUnit>(
-                    title: const Text(
-                      'Mètres / Kilomètres',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'm jusqu\'à 1000 m, puis km',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    value: DistanceUnit.metric,
-                    // ignore: deprecated_member_use
-                    groupValue: _distanceUnit,
-                    activeColor: Colors.blueAccent,
-                    // ignore: deprecated_member_use
-                    onChanged: (DistanceUnit? value) async {
-                      if (value != null) {
-                        setState(() {
-                          _distanceUnit = value;
-                        });
-                        await AppSettings.saveDistanceUnit(value);
-                      }
-                    },
-                  ),
-                  const Divider(
-                    color: Colors.white12,
-                    height: 1,
-                    indent: 16,
-                    endIndent: 16,
-                  ),
-                  RadioListTile<DistanceUnit>(
-                    title: const Text(
-                      'Milles nautiques',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'nm (navigation maritime)',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    value: DistanceUnit.nautical,
-                    // ignore: deprecated_member_use
-                    groupValue: _distanceUnit,
-                    activeColor: Colors.blueAccent,
-                    // ignore: deprecated_member_use
-                    onChanged: (DistanceUnit? value) async {
-                      if (value != null) {
-                        setState(() {
-                          _distanceUnit = value;
-                        });
-                        await AppSettings.saveDistanceUnit(value);
-                      }
-                    },
-                  ),
                 ],
               ),
             ),
@@ -1183,7 +1132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 subtitle: const Text(
-                  'Réduit la fréquence du GPS pour économiser la batterie\n(pratique quand le téléphone est dans la poche).',
+                  'GPS mis à jour toutes les 10s au lieu de 1s pour économiser la batterie.\n⚠️ Déconseillé en navigation active (alarme et vitesse moins réactives).',
                   style: TextStyle(color: Colors.white54, fontSize: 13),
                 ),
                 value: _energySavingMode,
@@ -1196,7 +1145,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 32),
 
-            // Section Sauvegarde Complète
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(

@@ -483,6 +483,21 @@ class ZoneDownloadService {
     }
   }
 
+  /// Annule puis attend la fin RÉELLE du téléchargement (sortie de boucle,
+  /// [_finalizeZone], saves ObjectBox compris).
+  ///
+  /// C'est la synchronisation à utiliser avant toute suppression de stores
+  /// ou de ligne ObjectBox : elle élimine la course
+  /// « cancel → delete stores → delete DB » pendant que [downloadZone]
+  /// finalise encore en arrière-plan.
+  Future<void> cancelAndAwaitEnd(
+    String zoneUuid, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    await cancelDownload(zoneUuid);
+    await waitForCompletion(zoneUuid, timeout: timeout);
+  }
+
   /// Met en pause le téléchargement d'une zone (même instance FMTC).
   void pauseDownload(String zoneUuid) {
     final state = _zones[zoneUuid];
