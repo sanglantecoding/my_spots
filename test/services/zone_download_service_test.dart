@@ -113,9 +113,9 @@ class FakeLayerDownloader implements LayerDownloader {
   }
 
   @override
-  void pause(String z, FMTCStore s, String iid) {}
+  bool pause(String z, FMTCStore s, String iid) => true;
   @override
-  void resume(String z, FMTCStore s, String iid) {}
+  bool resume(String z, FMTCStore s, String iid) => true;
 }
 
 class _Call {
@@ -427,11 +427,11 @@ void main() {
       repo.save(map);
       final layer = _l(LayerType.marine25k);
       layer.minZoom = 12;
-      layer.maxZoom = 18;
+      layer.maxZoom = 16;
       repo.saveLayer(map, layer);
       await s2.downloadZone(map: map, layers: [layer]);
       expect(d.calls.single.zmin, 12);
-      expect(d.calls.single.zmax, 18);
+      expect(d.calls.single.zmax, 16);
     });
 
     test(

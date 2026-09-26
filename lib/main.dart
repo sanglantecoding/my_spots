@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:developer' as developer;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -8,21 +7,15 @@ import 'package:my_spots/core/app_bootstrap.dart';
 import 'package:my_spots/core/app_initialization_status.dart';
 import 'package:my_spots/views/home_page.dart';
 
-/// Délai maximal d'initialisation avant bascule forcée en mode dégradé.
-/// Évite qu'un blocage asynchrone (SharedPreferences corrompu, etc.)
-/// ne retarde indéfiniment le lancement de l'UI.
+const bool kVerboseMain = false;
 const Duration _bootstrapTimeout = Duration(seconds: 5);
-
-/// Tag utilisé pour les logs développeur.
 const String _logName = 'MySpots.main';
 
-/// Point d'entree de l'application.
 Future<void> main() async {
   runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
 
-      // 1) Charger le .env depuis les assets package (et non le filesystem).
       try {
         await dotenv.load(fileName: 'assets/.env');
         developer.log('dotenv loaded', name: _logName);
@@ -35,12 +28,7 @@ Future<void> main() async {
         );
       }
 
-      // 2) Initialiser les services applicatifs avec timeout dur.
-      //    Si l'un des services critiques bloque au-delà de la fenêtre,
-      //    l'UI est lancée quand même en mode dégradé.
       await _initializeWithTimeout();
-
-      // 3) Toujours lancer l'UI, meme en cas d'erreur d'init.
       runApp(const MySpotsApp());
     },
     (error, stack) {
@@ -50,28 +38,24 @@ Future<void> main() async {
         error: error,
         stackTrace: stack,
       );
-      debugPrint('Unhandled zone error: $error');
+      if (kVerboseMain) {
+        debugPrint('Unhandled zone error: $error');
+      }
     },
   );
 }
 
-/// Lance [AppBootstrap.initialize] sous un timeout dur.
-///
-/// - Sur succès : l'app démarre normalement.
-/// - Sur `TimeoutException` : `AppInitializationStatus.criticalServicesOk`
-///   passe à `false`, l'UI est avertie via les flags.
-/// - Sur exception métier : même logique, les flags sont déjà positionnés
-///   par `AppBootstrap`.
 Future<void> _initializeWithTimeout() async {
+  final status = AppInitializationStatus.instance;
   try {
     await AppBootstrap.initialize().timeout(_bootstrapTimeout);
     developer.log(
-      'AppBootstrap.initialize terminé (degraded=${AppInitializationStatus.isDegraded})',
+      'AppBootstrap.initialize terminé (degraded=${status.isDegraded})',
       name: _logName,
     );
   } on TimeoutException catch (e, st) {
-    AppInitializationStatus.criticalServicesOk = false;
-    AppInitializationStatus.errors['AppBootstrap.timeout'] = e;
+    // Le timeout est une failure critique globale
+    status.reportCriticalFailure('AppBootstrap.timeout', e);
     developer.log(
       'AppBootstrap.initialize a dépassé ${_bootstrapTimeout.inSeconds}s (timeout, mode dégradé forcé)',
       name: _logName,

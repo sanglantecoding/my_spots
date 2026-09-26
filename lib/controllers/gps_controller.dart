@@ -5,6 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:my_spots/app_settings.dart';
 
+/// Logs de debugging GPS. Laisser à false.
+const bool kVerboseGps = false;
+
 /// État du contrôleur GPS
 enum GpsState {
   /// Le GPS est arrêté
@@ -111,9 +114,11 @@ class GpsController extends ChangeNotifier {
     // 🔧 CORRECTION : après une erreur, reset automatique pour permettre
     // un redémarrage sans attendre un clearError() explicite
     if (_state == GpsState.error) {
-      debugPrint(
-        '[GpsController] start() : reset automatique après erreur ($_errorMessage)',
-      );
+      if (kVerboseGps) {
+        debugPrint(
+          '[GpsController] start() : reset automatique après erreur ($_errorMessage)',
+        );
+      }
       _errorMessage = null;
       _state = GpsState.stopped;
       notifyListeners();
@@ -291,16 +296,32 @@ class GpsController extends ChangeNotifier {
 
   /// Libère les ressources de manière asynchrone (fermeture des streams,
   /// annulation des abonnements, etc.)
+  ///
+  /// À utiliser si vous avez besoin d'attendre la fermeture complète.
+  /// Pour le cycle de vie Flutter standard, [dispose] est appelé
+  /// automatiquement et gère le nettoyage en fire-and-forget.
   Future<void> close() async {
     await stop();
     await _positionController.close();
     await _stateController.close();
   }
 
-  /// Libère les ressources
+  /// Libère les ressources (cycle de vie Flutter).
+  ///
+  /// [dispose] est synchrone par contrat Flutter. Les opérations
+  /// asynchrones (cancel, close) sont déclenchées en fire-and-forget :
+  /// le runtime Dart garantit leur exécution même sans await.
   @override
   void dispose() {
-    close();
+    // Annule l'abonnement GPS (fire-and-forget)
+    _positionSubscription?.cancel();
+    _positionSubscription = null;
+    _streamUsesEnergySaving = null;
+
+    // Ferme les contrôleurs de flux (fire-and-forget)
+    _positionController.close();
+    _stateController.close();
+
     super.dispose();
   }
 
@@ -322,7 +343,11 @@ class GpsController extends ChangeNotifier {
       }
       return position;
     } catch (e) {
-      debugPrint('[GpsController] getCurrentPosition (ponctuel) en échec : $e');
+      if (kVerboseGps) {
+        debugPrint(
+          '[GpsController] getCurrentPosition (ponctuel) en échec : $e',
+        );
+      }
       if (affectGlobalState) {
         // Seul le suivi global a le droit de passer en error
         _setState(GpsState.error, e.toString());

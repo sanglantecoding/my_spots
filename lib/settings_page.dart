@@ -3,6 +3,7 @@ import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/models/fishing_port.dart';
 import 'package:my_spots/views/settings/widgets/meteo_port_setting.dart';
+import 'package:my_spots/services/port_service.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -81,7 +82,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'showMushroomWaypointsOnMap': AppSettings.showMushroomWaypointsOnMap,
           'energySavingMode': AppSettings.energySavingMode,
           'favoritePorts': AppSettings.favoritePorts
-              .map((p) => {'name': p.name, 'url': p.url})
+              .map((p) => p.toMap())
               .toList(),
         },
       };
@@ -191,7 +192,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         DistanceUnit.metric,
       );
       AppSettings.waypointLabelFontSize =
-          (settings['waypointLabelFontSize'] as num?)?.toDouble() ?? 15.0;
+          (settings['waypointLabelFontSize'] as num?)?.toDouble() ??
+          15.0.clamp(10.0, 20.0).toDouble();
       AppSettings.mapType = AppSettings.getEnumFromIndex(
         MapType.values,
         settings['mapType'] as int?,
@@ -201,7 +203,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           settings['bathymetryOverlayEnabled'] as bool? ?? false;
       AppSettings.bathymetryOverlayOpacity =
           ((settings['bathymetryOverlayOpacity'] as num?)?.toDouble() ?? 0.7)
-              .clamp(0.0, 1.0);
+              .clamp(0.0, 1.0)
+              .toDouble();
       AppSettings.showSpeedOnMap = settings['showSpeedOnMap'] as bool? ?? false;
       AppSettings.proximityAlarmEnabled =
           settings['proximityAlarmEnabled'] as bool? ?? false;
@@ -225,20 +228,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
         AppSettings.favoritePorts = portsData
             .whereType<Map<String, dynamic>>()
             .where(
-              (pData) => pData.containsKey('name') && pData.containsKey('url'),
+              (pData) =>
+                  pData.containsKey('name') &&
+                  (pData.containsKey('weatherUrl') || pData.containsKey('url')),
             )
-            .map(
-              (pData) => FishingPort.legacy(
-                name: pData['name'] as String? ?? '',
-                url: pData['url'] as String? ?? '',
-              ),
-            )
+            .map((pData) {
+              final port = FishingPort.fromMap(pData);
+              // Ancien backup sans clé : retrouve la clé canonique d'un port
+              // prédéfini via le catalogue (sinon key = name, comme avant).
+              if (pData.containsKey('key')) return port;
+              final canonical = PortService.instance.getKeyByName(port.name);
+              if (canonical == null) return port;
+              return FishingPort(
+                key: canonical,
+                name: port.name,
+                weatherUrl: port.weatherUrl,
+                latitude: port.latitude,
+                longitude: port.longitude,
+              );
+            })
             .where((port) => port.name.isNotEmpty && port.url.isNotEmpty)
             .toList();
       } else {
         AppSettings.favoritePorts = [];
       }
 
+      await AppSettings.saveSelectedPort(AppSettings.selectedPortKey);
       await AppSettings.saveSpeedUnit(AppSettings.speedUnit);
       await AppSettings.saveWaypointsVisibility(AppSettings.waypointsVisible);
       await AppSettings.saveWaypointCategoryVisibility(
@@ -327,6 +342,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     await AppSettings.saveProximityDistances(x: x, y: y, z: z);
+    if (!mounted) return;
     setState(() {
       _proximityXController.text = AppSettings.proximityDistanceX
           .round()
@@ -433,22 +449,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     indent: 16,
                     endIndent: 16,
                   ),
-                  RadioListTile<SpeedUnit>(
-                    title: const Text(
-                      'Nœuds (nds)',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'Unité maritime standard',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    value: SpeedUnit.knots,
+                  RadioGroup<SpeedUnit>(
                     groupValue: _selectedUnit,
-                    activeColor: Colors.blueAccent,
                     onChanged: (SpeedUnit? value) async {
                       if (value != null) {
                         setState(() {
@@ -457,37 +459,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         await AppSettings.saveSpeedUnit(value);
                       }
                     },
-                  ),
-                  const Divider(
-                    color: Colors.white12,
-                    height: 1,
-                    indent: 16,
-                    endIndent: 16,
-                  ),
-                  RadioListTile<SpeedUnit>(
-                    title: const Text(
-                      'Kilomètres/heure (km/h)',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    child: Column(
+                      children: [
+                        RadioListTile<SpeedUnit>(
+                          title: const Text(
+                            'Nœuds (nds)',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'Unité maritime standard',
+                            style: TextStyle(color: Colors.white54),
+                          ),
+                          value: SpeedUnit.knots,
+                          activeColor: Colors.blueAccent,
+                        ),
+                        const Divider(
+                          color: Colors.white12,
+                          height: 1,
+                          indent: 16,
+                          endIndent: 16,
+                        ),
+                        RadioListTile<SpeedUnit>(
+                          title: const Text(
+                            'Kilomètres/heure (km/h)',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'Unité terrestre',
+                            style: TextStyle(color: Colors.white54),
+                          ),
+                          value: SpeedUnit.kmh,
+                          activeColor: Colors.blueAccent,
+                        ),
+                      ],
                     ),
-                    subtitle: const Text(
-                      'Unité terrestre',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    value: SpeedUnit.kmh,
-                    groupValue: _selectedUnit,
-                    activeColor: Colors.blueAccent,
-                    onChanged: (SpeedUnit? value) async {
-                      if (value != null) {
-                        setState(() {
-                          _selectedUnit = value;
-                        });
-                        await AppSettings.saveSpeedUnit(value);
-                      }
-                    },
                   ),
                   const Divider(
                     color: Colors.white24,
@@ -510,22 +523,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                   ),
-                  RadioListTile<DistanceUnit>(
-                    title: const Text(
-                      'Mètres / Kilomètres',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'm jusqu\'à 1000 m, puis km',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    value: DistanceUnit.metric,
+                  RadioGroup<DistanceUnit>(
                     groupValue: _distanceUnit,
-                    activeColor: Colors.blueAccent,
                     onChanged: (DistanceUnit? value) async {
                       if (value != null) {
                         setState(() {
@@ -534,37 +533,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         await AppSettings.saveDistanceUnit(value);
                       }
                     },
-                  ),
-                  const Divider(
-                    color: Colors.white12,
-                    height: 1,
-                    indent: 16,
-                    endIndent: 16,
-                  ),
-                  RadioListTile<DistanceUnit>(
-                    title: const Text(
-                      'Milles nautiques',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    child: Column(
+                      children: [
+                        RadioListTile<DistanceUnit>(
+                          title: const Text(
+                            'Mètres / Kilomètres',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'm jusqu\'à 1000 m, puis km',
+                            style: TextStyle(color: Colors.white54),
+                          ),
+                          value: DistanceUnit.metric,
+                          activeColor: Colors.blueAccent,
+                        ),
+                        const Divider(
+                          color: Colors.white12,
+                          height: 1,
+                          indent: 16,
+                          endIndent: 16,
+                        ),
+                        RadioListTile<DistanceUnit>(
+                          title: const Text(
+                            'Milles nautiques',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'nm (navigation maritime)',
+                            style: TextStyle(color: Colors.white54),
+                          ),
+                          value: DistanceUnit.nautical,
+                          activeColor: Colors.blueAccent,
+                        ),
+                      ],
                     ),
-                    subtitle: const Text(
-                      'nm (navigation maritime)',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    value: DistanceUnit.nautical,
-                    groupValue: _distanceUnit,
-                    activeColor: Colors.blueAccent,
-                    onChanged: (DistanceUnit? value) async {
-                      if (value != null) {
-                        setState(() {
-                          _distanceUnit = value;
-                        });
-                        await AppSettings.saveDistanceUnit(value);
-                      }
-                    },
                   ),
                 ],
               ),

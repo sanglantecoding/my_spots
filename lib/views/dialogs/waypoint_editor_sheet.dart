@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/waypoint.dart';
@@ -5,6 +6,9 @@ import 'package:my_spots/services/gps_service.dart';
 import 'package:my_spots/utils/gps_status_utils.dart';
 import 'package:my_spots/widgets/satellite_status_dialog.dart';
 import 'package:my_spots/controllers/gps_controller.dart';
+
+/// Logs de debugging waypoint editor. Laisser à false.
+const bool kVerboseWaypointEditor = false;
 
 class WaypointEditorOutcome {
   final Waypoint? waypoint;
@@ -205,7 +209,7 @@ class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
     Navigator.of(context).pop(const WaypointEditorOutcome.deleted());
   }
 
-  void _save() async {
+  Future<void> _save() async {
     final name = _name.trim();
     if (name.isEmpty) return;
 
@@ -238,7 +242,9 @@ class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
       _createWaypoint(name);
     } catch (e) {
       // Si impossible d'obtenir la position, continuer avec l'enregistrement
-      debugPrint('Impossible d\'obtenir la précision GPS: $e');
+      if (kVerboseWaypointEditor) {
+        debugPrint('Impossible d\'obtenir la précision GPS: $e');
+      }
       _createWaypoint(name);
     }
   }
@@ -855,7 +861,7 @@ class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: _save,
+                              onPressed: () => unawaited(_save()),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.green.shade700,
                                 padding: const EdgeInsets.symmetric(

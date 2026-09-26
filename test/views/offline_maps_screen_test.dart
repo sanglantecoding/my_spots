@@ -79,9 +79,9 @@ class FakeLayerDownloader implements LayerDownloader {
     String instanceId,
   ) async {}
   @override
-  void pause(String zoneUuid, FMTCStore store, String instanceId) {}
+  bool pause(String zoneUuid, FMTCStore store, String instanceId) => true;
   @override
-  void resume(String zoneUuid, FMTCStore store, String instanceId) {}
+  bool resume(String zoneUuid, FMTCStore store, String instanceId) => true;
 }
 
 OfflineMap _m(String u) => OfflineMap.create(

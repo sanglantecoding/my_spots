@@ -4,6 +4,7 @@ import 'package:my_spots/controllers/gps_controller.dart';
 import 'package:my_spots/models/fishing_port.dart';
 import 'package:my_spots/services/port_service.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 
 /// Clé API Thunderforest — chargée depuis le fichier .env via flutter_dotenv.
@@ -29,6 +30,9 @@ enum DistanceUnit { metric, nautical }
 enum MapType { marine, standard, relief, hiking }
 
 class AppSettings {
+  static final ValueNotifier<bool> offlineModeNotifier = ValueNotifier<bool>(
+    false,
+  );
   static SpeedUnit speedUnit = SpeedUnit.kmh; // km/h par défaut
   static String? selectedPortKey;
   static bool waypointsVisible = true;
@@ -39,6 +43,16 @@ class AppSettings {
   static MapType mapType = MapType.marine;
   static bool showSpeedOnMap = false; // false par défaut
   static bool offlineModeEnabled = false;
+
+  /// Valeur écrite dans SharedPreferences quand l'utilisateur choisit
+  /// explicitement « Aucun (météo générale) ».
+  ///
+  /// 🛡️ CORRECTION : permet à [loadSettings] de distinguer
+  /// « premier lancement » (clé absente → défaut Palavas) de
+  /// « choix explicite aucun » (clé présente avec cette sentinelle → null).
+  /// Sans elle, saveSelectedPort(null) faisait remove() et le défaut
+  /// revenait à chaque redémarrage.
+  static const String _noPortStoredValue = '__none__';
   static const String _offlineModeKey = 'offline_mode_enabled';
 
   // Alarme de proximité waypoint
@@ -94,14 +108,21 @@ class AppSettings {
   static Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
 
-    selectedPortKey = prefs.getString('selected_port');
-    // Premier lancement : pas de port actif enregistré -> défaut Palavas-les-Flots.
-    if (selectedPortKey == null) {
+    // 🛡️ CORRECTION : on ne confond plus « clé absente » (premier lancement)
+    // et « clé présente valant la sentinelle » (choix explicite "Aucun").
+    if (prefs.containsKey('selected_port')) {
+      final stored = prefs.getString('selected_port');
+      selectedPortKey = (stored == null || stored == _noPortStoredValue)
+          ? null
+          : stored;
+    } else {
+      // Premier lancement : pas de port actif enregistré -> défaut Palavas-les-Flots.
       selectedPortKey = 'palavas_les_flots';
       await prefs.setString('selected_port', 'palavas_les_flots');
     }
 
     offlineModeEnabled = prefs.getBool(_offlineModeKey) ?? false;
+    offlineModeNotifier.value = offlineModeEnabled;
 
     speedUnit = getEnumFromIndex(
       SpeedUnit.values,
@@ -129,8 +150,9 @@ class AppSettings {
     );
 
     waypointLabelFontSize =
-        prefs.getDouble('waypoint_label_font_size') ?? 15.0; // 15 par défaut
-    waypointLabelFontSize = waypointLabelFontSize.clamp(10.0, 20.0);
+        (prefs.getDouble('waypoint_label_font_size') ?? 15.0)
+            .clamp(10.0, 20.0)
+            .toDouble();
 
     showSpeedOnMap =
         prefs.getBool('show_speed_on_map') ?? false; // false par défaut
@@ -162,13 +184,13 @@ class AppSettings {
         final List<dynamic> decoded =
             jsonDecode(favoritesJson) as List<dynamic>;
         favoritePorts = decoded
-            .map(
-              (e) => FishingPort(
-                key: (e['key'] ?? e['name'] ?? '') as String,
-                name: (e['name'] ?? '') as String,
-                weatherUrl: (e['url'] ?? '') as String,
-              ),
+            .whereType<Map<String, dynamic>>()
+            .where(
+              (e) =>
+                  e.containsKey('name') &&
+                  (e.containsKey('weatherUrl') || e.containsKey('url')),
             )
+            .map(FishingPort.fromMap)
             .where((p) => p.name.isNotEmpty && p.weatherUrl.isNotEmpty)
             .toList();
       } catch (_) {
@@ -191,13 +213,14 @@ class AppSettings {
     }
   }
 
+  /// Persiste le port sélectionné, ou le choix explicite « Aucun » ([portKey] null).
+  ///
+  /// 🛡️ CORRECTION : n'efface PLUS la clé SharedPreferences. Un `null` écrit
+  /// la sentinelle [_noPortStoredValue], sinon le prochain boot interprétait
+  /// l'absence de clé comme un premier lancement et réimposait Palavas.
   static Future<void> saveSelectedPort(String? portKey) async {
     final prefs = await SharedPreferences.getInstance();
-    if (portKey != null) {
-      await prefs.setString('selected_port', portKey);
-    } else {
-      await prefs.remove('selected_port');
-    }
+    await prefs.setString('selected_port', portKey ?? _noPortStoredValue);
     selectedPortKey = portKey;
   }
 
@@ -209,6 +232,7 @@ class AppSettings {
 
   static Future<void> saveOfflineMode(bool value) async {
     offlineModeEnabled = value;
+    offlineModeNotifier.value = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_offlineModeKey, value);
   }
@@ -244,7 +268,7 @@ class AppSettings {
 
   static Future<void> saveWaypointLabelFontSize(double size) async {
     final prefs = await SharedPreferences.getInstance();
-    final clamped = size.clamp(10.0, 20.0);
+    final clamped = size.clamp(10.0, 20.0).toDouble();
     await prefs.setDouble('waypoint_label_font_size', clamped);
     waypointLabelFontSize = clamped;
   }
@@ -278,7 +302,7 @@ class AppSettings {
 
   static Future<void> saveBathymetryOverlayOpacity(double opacity) async {
     final prefs = await SharedPreferences.getInstance();
-    final clamped = opacity.clamp(0.0, 1.0);
+    final clamped = opacity.clamp(0.0, 1.0).toDouble();
     await prefs.setDouble('bathymetry_overlay_opacity', clamped);
     bathymetryOverlayOpacity = clamped;
   }
@@ -291,9 +315,7 @@ class AppSettings {
 
   static Future<void> saveFavoritePorts(List<FishingPort> portsList) async {
     final prefs = await SharedPreferences.getInstance();
-    final payload = portsList
-        .map((p) => {'key': p.key, 'name': p.name, 'url': p.url})
-        .toList();
+    final payload = portsList.map((p) => p.toMap()).toList();
     await prefs.setString('favorite_ports', jsonEncode(payload));
     favoritePorts = List<FishingPort>.from(portsList);
   }
@@ -313,9 +335,9 @@ class AppSettings {
 
   /// Clamps each zone to its allowed range and enforces X > Y > Z.
   static void _applyProximityDistances(double x, double y, double z) {
-    var nx = x.clamp(10.0, 1000.0);
-    var ny = y.clamp(5.0, 500.0);
-    var nz = z.clamp(1.0, 100.0);
+    var nx = x.clamp(10.0, 1000.0).toDouble();
+    var ny = y.clamp(5.0, 500.0).toDouble();
+    var nz = z.clamp(1.0, 100.0).toDouble();
 
     if (ny >= nx) {
       ny = (nx - 1).clamp(5.0, 500.0);
@@ -400,10 +422,19 @@ class AppSettings {
     return 0;
   }
 
-  /// Zoom natif max côté serveur SHOM (RasterMarine — tuiles jusqu'au niveau 18).
+  /// Zoom natif max côté serveur, par type de carte.
+  /// (OSM standard ≈ 19, OpenTopoMap ≈ 17, Thunderforest ≈ 22)
   static int getMapMaxNativeZoom() {
-    if (mapType == MapType.marine) return 18;
-    return 19;
+    switch (mapType) {
+      case MapType.marine:
+        return 18;
+      case MapType.standard:
+        return 19; // OSM standard : natif jusqu'à 19
+      case MapType.relief:
+        return 17; // OpenTopoMap : natif jusqu'à 17
+      case MapType.hiking:
+        return 22; // Thunderforest Outdoors : natif jusqu'à 22
+    }
   }
 
   static double getMapMinZoom() {
@@ -411,9 +442,19 @@ class AppSettings {
     return 5;
   }
 
+  /// Zoom max de la caméra, par type de carte.
+  /// Au-delà du zoom natif, flutter_map fait de l'overzoom (tuiles étirées).
   static double getMapMaxZoom() {
-    if (mapType == MapType.marine) return 20.0;
-    return 18;
+    switch (mapType) {
+      case MapType.marine:
+        return 20.0;
+      case MapType.standard:
+        return 22.0; // 19 natif + 3 niveau d'overzoom
+      case MapType.relief:
+        return 22.0; // 17 natif + 5 niveaux d'overzoom
+      case MapType.hiking:
+        return 22.0; // natif Thunderforest
+    }
   }
 
   /// La carte marine utilise le WMTS SHOM clevisu empilé par échelle.

@@ -36,8 +36,17 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
     super.dispose();
   }
 
-  /// Démarre le suivi GPS pour le tri par distance
-  void _startLocationTracking() async {
+  /// Démarre le suivi GPS pour le tri par distance.
+  ///
+  /// 🛡️ Idempotent : annule toute souscription précédente avant d'en créer
+  /// une nouvelle. Même si plus rien ne devrait rappeler cette méthode après
+  /// initState, un futur appel (resume, refactor…) ne pourra plus empiler
+  /// deux listeners qui font chacun leur setState.
+  Future<void> _startLocationTracking() async {
+    // Annule d'abord l'ancien listener s'il existe.
+    await _positionSubscription?.cancel();
+    _positionSubscription = null;
+
     try {
       final position = await GpsController.instance.getCurrentPosition();
       if (position != null && mounted) {
@@ -45,7 +54,6 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
           _currentPosition = LatLng(position.latitude, position.longitude);
         });
       }
-
       _positionSubscription = GpsController.instance.positionStream.listen((
         Position position,
       ) {
@@ -67,7 +75,6 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
   /// Obtient la couleur selon la distance
   Color _getDistanceColor(LatLng? currentPosition, Waypoint waypoint) {
     if (currentPosition == null) return Colors.grey;
-
     final distance = GpsService.calculateDistance(currentPosition, waypoint);
     if (distance < 100) return Colors.green;
     if (distance < 500) return Colors.amber;
@@ -75,15 +82,25 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
     return Colors.red;
   }
 
-  /// Rafraîchit manuellement le tri
+  /// Rafraîchit manuellement le tri.
+  ///
+  /// 🛡️ CORRECTION : ne recrée AUCUN abonnement GPS. L'unique listener
+  /// (créé dans initState) maintient déjà [_currentPosition] à jour à
+  /// chaque tick. Ici on relit simplement le dernier fix connu en
+  /// SYNCHRONE via le singleton (zéro stream, zéro fuite), puis on
+  /// rebuild : le tri lui-même est recalculé dans build() par
+  /// [WaypointSortService].
   void _refreshSort() {
-    _startLocationTracking();
-    setState(() {});
+    final pos = GpsController.instance.currentPosition;
+    setState(() {
+      if (pos != null) {
+        _currentPosition = LatLng(pos.latitude, pos.longitude);
+      }
+    });
   }
 
   Future<void> _editWaypoint(int index) async {
     final waypoint = WaypointStore.waypoints[index];
-
     final outcome = await showWaypointEditorSheet(
       context: context,
       title: 'MODIFIER WAYPOINT',
@@ -95,9 +112,7 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
       initialDate: waypoint.createdAt,
       isEditing: true,
     );
-
     if (outcome == null) return;
-
     if (outcome.deleted) {
       setState(() {
         WaypointStore.waypoints.removeAt(index);
@@ -114,14 +129,11 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
       }
       return;
     }
-
     if (outcome.waypoint == null) return;
-
     setState(() {
       WaypointStore.waypoints[index] = outcome.waypoint!;
     });
     await WaypointStore.save();
-
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -175,7 +187,6 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
     );
     if (ok != true) return;
     if (!mounted) return;
-
     // Trouver l'index du waypoint et le supprimer
     final index = WaypointStore.waypoints.indexOf(waypoint);
     if (index != -1) {
@@ -184,7 +195,6 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
       });
       await WaypointStore.save();
     }
-
     // Afficher un message de confirmation
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -204,9 +214,7 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
       WaypointStore.waypoints,
       _currentPosition,
     );
-
     final bool hasWaypoints = sortedWaypoints.isNotEmpty;
-
     return Scaffold(
       appBar: AppBar(
         title: Text('WAYPOINTS (${sortedWaypoints.length})'),
@@ -227,7 +235,6 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
                   builder: (context) => const WaypointExportScreen(),
                 ),
               );
-
               // Si des waypoints ont été importés, rafraîchir l'interface
               if (result == true && mounted) {
                 setState(() {});
@@ -254,7 +261,6 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
                   final originalIndex = WaypointStore.waypoints.indexOf(
                     waypoint,
                   );
-
                   return Container(
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(

@@ -39,8 +39,8 @@ class FishingPort {
       key: map['key'] as String? ?? map['name'] as String,
       name: map['name'] as String,
       weatherUrl: map['weatherUrl'] as String? ?? map['url'] as String,
-      latitude: map['latitude'] as double?,
-      longitude: map['longitude'] as double?,
+      latitude: (map['latitude'] as num?)?.toDouble(),
+      longitude: (map['longitude'] as num?)?.toDouble(),
     );
   }
 

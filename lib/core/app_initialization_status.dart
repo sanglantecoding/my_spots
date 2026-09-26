@@ -1,34 +1,57 @@
-/// Drapeau global d'état d'initialisation.
-///
-/// Permet à l'UI (notamment `HomePage`) de détecter qu'un service critique
-/// a échoué pendant le bootstrap, afin d'afficher un mode dégradé
-/// (banner d'avertissement, liste de waypoints vide, cache hors-ligne
-/// désactivé, etc.) sans crash en cascade.
-class AppInitializationStatus {
+import 'package:flutter/foundation.dart';
+
+class AppInitializationStatus extends ChangeNotifier {
   AppInitializationStatus._();
+  static final AppInitializationStatus instance = AppInitializationStatus._();
 
-  /// Vrai tant qu'aucun service critique n'a planté.
-  static bool criticalServicesOk = true;
+  bool _criticalServicesOk = true;
+  bool get criticalServicesOk => _criticalServicesOk;
 
-  /// Vrai si `WaypointStore.load()` a échoué (critique : liste vide).
-  static bool waypointsLoaded = false;
+  bool _waypointsLoaded = false;
+  bool get waypointsLoaded => _waypointsLoaded;
 
-  /// Vrai si `AppSettings.loadSettings()` a échoué (critique : config absente).
-  static bool settingsLoaded = false;
+  bool _settingsLoaded = false;
+  bool get settingsLoaded => _settingsLoaded;
 
-  /// Vrai si `MapTileCacheService.initialise()` a échoué (non-bloquant).
-  static bool mapTileCacheReady = false;
+  bool _mapTileCacheReady = false;
+  bool get mapTileCacheReady => _mapTileCacheReady;
 
-  /// Vrai si `SatelliteService.initialize()` a échoué (non-bloquant).
-  static bool satelliteReady = false;
+  bool _satelliteReady = false;
+  bool get satelliteReady => _satelliteReady;
 
-  /// Erreurs rencontrées (clé = nom du service, valeur = message).
-  /// Permet à l'UI d'afficher un diagnostic pertinent.
-  static final Map<String, Object> errors = <String, Object>{};
+  final Map<String, Object> _errors = <String, Object>{};
+  Map<String, Object> get errors => Map.unmodifiable(_errors);
 
-  /// Liste lisible des services en échec pour l'UI / logs.
-  static List<String> get failedServices => errors.keys.toList(growable: false);
+  bool get isDegraded => !_criticalServicesOk;
 
-  /// Mode dégradé activé dès qu'un service critique a échoué.
-  static bool get isDegraded => !criticalServicesOk;
+  void markSettingsLoaded() {
+    _settingsLoaded = true;
+    notifyListeners();
+  }
+
+  void markWaypointsLoaded() {
+    _waypointsLoaded = true;
+    notifyListeners();
+  }
+
+  void markMapTileCacheReady() {
+    _mapTileCacheReady = true;
+    notifyListeners();
+  }
+
+  void markSatelliteReady() {
+    _satelliteReady = true;
+    notifyListeners();
+  }
+
+  void reportCriticalFailure(String service, Object error) {
+    _criticalServicesOk = false;
+    _errors[service] = error;
+    notifyListeners();
+  }
+
+  void reportNonCriticalFailure(String service, Object error) {
+    _errors[service] = error;
+    notifyListeners();
+  }
 }

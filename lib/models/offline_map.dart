@@ -62,10 +62,9 @@ class OfflineMap {
   }
 
   OfflineMapStatus get status =>
-      OfflineMapStatus.values[statusIndex.clamp(
-        0,
-        OfflineMapStatus.values.length - 1,
-      )];
+      OfflineMapStatus.values[statusIndex
+          .clamp(0, OfflineMapStatus.values.length - 1)
+          .toInt()];
 
   set status(OfflineMapStatus value) {
     statusIndex = value.index;

@@ -16,16 +16,28 @@ class Waypoint {
   final String?
   gpsStatus; // Statut de précision ("Vert", "Jaune", "Orange", "Rouge", "Inconnu")
 
+  // ✅ CORRECTION : On retire le `this.` et la valeur par défaut du paramètre.
+  // C'est la liste d'initialisation en dessous qui s'occupe de tout.
   Waypoint({
     required this.name,
     required this.latitude,
     required this.longitude,
     required this.createdAt,
-    this.colorHex = 'FFFFEB3B',
+    String? colorHex,
     this.category = WaypointCategory.other,
     this.creationAccuracy,
     this.gpsStatus,
-  });
+  }) : colorHex = normalizeColorHex(colorHex);
+
+  static final RegExp _rgb6Hex = RegExp(r'^[0-9A-Fa-f]{6}$');
+  static final RegExp _argb8Hex = RegExp(r'^[0-9A-Fa-f]{8}$');
+
+  static String normalizeColorHex(String? raw) {
+    final value = (raw ?? '').trim().replaceFirst('#', '').toUpperCase();
+    if (_argb8Hex.hasMatch(value)) return value;
+    if (_rgb6Hex.hasMatch(value)) return 'FF$value';
+    return 'FFFFEB3B'; // Valeur par défaut (Jaune) si null ou invalide
+  }
 
   Color get color => Color(int.parse(colorHex, radix: 16));
 
@@ -63,7 +75,8 @@ class Waypoint {
       latitude: (json['latitude'] as num?)?.toDouble() ?? 0.0,
       longitude: (json['longitude'] as num?)?.toDouble() ?? 0.0,
       createdAt: createdAt,
-      colorHex: json['colorHex'] as String? ?? 'FFFFEB3B',
+      colorHex: json['colorHex']
+          ?.toString(), // Sera nettoyé par le constructeur
       category: parsedCategory,
       creationAccuracy: (json['creationAccuracy'] as num?)?.toDouble(),
       gpsStatus: json['gpsStatus'] as String? ?? 'Inconnu',
@@ -95,9 +108,7 @@ class WaypointStore {
       for (final item in decoded) {
         try {
           if (item is Map) {
-            waypoints.add(
-              Waypoint.fromJson(Map<String, dynamic>.from(item)),
-            );
+            waypoints.add(Waypoint.fromJson(Map<String, dynamic>.from(item)));
           }
         } catch (_) {
           // Ignore a single corrupted waypoint instead of dropping the store.

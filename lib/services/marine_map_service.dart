@@ -120,45 +120,6 @@ class MarineMapService {
   static List<String> layerOrderForZoom(double zoom, {bool offline = false}) =>
       _layerOrderForZoom(zoom, offline: offline);
 
-  static TileLayer getActiveMarineTileLayer(
-    double currentZoom, {
-    ErrorTileCallBack? errorTileCallback,
-  }) {
-    String selectedLayer;
-    if (currentZoom < 7.5) {
-      selectedLayer = 'RASTER_MARINE_3857_WMTS';
-    } else if (currentZoom < 9.5) {
-      selectedLayer = 'RASTER_MARINE_350_WMTS_3857';
-    } else if (currentZoom < 11.5) {
-      selectedLayer = 'RASTER_MARINE_100_WMTS_3857';
-    } else if (currentZoom < 12.5) {
-      selectedLayer = 'RASTER_MARINE_50_WMTS_3857';
-    } else if (currentZoom < 14.5) {
-      selectedLayer = 'RASTER_MARINE_25_WMTS_3857';
-    } else {
-      selectedLayer = 'RASTER_MARINE_10_WMTS_3857';
-    }
-
-    final zoom = _zoomByLayer[selectedLayer]!;
-    return TileLayer(
-      key: Key('marine_layer_$selectedLayer'),
-      urlTemplate: '$_clevisuWmtsLayerPrefix$selectedLayer',
-      userAgentPackageName: MapTileCacheService.packageName,
-      minZoom: zoom.minZoom,
-      maxZoom: zoom.maxZoom,
-      minNativeZoom: zoom.minNativeZoom,
-      maxNativeZoom: zoom.maxNativeZoom,
-      retinaMode: false,
-      tileDimension: 256,
-      keepBuffer: 0,
-      panBuffer: 0,
-      tileProvider: MapTileCacheService.marineTileProviderFor(selectedLayer),
-      errorImage: MemoryImage(TileProviderFactory.transparentTilePng),
-      errorTileCallback: (tile, error, stackTrace) {},
-      evictErrorTileStrategy: EvictErrorTileStrategy.none,
-    );
-  }
-
   static List<TileLayer> getActiveMarineTileLayers(
     double currentZoom, {
     List<String>? zoneUuids,
@@ -256,6 +217,7 @@ class MarineMapService {
         layer.wmtsLayerName,
         zoneUuids: zoneUuids,
       ),
+      minZoom: 11,
       minNativeZoom: 6,
       maxNativeZoom: 17,
       maxZoom: 22,
@@ -333,50 +295,99 @@ class MarineMapService {
   }
 
   /// Couches LiDAR en mode HORS-LIGNE.
+  ///
+  /// [lidarLayersByZone] associe l'uuid de chaque zone prête/partielle à ses
+  /// couches LiDAR persistées. Une campagne ne consulte donc QUE les stores
+  /// des zones qui la possèdent réellement (au lieu de toutes les zones
+  /// prêtes) : moins de stores FMTC interrogés par tuile, moins de misses.
   static List<TileLayer> getOfflineLidarLayers(
     LatLngBounds? visibleBounds,
-    List<OfflineMapLayer> lidarLayers,
-    List<String> zoneUuids, {
+    Map<String, List<OfflineMapLayer>> lidarLayersByZone, {
     double? opacity,
     ErrorTileCallBack? errorTileCallback,
   }) {
     final enabled = AppSettings.bathymetryOverlayEnabled;
     if (!enabled) return [];
 
-    // 👇 Déduplique par campagne : plusieurs zones peuvent partager la même
-    // campagne LiDAR (ex. occitanie_2009) → UNE seule TileLayer par campagne,
-    // qui lit dans les stores de TOUTES les zones concernées (clés uniques).
-    final layersById = <String, Litto3DLayer>{};
-    for (final layer in lidarLayers) {
-      final litto = Litto3DCatalog.findById(layer.lidarLayerId ?? '');
-      if (litto != null) layersById.putIfAbsent(litto.id, () => litto);
-    }
-    final layers = layersById.values.toList();
+    // 👇 Campagne → uuids des zones qui possèdent RÉELLEMENT des tuiles.
+    //    Une couche `skipped` (hors couverture) ou `failed` sans aucune tuile
+    //    n'ajoute pas son store : la recherche serait toujours un miss.
+    final zonesByCampaign = <String, List<String>>{};
+    lidarLayersByZone.forEach((uuid, layers) {
+      if (uuid.isEmpty) return;
+      for (final layer in layers) {
+        final campaignId = layer.lidarLayerId;
+        if (campaignId == null || campaignId.isEmpty) continue;
+        final hasTiles =
+            layer.downloadStatus == LayerDownloadStatus.completed ||
+            layer.downloadedTileCount > 0;
+        if (!hasTiles) continue;
+        zonesByCampaign.putIfAbsent(campaignId, () => []).add(uuid);
+      }
+    });
+    if (zonesByCampaign.isEmpty) return [];
 
-    if (layers.isEmpty) return [];
+    // 👇 Filtrage spatial : on ne garde que les campagnes dont l'emprise
+    //    intersecte la vue actuelle (la marge de 25 km est gérée par le
+    //    catalogue).
+    Set<String>? allowedLayerIds;
+    if (visibleBounds != null) {
+      allowedLayerIds = <String>{};
+      final intersectingRegions = LidarRegionCatalog.regionsIntersecting(
+        visibleBounds,
+      );
+      for (final region in intersectingRegions) {
+        allowedLayerIds.addAll(region.layerIds);
+      }
+    }
+
+    // 👇 Résolution campagne → Litto3DLayer, tri sortOrder croissant
+    //    (l'ancien dessiné en bas, le récent au-dessus).
+    final campaigns = <Litto3DLayer>[];
+    for (final campaignId in zonesByCampaign.keys) {
+      if (allowedLayerIds != null && !allowedLayerIds.contains(campaignId)) {
+        continue;
+      }
+      final litto = Litto3DCatalog.findById(campaignId);
+      if (litto != null) campaigns.add(litto);
+    }
+    if (campaigns.isEmpty) return [];
+    campaigns.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
 
     final layerOpacity = opacity ?? AppSettings.bathymetryOverlayOpacity;
-
-    return layers.map((layer) {
-      final storeNames = <String>[];
-      for (final uuid in zoneUuids) {
-        if (uuid.isNotEmpty && layer.id.isNotEmpty) {
-          storeNames.add('lidar_zone_${uuid}_${layer.id}');
-        }
-      }
-
+    return campaigns.map((layer) {
+      // 👇 UNIQUEMENT les stores des zones qui possèdent cette campagne.
+      final storeNames = <String>[
+        for (final uuid in zonesByCampaign[layer.id]!)
+          'lidar_zone_${uuid}_${layer.id}',
+      ];
       final offlineProvider = MapTileCacheService.offlineLidarTileProvider(
         storeNames,
       );
-
+      int campaignMaxNativeZoom = 16;
+      int campaignMinNativeZoom = 11;
+      bool found = false;
+      for (final uuid in zonesByCampaign[layer.id]!) {
+        final zoneLayers = lidarLayersByZone[uuid] ?? [];
+        for (final ol in zoneLayers) {
+          if (ol.lidarLayerId == layer.id) {
+            campaignMaxNativeZoom = ol.maxZoom;
+            campaignMinNativeZoom = ol.minZoom;
+            found = true;
+            break;
+          }
+          if (found) break;
+        }
+      }
       return TileLayer(
         key: Key('lidar_${layer.id}'),
         urlTemplate: inspireWmtsUrl(layer.wmtsLayerName),
         userAgentPackageName: MapTileCacheService.packageName,
         tileDisplay: TileDisplay.instantaneous(opacity: layerOpacity),
         tileProvider: offlineProvider,
-        minNativeZoom: 6,
-        maxNativeZoom: 22,
+        minZoom: 11,
+        minNativeZoom: campaignMinNativeZoom,
+        maxNativeZoom: campaignMaxNativeZoom,
         maxZoom: 22,
         errorTileCallback: errorTileCallback ?? (tile, error, stackTrace) {},
       );

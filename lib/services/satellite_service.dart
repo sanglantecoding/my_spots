@@ -39,6 +39,9 @@ class SatelliteService {
   /// Précision horizontale actuelle en mètres (source primaire : GpsController)
   static double? _currentAccuracy;
 
+  /// Position actuelle (mise à jour en continu par le flux)
+  static Position? _currentPosition;
+
   /// Indique si les données sont estimées (toujours true pour Geolocator)
   static bool get isEstimated => true;
 
@@ -59,6 +62,7 @@ class SatelliteService {
 
     try {
       _currentAccuracy = GpsController.instance.currentAccuracy;
+      _currentPosition = GpsController.instance.currentPosition;
       _generateEstimatedSatelliteView(_currentAccuracy);
 
       _positionSubscription = GpsController.instance.positionStream.listen(
@@ -92,12 +96,10 @@ class SatelliteService {
 
   /// Traite les mises à jour de position
   static void _onPositionUpdate(Position position) {
+    _currentPosition = position; // ✅ Mise à jour de la position courante
     _currentAccuracy = position.accuracy;
     _generateEstimatedSatelliteView(position.accuracy);
   }
-
-  /// Position actuelle
-  static Position? _currentPosition;
 
   /// Génère une vue estimée des satellites à partir de la précision.
   ///
@@ -133,6 +135,7 @@ class SatelliteService {
 
   /// Obtient la position actuelle
   static Future<Position?> getCurrentPosition() async {
+    // Si le flux tourne, _currentPosition est déjà à jour grâce à _onPositionUpdate
     if (_currentPosition != null) return _currentPosition;
 
     try {

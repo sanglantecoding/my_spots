@@ -24,7 +24,7 @@ class ZoneConfig {
   /// Marine layers (50K + 25K + 10K) are always included.  LiDAR overlays are
   /// included only when the bounds intersect a known LiDAR region (see
   /// [LidarRegionCatalog.regionsIntersecting]).
-  /// /// For LiDAR, creates one [OfflineMapLayer] per available campaign with
+  /// For LiDAR, creates one [OfflineMapLayer] per available campaign with
   /// [OfflineMapLayer.lidarLayerId] set to the campaign ID.
   static List<OfflineMapLayer> defaultLayersForBounds(LatLngBounds bounds) {
     final layers = <OfflineMapLayer>[
@@ -49,11 +49,15 @@ class ZoneConfig {
     final lidarRegions = LidarRegionCatalog.regionsIntersecting(bounds);
     for (final region in lidarRegions) {
       for (final layerId in region.layerIds) {
+        final isOccitanieFallback =
+            region.name == 'Occitanie' &&
+            (layerId == 'occitanie_2009' || layerId == 'occitanie_2011');
+
         layers.add(
           OfflineMapLayer.create(
             layerType: LayerType.lidarLitto3d,
-            minZoom: 0,
-            maxZoom: 18,
+            minZoom: isOccitanieFallback ? 11 : 11,
+            maxZoom: isOccitanieFallback ? 15 : 16,
             lidarLayerId: layerId,
           ),
         );
@@ -74,6 +78,7 @@ class ZoneConfig {
     LatLngBounds bounds, {
     ShomCoveragePreflight? preflight,
   }) async {
+    final shouldClose = preflight == null;
     final pf = preflight ?? ShomCoveragePreflight();
     final fallback = defaultLayersForBounds(bounds);
     final layers = <OfflineMapLayer>[];
@@ -88,8 +93,14 @@ class ZoneConfig {
     for (final (url, type, zmin, zmax) in scales) {
       results[type] = await pf.covers(bounds, url);
       if (results[type] == true) {
+        // Force minZoom à au moins 8 pour éviter le téléchargement des zooms 0-7
+        final effectiveMinZoom = zmin.clamp(8, 17).toInt();
         layers.add(
-          OfflineMapLayer.create(layerType: type, minZoom: zmin, maxZoom: zmax),
+          OfflineMapLayer.create(
+            layerType: type,
+            minZoom: effectiveMinZoom,
+            maxZoom: zmax,
+          ),
         );
       }
     }
@@ -99,6 +110,11 @@ class ZoneConfig {
       layers.addAll(
         fallback.where((l) => l.layerType != LayerType.lidarLitto3d),
       );
+    }
+
+    // Ferme le client HTTP si on l'a créé nous-mêmes
+    if (shouldClose) {
+      pf.close();
     }
 
     // LiDAR : inchangé (déjà filtré par catalogue régional).

@@ -64,10 +64,9 @@ class OfflineMapLayer {
   }
 
   LayerDownloadStatus get downloadStatus =>
-      LayerDownloadStatus.values[statusIndex.clamp(
-        0,
-        LayerDownloadStatus.values.length - 1,
-      )];
+      LayerDownloadStatus.values[statusIndex
+          .clamp(0, LayerDownloadStatus.values.length - 1)
+          .toInt()];
 
   set downloadStatus(LayerDownloadStatus value) {
     statusIndex = value.index;

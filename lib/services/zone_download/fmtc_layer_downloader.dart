@@ -1,14 +1,14 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
-import 'package:http/io_client.dart';
 
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/services/zone_download/layer_download_result.dart';
-import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
+
+/// Logs de debugging downloader FMTC. Laisser à false.
+const bool kVerboseDownloader = false;
 
 // ─── Callbacks & interface abstraite ────────────────────────────────────────
 
@@ -38,10 +38,10 @@ abstract class LayerDownloader {
   Future<void> cancel(String zoneUuid, FMTCStore store, String instanceId);
 
   /// Met en pause un téléchargement en cours.
-  void pause(String zoneUuid, FMTCStore store, String instanceId);
+  bool pause(String zoneUuid, FMTCStore store, String instanceId);
 
   /// Reprend un téléchargement précédemment mis en pause.
-  void resume(String zoneUuid, FMTCStore store, String instanceId);
+  bool resume(String zoneUuid, FMTCStore store, String instanceId);
 }
 
 // ─── TileProvider minimal pour isolate FMTC ─────────────────────────────────
@@ -91,7 +91,8 @@ class FmtcLayerDownloader implements LayerDownloader {
   static void addToActive(String instanceId) =>
       _activeInstances.add(instanceId);
 
-  static const int _maxTileCountCeiling = 12000;
+  static const int _maxTileCountCeiling =
+      25000; //Joue sur la taille max de sauvegarde
   static const double _networkFailureTolerance = 0.15;
   static const Duration _stallWindow = Duration(minutes: 15);
 
@@ -109,19 +110,15 @@ class FmtcLayerDownloader implements LayerDownloader {
     String? preCancelInstanceId,
     FMTCStore? preCancelStore,
   }) async {
-    final effectiveMaxZoom = maxZoom.clamp(minZoom, 17);
-
-    // Client HTTP dédié au téléchargement (User-Agent personnalisé).
-    final tileHttpClient = IOClient(
-      HttpClient()
-        ..userAgent =
-            '${MapTileCacheService.packageName}/${TileProviderFactory.appVersion} (Flutter Mobile App)',
-    );
+    // Force minZoom à au moins 8 pour éviter le téléchargement des zooms 0-7
+    // (trop de tuiles, inutiles pour la navigation hors-ligne)
+    final effectiveMinZoom = minZoom.clamp(8, 17).toInt();
+    final effectiveMaxZoom = maxZoom.clamp(effectiveMinZoom, 17).toInt();
 
     await store.manage.create();
 
     final region = RectangleRegion(bounds).toDownloadable(
-      minZoom: minZoom,
+      minZoom: effectiveMinZoom,
       maxZoom: effectiveMaxZoom,
       options: TileLayer(
         urlTemplate: urlTemplate,
@@ -135,54 +132,54 @@ class FmtcLayerDownloader implements LayerDownloader {
       try {
         await preCancelStore.download.cancel(instanceId: preCancelInstanceId);
       } catch (e) {
-        debugPrint('[FmtcLayerDownloader] Pre-cancel failed (non-fatal): $e');
+        if (kVerboseDownloader) {
+          debugPrint('[FmtcLayerDownloader] Pre-cancel failed (non-fatal): $e');
+        }
       }
     }
 
     // Émet immédiatement 0 % pour rafraîchir l'UI.
     onProgress(0.0);
 
+    if (kVerboseDownloader) {
+      debugPrint(
+        '[FmtcLayerDownloader] START instance=$instanceId zooms=$minZoom..$maxZoom',
+      );
+    }
+
     final ctrl = StreamController<DownloadProgress>.broadcast();
-    late final StreamSubscription<DownloadProgress> bridgeSub;
-
-    debugPrint(
-      '[FmtcLayerDownloader] START instance=$instanceId zooms=$minZoom..$maxZoom',
-    );
-
-    final fgReturn = store.download.startForeground(
-      region: region,
-      instanceId: instanceId,
-      disableRecovery: false,
-      parallelThreads: 2,
-      maxBufferLength: 200,
-      retryFailedRequestTiles: true,
-      maxReportInterval: const Duration(milliseconds: 500),
-    );
-
-    bridgeSub = fgReturn.downloadProgress.listen(
-      ctrl.add,
-      onError: (Object e, StackTrace st) {
-        debugPrint('[STREAM][$zoneUuid][$instanceId] ERROR $e');
-        ctrl.addError(e);
-      },
-      onDone: () => ctrl.close(),
-    );
-    ctrl.onCancel = () => bridgeSub.cancel();
-
-    // 👇 Track l'instance comme active
-    _activeInstances.add(instanceId);
+    StreamSubscription<DownloadProgress>?
+    bridgeSub; // nullable : pas encore posé si startForeground échoue
+    Timer? watchdog;
 
     var maxTiles = 0;
     var successful = 0;
-    var failed = 0;
     var negative = 0;
+    var failed = 0;
     var lastEventAt = DateTime.now();
-    Timer? watchdog;
-
-    // Raison d'interruption (posée avant chaque cancel)
-    DownloadInterruptReason interruptReason = DownloadInterruptReason.none;
+    var interruptReason = DownloadInterruptReason.none;
 
     try {
+      final fgReturn = store.download.startForeground(
+        region: region,
+        instanceId: instanceId,
+        disableRecovery: false,
+        parallelThreads: 2,
+        maxBufferLength: 200,
+        retryFailedRequestTiles: true,
+        maxReportInterval: const Duration(milliseconds: 500),
+      );
+
+      bridgeSub = fgReturn.downloadProgress.listen(
+        ctrl.add,
+        onError: ctrl.addError,
+        onDone: ctrl.close,
+      );
+
+      // 👇 Tracking posé UNIQUEMENT une fois le foreground réellement lancé :
+      // un échec de startForeground ne laisse donc aucune entrée périmée.
+      _activeInstances.add(instanceId);
+
       watchdog = Timer.periodic(const Duration(seconds: 30), (t) {
         if (_pausedInstances.contains(instanceId)) {
           lastEventAt = DateTime.now(); // pause ≠ stall
@@ -190,9 +187,11 @@ class FmtcLayerDownloader implements LayerDownloader {
         }
         if (DateTime.now().difference(lastEventAt) > _stallWindow) {
           t.cancel();
-          debugPrint(
-            '[FmtcLayerDownloader] WATCHDOG stall detected - cancelling instance $instanceId.',
-          );
+          if (kVerboseDownloader) {
+            debugPrint(
+              '[FmtcLayerDownloader] WATCHDOG stall detected - cancelling instance $instanceId.',
+            );
+          }
           interruptReason = DownloadInterruptReason.watchdog;
           store.download.cancel(instanceId: instanceId);
         }
@@ -204,35 +203,40 @@ class FmtcLayerDownloader implements LayerDownloader {
         negative = p.negativeResponseTilesCount;
         failed = p.failedRequestTilesCount;
         lastEventAt = DateTime.now();
-
         if (maxTiles > 0) {
           final progress = (p.attemptedTilesCount / maxTiles).clamp(0.0, 1.0);
           onProgress(progress);
         }
-
         if (maxTiles > _maxTileCountCeiling) {
-          debugPrint(
-            '[FmtcLayerDownloader] Tile count $maxTiles > ceiling - aborting.',
-          );
+          if (kVerboseDownloader) {
+            debugPrint(
+              '[FmtcLayerDownloader] Tile count $maxTiles > ceiling - aborting.',
+            );
+          }
           interruptReason = DownloadInterruptReason.tileCeiling;
           store.download.cancel(instanceId: instanceId);
         }
       }
     } catch (e, st) {
-      debugPrint('[FmtcLayerDownloader] Isolate stream error: $e$st');
+      if (kVerboseDownloader) {
+        debugPrint('[FmtcLayerDownloader] Isolate stream error: $e$st');
+      }
       rethrow;
     } finally {
-      // 👇 Nettoie le tracking
+      // 👇 Nettoyage complet — s'exécute MÊME si startForeground() a échoué.
       _activeInstances.remove(instanceId);
       _pausedInstances.remove(instanceId);
       watchdog?.cancel();
-      try {
-        tileHttpClient.close();
-      } catch (_) {}
+      await bridgeSub?.cancel();
+      if (!ctrl.isClosed) {
+        await ctrl.close();
+      }
       try {
         await store.download.cancel(instanceId: instanceId);
       } catch (e) {
-        debugPrint('[FmtcLayerDownloader] cancel error: $e');
+        if (kVerboseDownloader) {
+          debugPrint('[FmtcLayerDownloader] cancel error: $e');
+        }
       }
     }
 
@@ -276,10 +280,12 @@ class FmtcLayerDownloader implements LayerDownloader {
     final ok = successful > 0 && failedRatio <= _networkFailureTolerance;
 
     if (!ok) {
-      debugPrint(
-        '[FmtcLayerDownloader] Layer assessed FAILED: '
-        'successful=$successful failedRatio=${failedRatio.toStringAsFixed(3)} total=$total',
-      );
+      if (kVerboseDownloader) {
+        debugPrint(
+          '[FmtcLayerDownloader] Layer assessed FAILED: '
+          'successful=$successful failedRatio=${failedRatio.toStringAsFixed(3)} total=$total',
+        );
+      }
     }
 
     return LayerDownloadResult(
@@ -301,41 +307,55 @@ class FmtcLayerDownloader implements LayerDownloader {
     try {
       await store.download.cancel(instanceId: instanceId);
     } catch (e) {
-      debugPrint('[FmtcLayerDownloader] cancel error: $e');
+      if (kVerboseDownloader) {
+        debugPrint('[FmtcLayerDownloader] cancel error: $e');
+      }
     }
   }
 
   @override
-  void pause(String zoneUuid, FMTCStore store, String instanceId) {
+  bool pause(String zoneUuid, FMTCStore store, String instanceId) {
     // 👇 Vérifie que l'instance est active avant de pauser
     if (!_activeInstances.contains(instanceId)) {
-      debugPrint(
-        '[FmtcLayerDownloader] pause() ignoré : instance $instanceId inactive',
-      );
-      return;
+      if (kVerboseDownloader) {
+        debugPrint(
+          '[FmtcLayerDownloader] pause() ignoré : instance $instanceId inactive',
+        );
+      }
+      return false;
     }
     try {
       store.download.pause(instanceId: instanceId);
       _pausedInstances.add(instanceId);
+      return true;
     } catch (e) {
-      debugPrint('[FmtcLayerDownloader] pause() échoué : $e');
+      if (kVerboseDownloader) {
+        debugPrint('[FmtcLayerDownloader] pause() échoué : $e');
+      }
     }
+    return false;
   }
 
   @override
-  void resume(String zoneUuid, FMTCStore store, String instanceId) {
+  bool resume(String zoneUuid, FMTCStore store, String instanceId) {
     // 👇 Vérifie que l'instance est active avant de resume
     if (!_activeInstances.contains(instanceId)) {
-      debugPrint(
-        '[FmtcLayerDownloader] resume() ignoré : instance $instanceId inactive',
-      );
-      return;
+      if (kVerboseDownloader) {
+        debugPrint(
+          '[FmtcLayerDownloader] resume() ignoré : instance $instanceId inactive',
+        );
+      }
+      return false;
     }
     try {
       store.download.resume(instanceId: instanceId);
       _pausedInstances.remove(instanceId);
+      return true;
     } catch (e) {
-      debugPrint('[FmtcLayerDownloader] resume() échoué : $e');
+      if (kVerboseDownloader) {
+        debugPrint('[FmtcLayerDownloader] resume() échoué : $e');
+      }
     }
+    return false;
   }
 }

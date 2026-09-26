@@ -2,6 +2,17 @@
 
 Toutes les modifications notables de ce projet seront documentées dans ce fichier.
 
+
+
+v1.1.1
+
+Blocage du zoom en téléchargement du lidar entre 12 et 16 pour économiser des data.
+Couche Lidar occitanie était à l'envers 2009 était sur 2011 qui était sur 2014-2015.
+Le téléchargement affiche correctement ce qu'il télécharge et son pourcentage ainsi que la taille des fichiers téléchargé.
+Il n'est plus possible de tracer des zone hors ligne en étant hors ligne ou sur une autre carte que la carte marine.
+Corrections divers de fuite de mémoires.
+Retrait de code obsolete/inutile.
+
 ---
 
 ## 🆕 [v1.1.0] - 22 Septembre 2026

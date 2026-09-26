@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
+import 'package:my_spots/controllers/gps_controller.dart'; // 👈 Import ajouté
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/services/marine_map_service.dart';
@@ -12,16 +14,18 @@ import 'package:my_spots/views/widgets/map/gps_marker_widget.dart';
 ///
 /// Ce widget ne se rebuild QUE quand [mapType], [zoom], [offlineMode],
 /// [readyZoneUuids], [visibleBounds] ou [bathymetryEnabled] changent.
-/// Les changements de position GPS / vitesse / statut GPS sont gérés par
-/// le parent et ne reconstruisent PAS la carte.
+/// Les changements de position GPS sont gérés par un StreamBuilder interne
+/// et ne reconstruisent PAS la carte (TileLayers).
 class MapView extends StatefulWidget {
   final MapController mapController;
   final MapType mapType;
   final double zoom;
   final bool offlineMode;
   final List<String> readyZoneUuids;
-  final List<OfflineMapLayer> readyLidarLayers;
-  final LatLng? currentPosition;
+  // ✅ Association zone → couches LiDAR (au lieu d'une liste plate) :
+  // permet à MarineMapService de ne consulter que les stores pertinents.
+  final Map<String, List<OfflineMapLayer>> readyLidarLayersByZone;
+  // ❌ currentPosition retiré des paramètres
   final LatLng? selectedWaypointPosition;
   final LatLngBounds? visibleBounds;
   final LatLngBounds? zoneCombinedBounds;
@@ -43,8 +47,7 @@ class MapView extends StatefulWidget {
     required this.zoom,
     required this.offlineMode,
     required this.readyZoneUuids,
-    required this.readyLidarLayers,
-    required this.currentPosition,
+    required this.readyLidarLayersByZone,
     required this.selectedWaypointPosition,
     required this.visibleBounds,
     required this.zoneCombinedBounds,
@@ -82,11 +85,16 @@ class _MapViewState extends State<MapView> {
 
   @override
   Widget build(BuildContext context) {
+    // Récupération de la position initiale sans dépendre d'un paramètre externe
+    final initialPos = GpsController.instance.currentPosition;
+    final initialCenter = initialPos != null
+        ? LatLng(initialPos.latitude, initialPos.longitude)
+        : AppSettings.getDefaultMapCenter();
+
     return FlutterMap(
       mapController: widget.mapController,
       options: MapOptions(
-        initialCenter:
-            widget.currentPosition ?? AppSettings.getDefaultMapCenter(),
+        initialCenter: initialCenter,
         initialZoom: widget.zoom,
         minZoom: widget.offlineMode ? 8.0 : AppSettings.getMapMinZoom(),
         maxZoom: AppSettings.getMapMaxZoom(),
@@ -111,35 +119,53 @@ class _MapViewState extends State<MapView> {
       ),
       children: [
         // ⚠️  Les couches doivent être des enfants DIRECTS de FlutterMap
-        // (pas de Column wrapper) :
         if (_tilesReady) ..._buildTileLayers(),
-        if (widget.currentPosition != null &&
-            widget.selectedWaypointPosition != null)
-          PolylineLayer(
-            polylines: [
-              Polyline(
-                points: [
-                  widget.currentPosition!,
-                  widget.selectedWaypointPosition!,
-                ],
-                color: Colors.white70.withValues(alpha: 0.8),
-                strokeWidth: 2,
-                pattern: const StrokePattern.dotted(spacingFactor: 1.8),
-              ),
-            ],
-          ),
+
+        // Dans MapView, remplace le StreamBuilder existant par :
+        StreamBuilder<Position>(
+          stream: GpsController.instance.positionStream,
+          initialData: GpsController.instance.currentPosition,
+          builder: (context, snapshot) {
+            final pos = snapshot.data;
+            if (pos == null) return const SizedBox.shrink();
+
+            final currentLatLng = LatLng(pos.latitude, pos.longitude);
+            return Stack(
+              children: [
+                // Polyline vers le waypoint sélectionné
+                if (widget.selectedWaypointPosition != null)
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: [
+                          currentLatLng,
+                          widget.selectedWaypointPosition!,
+                        ],
+                        color: Colors.white70.withValues(alpha: 0.8),
+                        strokeWidth: 2,
+                        pattern: const StrokePattern.dotted(spacingFactor: 1.8),
+                      ),
+                    ],
+                  ),
+                // Marqueur GPS - passe le heading directement
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: currentLatLng,
+                      width: 80,
+                      height: 80,
+                      alignment: Alignment.center,
+                      child: GpsMarkerWidget(heading: pos.heading),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+        // Waypoints de l'utilisateur
         MarkerLayer(
           markers: [
-            // Position GPS actuelle (en premier, donc en arrière-plan)
-            if (widget.currentPosition != null)
-              Marker(
-                point: widget.currentPosition!,
-                width: 80,
-                height: 80,
-                alignment: Alignment.center,
-                child: const GpsMarkerWidget(),
-              ),
-            // Waypoints de l'utilisateur (en dernier, donc au premier plan)
             if (widget.waypointsVisible)
               ...widget.waypoints
                   .where(_shouldShowWaypoint)
@@ -169,8 +195,7 @@ class _MapViewState extends State<MapView> {
       if (widget.bathymetryEnabled)
         ...MarineMapService.getOfflineLidarLayers(
           widget.visibleBounds ?? widget.zoneCombinedBounds,
-          widget.readyLidarLayers,
-          widget.readyZoneUuids,
+          widget.readyLidarLayersByZone,
           opacity: widget.bathymetryOpacity,
         ),
     ];
@@ -189,17 +214,54 @@ class _MapViewState extends State<MapView> {
       ),
   ];
 
-  Widget _standardTileLayer() => TileLayer(
-    key: ValueKey('basemap_${widget.mapType}'),
-    urlTemplate: AppSettings.getMapTileUrl(),
-    userAgentPackageName: MapTileCacheService.packageName,
-    minZoom: AppSettings.getMapMinZoom(),
-    minNativeZoom: AppSettings.getMapMinNativeZoom(),
-    maxNativeZoom: AppSettings.getMapMaxNativeZoom(),
-    maxZoom: AppSettings.getMapMaxZoom(),
-    tileProvider: MapTileCacheService.getTileProviderForMapType(widget.mapType),
-    errorTileCallback: widget.onErrorTile,
-  );
+  Widget _standardTileLayer() {
+    // Configuration par type de carte pour un overzoom cohérent
+    final int minNativeZoom;
+    final int maxNativeZoom;
+    final double maxZoom;
+
+    switch (widget.mapType) {
+      case MapType.standard:
+        // OpenStreetMap : tuiles natives 0-19, overzoom jusqu'à 22
+        minNativeZoom = 0;
+        maxNativeZoom = 19;
+        maxZoom = 22.0;
+        break;
+      case MapType.relief:
+        // OpenTopoMap : tuiles natives 0-17, overzoom jusqu'à 22
+        minNativeZoom = 0;
+        maxNativeZoom = 17;
+        maxZoom = 22.0;
+        break;
+      case MapType.hiking:
+        // Thunderforest Outdoors : tuiles natives 0-22
+        minNativeZoom = 0;
+        maxNativeZoom = 22;
+        maxZoom = 22.0;
+        break;
+      case MapType.marine:
+        // Ne devrait pas arriver ici (géré par _offlineMarineLayers / _onlineMarineLayers)
+        // mais par sécurité :
+        minNativeZoom = AppSettings.getMapMinNativeZoom();
+        maxNativeZoom = AppSettings.getMapMaxNativeZoom();
+        maxZoom = AppSettings.getMapMaxZoom();
+        break;
+    }
+
+    return TileLayer(
+      key: ValueKey('basemap_${widget.mapType}'),
+      urlTemplate: AppSettings.getMapTileUrl(),
+      userAgentPackageName: MapTileCacheService.packageName,
+      minZoom: AppSettings.getMapMinZoom(),
+      minNativeZoom: minNativeZoom,
+      maxNativeZoom: maxNativeZoom,
+      maxZoom: maxZoom,
+      tileProvider: MapTileCacheService.getTileProviderForMapType(
+        widget.mapType,
+      ),
+      errorTileCallback: widget.onErrorTile,
+    );
+  }
 
   // ─── Waypoints ────────────────────────────────────────────────────────
   bool _shouldShowWaypoint(Waypoint waypoint) {

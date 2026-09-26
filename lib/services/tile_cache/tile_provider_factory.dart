@@ -108,17 +108,37 @@ class TileProviderFactory {
     );
   }
 
-  // ── Caches de providers : instances STABLES ─────────────────────────────
+  // ── Caches de providers : instances STABLES, taille BORNÉE ────────────────
   // flutter_map reset les tuiles d'une TileLayer quand l'instance de
   // tileProvider change. Comme MapView se reconstruit à chaque tick GPS,
   // on mémoïse les providers par clé structurelle (couche + zones) pour
   // que les rebuilds ne rechargent jamais les tuiles.
-  static final Map<String, TileProvider> _marineTileProviders = {};
-  static final Map<String, TileProvider> _marineZoneProviders = {};
-  static final Map<String, TileProvider> _bathymetryTileProviders = {};
-  static final Map<String, TileProvider> _bathymetryZoneProviders = {};
-  static final Map<String, TileProvider> _offlineMarineProviders = {};
-  static final Map<String, TileProvider> _offlineLidarProviders = {};
+  //
+  // 🛡️ Politique de taille : chaque cache est un LRU borné à
+  // [_maxProvidersPerCache] entrées. Sans cela, les combinaisons
+  // historiques de zones (A, A+B, A+B+C…) s'accumuleraient sans limite
+  // pendant toute la session, alors que seule la combinaison courante
+  // ressert réellement.
+  static const int _maxProvidersPerCache = 8;
+
+  static final _marineTileProviders = _BoundedProviderCache(
+    _maxProvidersPerCache,
+  );
+  static final _marineZoneProviders = _BoundedProviderCache(
+    _maxProvidersPerCache,
+  );
+  static final _bathymetryTileProviders = _BoundedProviderCache(
+    _maxProvidersPerCache,
+  );
+  static final _bathymetryZoneProviders = _BoundedProviderCache(
+    _maxProvidersPerCache,
+  );
+  static final _offlineMarineProviders = _BoundedProviderCache(
+    _maxProvidersPerCache,
+  );
+  static final _offlineLidarProviders = _BoundedProviderCache(
+    _maxProvidersPerCache,
+  );
 
   static String _zonesKey(List<String> zones) =>
       (List<String>.from(zones)..sort()).join(',');
@@ -196,9 +216,14 @@ class TileProviderFactory {
     });
   }
 
+  /// Vide tous les caches de providers qui dépendent des UUIDs de zones.
+  /// Doit être appelé à chaque suppression de zone pour éviter de conserver
+  /// des providers pointant vers des stores FMTC détruits.
   static void clearZoneProviderCaches() {
     _marineZoneProviders.clear();
     _bathymetryZoneProviders.clear();
+    _offlineMarineProviders.clear();
+    _offlineLidarProviders.clear();
   }
 
   static TileProvider offlineMarineTileProvider(List<String> zoneUuids) {
@@ -271,4 +296,40 @@ class TileProviderFactory {
       httpClient: httpClient,
     );
   }
+}
+
+/// Cache LRU borné de [TileProvider].
+///
+/// Les [Map] Dart préservent l'ordre d'insertion : un `remove` + réinsertion
+/// sur accès marque l'entrée comme récente, et l'éviction retire simplement
+/// la première clé quand la borne [_BoundedProviderCache.maxEntries] est
+/// dépassée. Complexité O(1) par opération.
+///
+/// Évincer un provider encore monté dans un [TileLayer] est sans danger :
+/// l'instance reste référencée par le widget ; seul un rebuild futur avec
+/// la même clé recréerait une instance (cas rare : clés évincées =
+/// combinaisons de zones historiques).
+class _BoundedProviderCache {
+  _BoundedProviderCache(this.maxEntries);
+
+  final int maxEntries;
+  final Map<String, TileProvider> _entries = {};
+
+  TileProvider putIfAbsent(String key, TileProvider Function() create) {
+    final existing = _entries.remove(key);
+    if (existing != null) {
+      _entries[key] = existing; // touche LRU
+      return existing;
+    }
+    final created = create();
+    _entries[key] = created;
+    while (_entries.length > maxEntries) {
+      _entries.remove(_entries.keys.first); // évince le plus ancien
+    }
+    return created;
+  }
+
+  void clear() => _entries.clear();
+
+  int get length => _entries.length;
 }

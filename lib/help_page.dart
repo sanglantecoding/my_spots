@@ -22,11 +22,18 @@ class _HelpPageState extends State<HelpPage> {
   Future<void> _loadHelpContent() async {
     try {
       final String content = await rootBundle.loadString('CHANGELOG.md');
+
+      // 🛡️ Garde-fou : on s'assure que le widget est toujours dans l'arbre
+      if (!mounted) return;
+
       setState(() {
         _markdownContent = content;
         _isLoading = false;
       });
     } catch (e) {
+      // 🛡️ Garde-fou pour le bloc catch également
+      if (!mounted) return;
+
       setState(() {
         _markdownContent = 'Erreur lors du chargement du contenu d\'aide.';
         _isLoading = false;

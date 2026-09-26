@@ -1,17 +1,9 @@
 import 'dart:math' as math;
-
 import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/services/marine_map_service.dart';
 
-/// Pré-analyse de couverture SHOM par tuiles de sondage.
-///
-/// Avant de créer les couches de téléchargement d'une zone, on interroge
-/// quelques tuiles représentatives de chaque échelle RasterMarine :
-/// - HTTP 200 + vrais octets  → l'échelle couvre la zone ;
-/// - HTTP 404                 → l'échelle ne couvre pas la zone ;
-/// - aucune réponse (réseau)  → `null` = injoignable (fail-open côté appelant).
 class ShomCoveragePreflight {
   ShomCoveragePreflight({http.Client? client})
     : _client = client ?? http.Client();
@@ -23,15 +15,12 @@ class ShomCoveragePreflight {
     'Referer': 'https://data.shom.fr/',
   };
 
-  /// Zoom de sondage par couche (zoom natif médian de l'échelle).
   static int _probeZoom(String layerName) => switch (layerName) {
     'RASTER_MARINE_25_WMTS_3857' => 13,
     'RASTER_MARINE_10_WMTS_3857' => 15,
     _ => 12,
   };
 
-  /// 9 points de sondage : centre, 4 coins, 4 milieux de bords.
-  /// Un seul point couvert suffit à déclarer l'échelle utile.
   static List<LatLng> probePoints(LatLngBounds b) {
     final midLat = (b.north + b.south) / 2;
     final midLon = (b.east + b.west) / 2;
@@ -61,10 +50,18 @@ class ShomCoveragePreflight {
   }
 
   /// `true` = couvert, `false` = non couvert (404), `null` = SHOM injoignable.
+  ///
+  /// Les 9 points sont sondés en PARALLÈLE. On attend que TOUTES les requêtes
+  /// soient terminées avant de retourner, pour éviter de fermer le http.Client
+  /// alors que des requêtes sont encore en vol.
   Future<bool?> covers(LatLngBounds bounds, String layerName) async {
     final z = _probeZoom(layerName);
-    var serverReached = false;
-    for (final p in probePoints(bounds)) {
+    final points = probePoints(bounds);
+
+    bool foundCoverage = false;
+    bool serverReached = false;
+
+    Future<void> probePoint(LatLng p) async {
       try {
         final (x, y) = _tileCoords(p, z);
         final url = MarineMapService.clevisuWmtsUrl(layerName)
@@ -76,12 +73,19 @@ class ShomCoveragePreflight {
             .timeout(const Duration(seconds: 8));
         serverReached = true;
         if (resp.statusCode == 200 && resp.bodyBytes.length > 200) {
-          return true; // un seul point couvert suffit
+          foundCoverage = true;
         }
       } catch (_) {
-        // point injoignable : on essaie les suivants
+        // point injoignable : on ignore, les autres continuent
       }
     }
+
+    // Attend que TOUTES les probes soient terminées avant de retourner.
+    // Plus de court-circuit : le http.Client ne sera jamais fermé sous
+    // des requêtes en vol.
+    await Future.wait(points.map(probePoint));
+
+    if (foundCoverage) return true;
     return serverReached ? false : null;
   }
 

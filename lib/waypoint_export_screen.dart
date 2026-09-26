@@ -274,9 +274,10 @@ class _WaypointExportScreenState extends State<WaypointExportScreen> {
             final colorValue = colorElement.innerText.trim();
             if (colorValue.isNotEmpty &&
                 RegExp(r'^[0-9A-Fa-f]{6}$').hasMatch(colorValue)) {
-              colorHex = colorValue.startsWith('FF')
-                  ? colorValue
-                  : 'FF$colorValue';
+              colorHex = 'FF$colorValue';
+            } else if (colorValue.isNotEmpty &&
+                RegExp(r'^[0-9A-Fa-f]{8}$').hasMatch(colorValue)) {
+              colorHex = colorValue;
             }
           } else {
             // Essayer de récupérer depuis la balise desc si elle contient des infos de couleur
@@ -338,6 +339,7 @@ class _WaypointExportScreenState extends State<WaypointExportScreen> {
 
       if (importedCount > 0 || duplicateCount > 0) {
         await WaypointStore.save();
+        if (!mounted) return;
         setState(() {}); // Mettre à jour l'interface
 
         // Notifier l'écran précédent que des waypoints ont été importés

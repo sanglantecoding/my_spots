@@ -7,6 +7,9 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:my_spots/services/tile_cache/message_tile_provider.dart';
 import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 
+/// Logs de debugging filtre tuiles. Laisser à false.
+const bool kVerboseTileFilter = false;
+
 /// Filtre gris/blanc : rend transparents les pixels gris/blanc (zones sans
 /// couverture SHOM) pour laisser voir la couche inférieure. Sur la couche du
 /// bas, une tuile 100 % vide affiche la tuile-message « Dézoomez ».
@@ -18,9 +21,11 @@ class BlankGrayFilteringTileProvider extends TileProvider {
 
   @override
   ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
-    debugPrint(
-      '[BlankGrayFilter] getImage: z=${coordinates.z} x=${coordinates.x} y=${coordinates.y} layerKey=${options.key} minNativeZoom=${options.minNativeZoom} maxNativeZoom=${options.maxNativeZoom}',
-    );
+    if (kVerboseTileFilter) {
+      debugPrint(
+        '[BlankGrayFilter] getImage: z=${coordinates.z} x=${coordinates.x} y=${coordinates.y} layerKey=${options.key} minNativeZoom=${options.minNativeZoom} maxNativeZoom=${options.maxNativeZoom}',
+      );
+    }
     return BlankGrayFilteringImageProvider(
       inner: inner.getImage(coordinates, options),
       coords: coordinates,
@@ -45,7 +50,6 @@ class BlankGrayFilteringImageProvider
   final bool paintMessage;
 
   // ⚠️ JAMAIS de ui.Image en cache statique : on ne cache que des BYTES.
-  static Uint8List? _cachedMessageBytes;
   static Uint8List? _cachedTransparentBytes;
 
   @override
@@ -221,8 +225,8 @@ class BlankGrayFilteringImageProvider
   }
 
   static Future<ui.Image> _messageImage(ImageDecoderCallback decode) async {
-    _cachedMessageBytes ??= await MessageTileProvider.getTileBytes();
-    return _decodeBytes(_cachedMessageBytes!, decode);
+    final bytes = await MessageTileProvider.getTileBytes();
+    return _decodeBytes(bytes, decode);
   }
 
   static Future<ImageInfo> _transparentInfo(ImageDecoderCallback decode) async {
@@ -272,7 +276,6 @@ class MessageBaseImageProvider extends ImageProvider<MessageBaseImageProvider> {
   const MessageBaseImageProvider({required this.coords});
 
   final TileCoordinates coords;
-  static Uint8List? _cachedBytes;
 
   @override
   Future<MessageBaseImageProvider> obtainKey(ImageConfiguration configuration) {
@@ -288,8 +291,8 @@ class MessageBaseImageProvider extends ImageProvider<MessageBaseImageProvider> {
   }
 
   Future<ImageInfo> _resolve(ImageDecoderCallback decode) async {
-    _cachedBytes ??= await MessageTileProvider.getTileBytes();
-    final buffer = await ui.ImmutableBuffer.fromUint8List(_cachedBytes!);
+    final bytes = await MessageTileProvider.getTileBytes();
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
     final codec = await decode(buffer);
     final frame = await codec.getNextFrame();
     codec.dispose(); // ⚠️ jamais de buffer.dispose() ici

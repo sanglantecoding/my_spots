@@ -99,14 +99,14 @@ class Litto3DCatalog {
       name: 'Languedoc-Roussillon 2009',
       region: 'Occitanie',
       wmtsLayerName: 'LITTO3D_LR_2009_PYR_3857_WMTS',
-      sortOrder: 0,
+      sortOrder: 1,
     ),
     Litto3DLayer(
       id: 'occitanie_2011',
       name: 'Languedoc-Roussillon 2011',
       region: 'Occitanie',
       wmtsLayerName: 'L3D_MAR_LR_2011_PYR_3857_WMTS',
-      sortOrder: 1,
+      sortOrder: 0,
     ),
     Litto3DLayer(
       id: 'occitanie_2014_2015',
@@ -259,12 +259,11 @@ class Litto3DCatalog {
 
   /// Couches activées, triées région puis chronologie (ancien → récent).
   static List<Litto3DLayer> layersFromIds(List<String> ids) {
-    final selected =
-        ids.map(findById).whereType<Litto3DLayer>().toList();
+    final selected = ids.map(findById).whereType<Litto3DLayer>().toList();
     selected.sort((a, b) {
-      final regionIndex = regions.indexOf(a.region).compareTo(
-            regions.indexOf(b.region),
-          );
+      final regionIndex = regions
+          .indexOf(a.region)
+          .compareTo(regions.indexOf(b.region));
       if (regionIndex != 0) return regionIndex;
       return a.sortOrder.compareTo(b.sortOrder);
     });

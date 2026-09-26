@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/controllers/gps_controller.dart';
@@ -10,7 +11,6 @@ import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
 import 'package:my_spots/services/alarm_service.dart';
-import 'package:my_spots/services/gps_service.dart';
 import 'package:my_spots/services/zone_download/zone_download.dart';
 import 'package:my_spots/settings_page.dart';
 import 'package:my_spots/views/dialogs/waypoint_editor_sheet.dart';
@@ -33,9 +33,8 @@ class MapScreen extends StatefulWidget {
   /// [OfflineMapsScreen] to deep-link from the "Créer une zone" button.
   final bool triggerZoneCreation;
 
-  /// Initial value for the temporary ONLINE / HORS-LIGNE switch owned by
-  /// [HomePage]. Not persisted. The in-screen state can still be toggled
-  /// at runtime; this is just the initial value pushed in.
+  /// Instance partagée du service de téléchargement (venue de
+  /// [OfflineMapsScreen]) ou `null` → singleton.
   final ZoneDownloadService? zoneService;
 
   const MapScreen({
@@ -51,8 +50,6 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
-  LatLng? _currentPosition;
-  double _currentSpeed = 0.0;
   double _currentZoom = 15.0;
   bool _isLoading = true;
   bool _isFollowingUser = false;
@@ -62,14 +59,11 @@ class _MapScreenState extends State<MapScreen> {
   final TextEditingController _waypointNameController = TextEditingController();
   Waypoint? _selectedWaypoint;
   Waypoint? _navigationTarget; // Waypoint ciblé pour la navigation active
-  String gpsStatus = 'INITIALISATION...';
-  Color gpsStatusColor = Colors.orange;
   LatLngBounds? _mapVisibleBounds;
   StreamSubscription? _positionSubscription;
-  StreamSubscription? _stateSubscription;
   StreamSubscription<AlarmEvent>? _alarmSubscription;
   List<String> _readyZoneUuids = const [];
-  final List<OfflineMapLayer> _readyLidarLayers = [];
+  final Map<String, List<OfflineMapLayer>> _readyLidarLayersByZone = {};
 
   /// Cached combined bounds of all downloaded zones, computed from
   /// the OfflineMapRepository so that LiDAR layers can still be
@@ -84,6 +78,16 @@ class _MapScreenState extends State<MapScreen> {
   /// Configuration (name + layers) collected from NewZoneSheet before
   /// entering _zoneEditMode.
   ZoneConfig? _pendingZoneConfig;
+
+  /// 🛡️ P1 PERF : dernière position connue, lue À LA DEMANDE via le
+  /// singleton. Plus aucun champ _currentPosition maintenu par setState :
+  /// un tick GPS ne doit JAMAIS reconstruire MapScreen (donc MapView /
+  /// TileLayers). Les UI haute fréquence (vitesse, panneau, icône) sont
+  /// des widgets feuilles auto-abonnés en bas de fichier.
+  LatLng? _gpsLatLng() {
+    final p = GpsController.instance.currentPosition;
+    return p == null ? null : LatLng(p.latitude, p.longitude);
+  }
 
   /// Démarre le mode de mesure de distance
   void _startDistanceMeasurement(LatLng initialPoint) {
@@ -103,7 +107,6 @@ class _MapScreenState extends State<MapScreen> {
       _isMeasuringDistance = false;
       _measurementPoint1 = point1;
     });
-
     // Afficher le popup avec le résultat
     _showDistanceResultPopup(point1, point2, distanceMeters);
   }
@@ -115,7 +118,6 @@ class _MapScreenState extends State<MapScreen> {
     double distanceMeters,
   ) {
     final distanceNauticalMiles = distanceMeters / 1852.0;
-
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -256,7 +258,6 @@ class _MapScreenState extends State<MapScreen> {
   void _onMapCameraChanged() {
     // Évite les rebuilds trop fréquents
     if (_mapCameraUpdateDebounce?.isActive ?? false) return;
-
     _mapCameraUpdateDebounce = Timer(const Duration(milliseconds: 150), () {
       final bounds = _mapController.camera.visibleBounds;
       if (_mapVisibleBounds != null &&
@@ -314,6 +315,7 @@ class _MapScreenState extends State<MapScreen> {
               onTap: () async {
                 final enabled = !AppSettings.bathymetryOverlayEnabled;
                 await AppSettings.saveBathymetryOverlayEnabled(enabled);
+                if (!mounted) return;
                 setState(() {});
               },
               child: Row(
@@ -327,6 +329,7 @@ class _MapScreenState extends State<MapScreen> {
                       onChanged: (value) async {
                         if (value == null) return;
                         await AppSettings.saveBathymetryOverlayEnabled(value);
+                        if (!mounted) return;
                         setState(() {});
                       },
                       activeColor: Colors.blueAccent,
@@ -365,6 +368,7 @@ class _MapScreenState extends State<MapScreen> {
                         '${(AppSettings.bathymetryOverlayOpacity * 100).round()}%',
                     onChanged: (value) async {
                       await AppSettings.saveBathymetryOverlayOpacity(value);
+                      if (!mounted) return;
                       setState(() {});
                     },
                   ),
@@ -380,38 +384,33 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
-
     // Initialiser le service d'alarme
     AlarmService.initialize();
-
     // S'abonner au flux broadcast d'événements d'alarme
     _alarmSubscription = AlarmService.onAlarmEvent.listen((event) {
       if (!mounted) return;
       // On rebuild sur tout changement d'état vu par MapScreen
-      // (icône haut-parleur, etc.)
+      // (icône haut-parleur, etc.) — événement RARE, pas un tick GPS.
       setState(() {});
     });
-
     _startLocationTracking();
     _loadOfflineZones();
-
     if (widget.centerOn != null) {
       Future.delayed(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
         _mapController.move(
           LatLng(widget.centerOn!.latitude, widget.centerOn!.longitude),
           16.0,
         );
       });
     }
-
     // Auto-start the zone-creation flow when the screen is opened from
-    // OfflineMapsScreen 'Créer une zone' button. We schedule the trigger
-    // Auto-start: after the first frame, open the name sheet immediately.
+    // OfflineMapsScreen 'Créer une zone' button.
     if (widget.triggerZoneCreation) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        final center = _currentPosition ?? AppSettings.getDefaultMapCenter();
-        _openNewOfflineZoneWithCenter(center);
+        final center = _gpsLatLng() ?? AppSettings.getDefaultMapCenter();
+        unawaited(_openNewOfflineZoneWithCenter(center));
       });
     }
   }
@@ -419,87 +418,49 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void dispose() {
     _positionSubscription?.cancel();
-    _stateSubscription?.cancel();
     _alarmSubscription?.cancel();
     _waypointNameController.dispose();
     _mapCameraUpdateDebounce?.cancel();
     super.dispose();
   }
 
-  /// Démarre le suivi GPS en temps réel avec GpsController
+  /// Suivi GPS : EFFETS DE BORD UNIQUEMENT.
+  ///
+  /// 🛡️ P1 PERF : aucun setState par tick ici. Le marqueur, la polyline,
+  /// la vitesse, le statut et les distances vivent dans des widgets
+  /// feuilles auto-abonnés (_GpsStateIcon, _SpeedOverlay, _LivePosition,
+  /// StreamBuilder interne de MapView, NavigationOverlay). MapScreen — et
+  /// donc MapView / _buildTileLayers() — ne se reconstruit PLUS à 1 Hz.
   Future<void> _startLocationTracking() async {
-    // S'abonner au flux de position de GpsController
     _positionSubscription = GpsController.instance.positionStream.listen(
       (position) {
-        if (mounted) {
-          setState(() {
-            _currentPosition = LatLng(position.latitude, position.longitude);
-            _currentSpeed = position.speed;
-            _isLoading = false;
-            // Utilisation de la logique unifiée pour le statut GPS
-            final status = GpsService.getGpsStatus(position.accuracy);
-            gpsStatus = GpsService.getGpsDetailedStatusText(status);
-            gpsStatusColor = GpsService.getGpsStatusColor(status);
-          });
-          // Mettre à jour la position pour les alarmes
-          AlarmService.updatePosition(_currentPosition!);
-          // Recentre automatiquement la carte si le suivi est activé
-          if (_isFollowingUser && _currentPosition != null) {
-            _mapController.move(_currentPosition!, 15.0);
-          }
-        }
+        if (!mounted) return;
+        final pos = LatLng(position.latitude, position.longitude);
+        // Alarmes de proximité : besoin de la position, pas d'un rebuild.
+        AlarmService.updatePosition(pos);
+        // Recentrage automatique si le suivi est actif (impératif, pas UI).
+        if (_isFollowingUser) _mapController.move(pos, 15.0);
+        // One-shot : on quitte l'écran de chargement au premier fix.
+        if (_isLoading) setState(() => _isLoading = false);
       },
       onError: (error) {
-        if (mounted) {
-          setState(() {
-            gpsStatus = 'ERREUR GPS';
-            gpsStatusColor = Colors.red;
-            _isLoading = false;
-          });
-        }
+        if (mounted && _isLoading) setState(() => _isLoading = false);
       },
     );
-
-    // S'abonner au flux d'état de GpsController
-    _stateSubscription = GpsController.instance.stateStream.listen((state) {
-      if (mounted) {
-        setState(() {
-          switch (state) {
-            case GpsState.stopped:
-              gpsStatus = 'GPS ARRÊTÉ';
-              gpsStatusColor = Colors.grey;
-              break;
-            case GpsState.initializing:
-              gpsStatus = 'INITIALISATION...';
-              gpsStatusColor = Colors.orange;
-              break;
-            case GpsState.stationary:
-              gpsStatus = 'GPS ACTIF (IMMOBILE)';
-              gpsStatusColor = Colors.green;
-              break;
-            case GpsState.moving:
-              gpsStatus = 'GPS ACTIF (EN MOUVEMENT)';
-              gpsStatusColor = Colors.green;
-              break;
-            case GpsState.error:
-              gpsStatus = GpsController.instance.errorMessage ?? 'ERREUR GPS';
-              gpsStatusColor = Colors.red;
-              break;
-          }
-        });
-      }
-    });
-
     // Démarrer GpsController si pas déjà démarré
-    await GpsController.instance.start();
+    final ok = await GpsController.instance.start();
+    if (!ok && mounted && _isLoading) {
+      setState(() => _isLoading = false);
+    }
   }
 
   void _recenterMap() {
-    if (_currentPosition != null) {
+    final pos = _gpsLatLng();
+    if (pos != null) {
       setState(() {
         _isFollowingUser = true;
       });
-      _mapController.move(_currentPosition!, 15.0);
+      _mapController.move(pos, 15.0);
     }
   }
 
@@ -510,7 +471,7 @@ class _MapScreenState extends State<MapScreen> {
     final repo = OfflineMapRepository.instance;
     if (repo == null) return;
     final maps = repo.findReadyOrPartialMaps();
-    final lidarLayers = <MapEntry<String, OfflineMapLayer>>[];
+    final lidarByZone = <String, List<OfflineMapLayer>>{};
     for (final map in maps) {
       debugPrint(
         '[ZoneBounds] uuid=${map.uuid} '
@@ -518,16 +479,16 @@ class _MapScreenState extends State<MapScreen> {
         'westLng=${map.westLng} eastLng=${map.eastLng}',
       );
       final layers = repo.findLayersForMap(map);
-      for (final layer in layers) {
-        if (layer.layerType == LayerType.lidarLitto3d) {
-          lidarLayers.add(MapEntry(map.uuid, layer));
-        }
-      }
+      final lidar = layers
+          .where((l) => l.layerType == LayerType.lidarLitto3d)
+          .toList();
+      if (lidar.isNotEmpty) lidarByZone[map.uuid] = lidar;
     }
     setState(() {
       _readyZoneUuids = maps.map((m) => m.uuid).toList();
-      _readyLidarLayers.clear();
-      _readyLidarLayers.addAll(lidarLayers.map((e) => e.value).toList());
+      _readyLidarLayersByZone
+        ..clear()
+        ..addAll(lidarByZone);
       if (maps.isEmpty) {
         _zoneCombinedBounds = null;
       } else {
@@ -547,6 +508,8 @@ class _MapScreenState extends State<MapScreen> {
 
   /// Shows the context menu (BottomSheet) at the long-pressed map point.
   void _showMapContextMenu(LatLng point) {
+    final isOffline = AppSettings.offlineModeEnabled;
+    final isMarine = AppSettings.mapType == MapType.marine;
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF0D1B2A),
@@ -587,26 +550,46 @@ class _MapScreenState extends State<MapScreen> {
               ),
               onTap: () {
                 Navigator.pop(ctx);
-                _addWaypointAt(point);
+                unawaited(_addWaypointAt(point));
               },
             ),
             ListTile(
-              leading: const Icon(Icons.crop_free, color: Color(0xFF0D6999)),
-              title: const Text(
+              leading: Icon(
+                Icons.crop_free,
+                color: isMarine ? const Color(0xFF0D6999) : Colors.white24,
+              ),
+              title: Text(
                 "Tracer une zone hors-ligne",
                 style: TextStyle(
-                  color: Colors.white,
+                  color: isMarine ? Colors.white : Colors.white38,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              subtitle: const Text(
-                "Definir une zone de telechargement",
-                style: TextStyle(color: Colors.white38, fontSize: 12),
+              subtitle: Text(
+                !isMarine
+                    ? "Disponible uniquement avec la carte marine (SHOM)"
+                    : isOffline
+                    ? "Passez en ligne pour tracer une zone"
+                    : "Definir une zone de telechargement",
+                style: TextStyle(
+                  color: !isMarine
+                      ? Colors.white38
+                      : isOffline
+                      ? Colors.orangeAccent
+                      : Colors.white38,
+                  fontSize: 12,
+                ),
               ),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openNewOfflineZone(point);
-              },
+              onTap: !isMarine
+                  ? null
+                  : () {
+                      Navigator.pop(ctx);
+                      if (isOffline) {
+                        unawaited(_showOfflineModeBlockingDialog(point));
+                      } else {
+                        unawaited(_openNewOfflineZone(point));
+                      }
+                    },
             ),
             ListTile(
               leading: const Icon(Icons.straighten, color: Color(0xFF0D6999)),
@@ -633,11 +616,72 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  /// Boîte de dialogue affichée quand l'utilisateur tente de tracer une
+  /// zone hors-ligne alors que le mode hors-ligne est actif.
+  Future<void> _showOfflineModeBlockingDialog(LatLng point) async {
+    final switchOnline = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF1A2F42),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.cloud_off, color: Colors.orangeAccent, size: 28),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Mode hors-ligne actif',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Le tracé d\'une zone hors-ligne nécessite une connexion internet '
+          '(téléchargement des tuiles SHOM). Passez en mode en ligne pour '
+          'continuer.',
+          style: TextStyle(color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text(
+              'Annuler',
+              style: TextStyle(color: Colors.white54),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text(
+              'Passer en ligne',
+              style: TextStyle(
+                color: Colors.greenAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (switchOnline != true) return;
+    await AppSettings.saveOfflineMode(false);
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Mode en ligne activé. Ouverture du tracé de zone...'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
+    );
+    await _openNewOfflineZone(point);
+  }
+
   /// Opens the waypoint editor pre-filled with the given map position.
   Future<void> _addWaypointAt(LatLng position) async {
     final int waypointNumber = WaypointStore.waypoints.length + 1;
     final defaultName = "WPT $waypointNumber";
-
     final outcome = await showWaypointEditorSheet(
       context: context,
       title: "Nouveau waypoint",
@@ -649,24 +693,22 @@ class _MapScreenState extends State<MapScreen> {
       initialDate: DateTime.now(),
       isEditing: false,
     );
-
     if (outcome == null) return;
     if (outcome.deleted) return;
     if (outcome.waypoint != null) {
       WaypointStore.waypoints.add(outcome.waypoint!);
       await WaypointStore.save();
+      if (!mounted) return;
       setState(() {});
     }
   }
 
   /// Opens the zone-name sheet, then enters zone-adjustment mode
-  /// centred on [centerPoint]. Used both for long-press and for the
-  /// [OfflineMapsScreen] entry point.
-  void _openNewOfflineZone(LatLng centerPoint) async {
+  /// centred on [centerPoint].
+  Future<void> _openNewOfflineZone(LatLng centerPoint) async {
     final config = await showNewZoneSheet(context);
     if (config == null) return;
     if (!mounted) return;
-
     setState(() {
       _zoneEditMode = true;
       _pendingZoneConfig = config;
@@ -674,11 +716,9 @@ class _MapScreenState extends State<MapScreen> {
     _mapController.move(centerPoint, _currentZoom);
   }
 
-  /// Variant used by the post-frame callback: opens the sheet immediately
-  /// with [center] as the initial map position after confirmation.
-  void _openNewOfflineZoneWithCenter(LatLng center) {
-    _openNewOfflineZone(center);
-  }
+  /// Variant used by the post-frame callback.
+  Future<void> _openNewOfflineZoneWithCenter(LatLng center) =>
+      _openNewOfflineZone(center);
 
   /// Saves the zone after the user has adjusted the rectangle.
   Future<void> _onZoneBoundsConfirmed(LatLngBounds bounds) async {
@@ -687,26 +727,13 @@ class _MapScreenState extends State<MapScreen> {
       _exitZoneEditMode();
       return;
     }
-
     final repo = OfflineMapRepository.instance;
     if (repo == null) {
       _exitZoneEditMode();
       return;
     }
 
-    // 2) Create and persist the OfflineMap.
-    final uuid = DateTime.now().millisecondsSinceEpoch.toString();
-    final map = OfflineMap.create(
-      uuid: uuid,
-      name: config.name,
-      northLat: bounds.north,
-      southLat: bounds.south,
-      westLng: bounds.west,
-      eastLng: bounds.east,
-    );
-    repo.save(map);
-
-    // 3) Create layers and trigger download.
+    // 1) PRÉFLIGHT SHOM (analyse de couverture) AVANT toute écriture en base.
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -715,7 +742,9 @@ class _MapScreenState extends State<MapScreen> {
         ),
       );
     }
+
     final layers = await ZoneConfig.resolveLayersForBounds(bounds);
+
     if (layers.isEmpty) {
       _exitZoneEditMode();
       if (mounted) {
@@ -726,18 +755,31 @@ class _MapScreenState extends State<MapScreen> {
           ),
         );
       }
-      return;
+      return; // Arrêt propre : rien n'a été écrit en base.
     }
 
+    // 2) CRÉATION & PERSISTANCE (Zone + Couches) d'un bloc.
+    final uuid = DateTime.now().millisecondsSinceEpoch.toString();
+    final map = OfflineMap.create(
+      uuid: uuid,
+      name: config.name,
+      northLat: bounds.north,
+      southLat: bounds.south,
+      westLng: bounds.west,
+      eastLng: bounds.east,
+    );
+
+    repo.save(map);
     for (final layer in layers) {
       repo.saveLayer(map, layer);
     }
 
-    // Use the passed ZoneDownloadService instance if available, otherwise create a new one
+    // 3) DOWNLOAD
     final zoneService = widget.zoneService ?? ZoneDownloadService.instance;
     zoneService.downloadZone(map: map, layers: layers, zoneBounds: bounds);
+    if (!mounted) return;
 
-    // 4) Exit edit mode and refresh.
+    // 4) UI & CLEANUP
     _exitZoneEditMode();
     _loadOfflineZones();
 
@@ -760,20 +802,9 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  /// Zoom ranges aligned with `MarineMapService.getActiveMarineTileLayers`:
-  ///   - 50K  : displayed at z >= 11
-  ///   - 25K  : displayed at z >= 12 (before tile zoom rounds to 13 at ~12.5)
-  ///   - 10K  : displayed at z >= 14 (before tile zoom rounds to 15 at ~14.5)
-  /// Download `maxZoom` is clamped to 17 by `FmtcLayerDownloader`; this is
-  /// compatible with the 10K layer which only needs z=15..17 to cover the
-  /// full on-screen use case (the display layer extends to z=22 via
-  /// `maxNativeZoom=19` + display `maxZoom: 22.0`).
-  ///
-  /// For LiDAR ombrage / Litto3D, [LidarRegionCatalog] returns layers
-  /// covering the visible bounds, so a download range of 10..16 covers
-  /// the typical coastal usage (Litto3D is natively available from z6).
   Future<void> _showAddWaypointDialog() async {
-    if (_currentPosition == null) {
+    final frozenPosition = _gpsLatLng();
+    if (frozenPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Position GPS non disponible'),
@@ -782,15 +813,8 @@ class _MapScreenState extends State<MapScreen> {
       );
       return;
     }
-
-    final frozenPosition = LatLng(
-      _currentPosition!.latitude,
-      _currentPosition!.longitude,
-    );
-
     final int waypointNumber = WaypointStore.waypoints.length + 1;
     final defaultName = 'WPT $waypointNumber';
-
     final outcome = await showWaypointEditorSheet(
       context: context,
       title: 'NOUVEAU WAYPOINT',
@@ -802,16 +826,14 @@ class _MapScreenState extends State<MapScreen> {
       initialDate: DateTime.now(),
       isEditing: false,
     );
-
     if (outcome?.waypoint == null) return;
-
     final newWaypoint = outcome!.waypoint!;
+    if (!mounted) return;
     setState(() {
       WaypointStore.waypoints.add(newWaypoint);
       _selectedWaypoint = newWaypoint; // devient la cible active
     });
     await WaypointStore.save();
-
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -823,25 +845,13 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  String _getFormattedSpeed() {
-    if (AppSettings.speedUnit == SpeedUnit.knots) {
-      double knots = _currentSpeed * 1.94384;
-      return knots.toStringAsFixed(1);
-    } else {
-      double kmh = _currentSpeed * 3.6;
-      return kmh.toStringAsFixed(1);
-    }
-  }
-
-  String _getSpeedUnit() {
-    return AppSettings.speedUnit == SpeedUnit.knots ? 'nds' : 'km/h';
-  }
-
   Future<void> _centerOnTargetAndUser() async {
-    if (_currentPosition == null || _selectedWaypoint == null) return;
+    final pos = _gpsLatLng();
+    final wp = _selectedWaypoint;
+    if (pos == null || wp == null) return;
     final bounds = LatLngBounds.fromPoints([
-      _currentPosition!,
-      LatLng(_selectedWaypoint!.latitude, _selectedWaypoint!.longitude),
+      pos,
+      LatLng(wp.latitude, wp.longitude),
     ]);
     _mapController.fitCamera(
       CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(60)),
@@ -880,11 +890,8 @@ class _MapScreenState extends State<MapScreen> {
                     builder: (context) => const SatelliteBottomSheet(),
                   );
                 },
-                child: Icon(
-                  gpsStatus == 'GPS OK' ? Icons.gps_fixed : Icons.gps_not_fixed,
-                  color: gpsStatusColor,
-                  size: 18,
-                ),
+                // 🛡️ Widget feuille : se rebuild seul sur stateStream.
+                child: const _GpsStateIcon(),
               ),
             ],
           ),
@@ -897,6 +904,7 @@ class _MapScreenState extends State<MapScreen> {
                 context,
                 MaterialPageRoute(builder: (context) => const SettingsScreen()),
               );
+              if (!mounted) return;
               setState(() {});
             },
             tooltip: 'Paramètres',
@@ -929,8 +937,7 @@ class _MapScreenState extends State<MapScreen> {
                   zoom: _currentZoom,
                   offlineMode: AppSettings.offlineModeEnabled,
                   readyZoneUuids: _readyZoneUuids,
-                  readyLidarLayers: _readyLidarLayers,
-                  currentPosition: _currentPosition,
+                  readyLidarLayersByZone: _readyLidarLayersByZone,
                   selectedWaypointPosition: _selectedWaypoint == null
                       ? null
                       : LatLng(
@@ -957,21 +964,16 @@ class _MapScreenState extends State<MapScreen> {
                   },
                   onErrorTile: _logMapTileError,
                 ),
-                // Zone-adjustment overlay (active when long-pressing
-                // "Tracer une zone hors-ligne").
+                // Zone-adjustment overlay (active quand tracé de zone).
                 if (_zoneEditMode)
                   Positioned.fill(
                     child: ZoneEditorOverlay(
                       centerPoint: _mapController.camera.center,
                       onConfirm: _onZoneBoundsConfirmed,
                       onCancel: _exitZoneEditMode,
-                      // Share the same MapController with the underlying
-                      // FlutterMap so that bounds-to-LatLng conversions
-                      // match the user's actual viewport.
                       mapController: _mapController,
                     ),
                   ),
-
                 if (_isMeasuringDistance && _measurementPoint1 != null)
                   Positioned.fill(
                     child: DistanceMeasurementOverlay(
@@ -986,10 +988,7 @@ class _MapScreenState extends State<MapScreen> {
                       mapController: _mapController,
                     ),
                   ),
-                // ── UI masquée pendant le tracé de zone (_zoneEditMode == true) ──
-                // L'utilisateur ne voit QUE : la carte, le rectangle de sélection,
-                // la barre d'annulation (top) et le bouton "Valider" (bottom).
-                // Overlay de mesure de distance (actif quand on mesure une distance)
+                // ── UI masquée pendant le tracé de zone ──
                 if (!_zoneEditMode) ...[
                   // Sélecteur LiDAR / Bathymétrie (haut-gauche).
                   Positioned(
@@ -997,8 +996,7 @@ class _MapScreenState extends State<MapScreen> {
                     top: 10,
                     child: _buildBathymetryOverlayControls(),
                   ),
-                  // Boutons : recentrage GPS, toggle waypoints, + waypoint,
-                  // accès zones hors-ligne (haut-droite).
+                  // Boutons : recentrage GPS, toggle waypoints, + waypoint.
                   Positioned(
                     right: 6,
                     top: 10,
@@ -1017,115 +1015,81 @@ class _MapScreenState extends State<MapScreen> {
                       waypointsVisible: AppSettings.waypointsVisible,
                     ),
                   ),
+                  // 🛡️ Panneau waypoint : seule sa sous-arborescence se
+                  // rebuild à 1 Hz via _LivePosition, pas MapScreen/MapView.
                   if (_selectedWaypoint != null && !_isMeasuringDistance)
                     Positioned(
                       left: 25,
                       right: 25,
                       bottom: 98,
-                      child: SelectedWaypointPanel(
-                        waypoint: _selectedWaypoint!,
-                        currentPosition: _currentPosition,
-                        onCenterOnTarget: _centerOnTargetAndUser,
-                        onEditWaypoint: (outcome) async {
-                          if (outcome != null) {
-                            if (outcome.deleted) {
-                              setState(() {
-                                WaypointStore.waypoints.remove(
-                                  _selectedWaypoint,
-                                );
-                                _selectedWaypoint = null;
-                                _navigationTarget = null;
-                              });
-                              await WaypointStore.save();
-                            } else if (outcome.waypoint != null) {
-                              setState(() {
-                                final index = WaypointStore.waypoints
-                                    .indexWhere(
-                                      (wp) => wp == _selectedWaypoint,
-                                    );
-                                if (index != -1) {
-                                  WaypointStore.waypoints[index] =
-                                      outcome.waypoint!;
-                                  _selectedWaypoint = outcome.waypoint;
-                                  if (_navigationTarget == _selectedWaypoint) {
-                                    _navigationTarget = outcome.waypoint;
+                      child: _LivePosition(
+                        builder: (context, pos) => SelectedWaypointPanel(
+                          waypoint: _selectedWaypoint!,
+                          currentPosition: pos,
+                          onCenterOnTarget: _centerOnTargetAndUser,
+                          onEditWaypoint: (outcome) async {
+                            if (outcome != null) {
+                              if (outcome.deleted) {
+                                setState(() {
+                                  WaypointStore.waypoints.remove(
+                                    _selectedWaypoint,
+                                  );
+                                  _selectedWaypoint = null;
+                                  _navigationTarget = null;
+                                });
+                                await WaypointStore.save();
+                              } else if (outcome.waypoint != null) {
+                                setState(() {
+                                  final index = WaypointStore.waypoints
+                                      .indexWhere(
+                                        (wp) => wp == _selectedWaypoint,
+                                      );
+                                  if (index != -1) {
+                                    WaypointStore.waypoints[index] =
+                                        outcome.waypoint!;
+                                    _selectedWaypoint = outcome.waypoint;
+                                    if (_navigationTarget ==
+                                        _selectedWaypoint) {
+                                      _navigationTarget = outcome.waypoint;
+                                    }
                                   }
-                                }
-                              });
-                              await WaypointStore.save();
+                                });
+                                await WaypointStore.save();
+                              }
                             }
-                          }
-                        },
-                        onStartNavigation: () {
-                          setState(() {
-                            _navigationTarget = _selectedWaypoint;
-                          });
-                          if (_navigationTarget != null) {
-                            AlarmService.startMonitoring(_navigationTarget!);
-                          }
-                        },
-                        onClose: () {
-                          AlarmService.stopMonitoring();
-                          setState(() {
-                            _selectedWaypoint = null;
-                            _navigationTarget = null;
-                          });
-                        },
+                          },
+                          onStartNavigation: () {
+                            setState(() {
+                              _navigationTarget = _selectedWaypoint;
+                            });
+                            if (_navigationTarget != null) {
+                              AlarmService.startMonitoring(_navigationTarget!);
+                            }
+                          },
+                          onClose: () {
+                            AlarmService.stopMonitoring();
+                            setState(() {
+                              _selectedWaypoint = null;
+                              _navigationTarget = null;
+                            });
+                          },
+                        ),
                       ),
                     ),
                 ],
+                // 🛡️ Bandeau vitesse : widget feuille auto-abonné (1 Hz local).
                 Positioned(
                   left: 16,
                   right: 16,
                   bottom: 16,
-                  child:
-                      AppSettings.showSpeedOnMap &&
-                          !_zoneEditMode &&
-                          !_isMeasuringDistance
-                      ? Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 16,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black87.withValues(alpha: 0.85),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.blueAccent.withValues(alpha: 0.5),
-                              width: 2,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.5),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.speed,
-                                color: Colors.blueAccent,
-                                size: 28,
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                '${_getFormattedSpeed()} ${_getSpeedUnit()}',
-                                style: const TextStyle(
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  letterSpacing: 1,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : const SizedBox.shrink(),
+                  child: _SpeedOverlay(
+                    visible:
+                        AppSettings.showSpeedOnMap &&
+                        !_zoneEditMode &&
+                        !_isMeasuringDistance,
+                  ),
                 ),
-                // Bandeau de navigation active (masqué en mode tracé de zone)
+                // Bandeau de navigation active (s'auto-alimente en position).
                 if (_navigationTarget != null && !_zoneEditMode)
                   Positioned(
                     left: 16,
@@ -1133,12 +1097,11 @@ class _MapScreenState extends State<MapScreen> {
                     top: 16,
                     child: NavigationOverlay(
                       targetWaypoint: _navigationTarget!,
-                      currentPosition: _currentPosition,
+                      currentPosition: _gpsLatLng(),
                       onStopNavigation: () {
                         setState(() {
                           _navigationTarget = null;
                         });
-                        // Arrêter explicitement le monitoring des alarmes
                         AlarmService.stopMonitoring();
                       },
                     ),
@@ -1147,6 +1110,159 @@ class _MapScreenState extends State<MapScreen> {
                 Positioned(right: 16, bottom: 16, child: _buildZoomIndicator()),
               ],
             ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Widgets feuilles GPS haute fréquence : chacun s'abonne lui-même et ne
+// rebuild QUE sa propre sous-arborescence. MapScreen / MapView / TileLayers
+// ne sont plus jamais reconstruits par un tick GPS.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Icône d'état GPS de l'AppBar : rebuild uniquement sur stateStream.
+class _GpsStateIcon extends StatefulWidget {
+  const _GpsStateIcon();
+
+  @override
+  State<_GpsStateIcon> createState() => _GpsStateIconState();
+}
+
+class _GpsStateIconState extends State<_GpsStateIcon> {
+  StreamSubscription<GpsState>? _sub;
+  GpsState _state = GpsController.instance.state;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = GpsController.instance.stateStream.listen((s) {
+      if (mounted) setState(() => _state = s);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final IconData icon;
+    final Color color;
+    switch (_state) {
+      case GpsState.stationary:
+      case GpsState.moving:
+        icon = Icons.gps_fixed;
+        color = Colors.green;
+        break;
+      case GpsState.initializing:
+        icon = Icons.gps_not_fixed;
+        color = Colors.orange;
+        break;
+      case GpsState.error:
+        icon = Icons.gps_off;
+        color = Colors.red;
+        break;
+      case GpsState.stopped:
+        icon = Icons.gps_not_fixed;
+        color = Colors.grey;
+        break;
+    }
+    return Icon(icon, color: color, size: 18);
+  }
+}
+
+/// Bandeau de vitesse : seul widget reconstruit à chaque tick GPS.
+/// (Au passage : corrige le double libellé d'unité « 12.3 kn nds ».)
+class _SpeedOverlay extends StatefulWidget {
+  const _SpeedOverlay({required this.visible});
+
+  final bool visible;
+
+  @override
+  State<_SpeedOverlay> createState() => _SpeedOverlayState();
+}
+
+class _SpeedOverlayState extends State<_SpeedOverlay> {
+  StreamSubscription<Position>? _sub;
+  double _speed = GpsController.instance.currentSpeed;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = GpsController.instance.positionStream.listen((p) {
+      if (mounted) setState(() => _speed = p.speed);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.visible) return const SizedBox.shrink();
+    final knots = AppSettings.speedUnit == SpeedUnit.knots;
+    final value = knots ? _speed * 1.94384 : _speed * 3.6;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.black87.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.blueAccent.withValues(alpha: 0.5),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.5),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.speed, color: Colors.blueAccent, size: 28),
+          const SizedBox(width: 12),
+          Text(
+            '${value.toStringAsFixed(1)} ${knots ? 'nds' : 'km/h'}',
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              letterSpacing: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Fournit la position vivante à un sous-arbre léger (panneau waypoint),
+/// sans faire remonter le rebuild jusqu'à MapScreen / MapView.
+class _LivePosition extends StatelessWidget {
+  const _LivePosition({required this.builder});
+
+  final Widget Function(BuildContext context, LatLng? position) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<Position>(
+      stream: GpsController.instance.positionStream,
+      initialData: GpsController.instance.currentPosition,
+      builder: (context, snapshot) {
+        final p = snapshot.data;
+        return builder(
+          context,
+          p == null ? null : LatLng(p.latitude, p.longitude),
+        );
+      },
     );
   }
 }

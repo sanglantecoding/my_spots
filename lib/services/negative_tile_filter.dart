@@ -58,8 +58,6 @@ class NegativeFilteringImageProvider
   final FMTCTileProvider provider;
   final bool showMessageOnMiss;
 
-  static Codec? _cachedTransparentCodec;
-  static Codec? _cachedMessageCodec;
   static final Map<int, List<String>> _storeNamesCache = {};
 
   /// À appeler à la suppression d'une zone (stores invalidés).
@@ -98,31 +96,21 @@ class NegativeFilteringImageProvider
     return computed;
   }
 
-  Future<Codec> _getTransparentCodec() async {
-    if (_cachedTransparentCodec != null) return _cachedTransparentCodec!;
+  Future<Codec> _getTransparentCodec(ImageDecoderCallback decode) async {
+    // Les bytes PNG sont déjà en cache dans MapTileCacheService.
+    // On crée un nouveau buffer et on le passe à decode() qui se chargera
+    // de créer un Codec indépendant et de libérer le buffer ensuite.
     final buffer = await ImmutableBuffer.fromUint8List(
       MapTileCacheService.transparentTilePng,
     );
-    // ignore: invalid_use_of_internal_member
-    final codec = await PaintingBinding.instance.instantiateImageCodecWithSize(
-      buffer,
-    );
-    // ⚠️ PAS de buffer.dispose() : le codec possède le buffer.
-    _cachedTransparentCodec = codec;
-    return codec;
+    return decode(buffer);
   }
 
-  Future<Codec> _getMessageCodec() async {
-    if (_cachedMessageCodec != null) return _cachedMessageCodec!;
+  Future<Codec> _getMessageCodec(ImageDecoderCallback decode) async {
+    // Les bytes PNG sont déjà en cache dans MessageTileProvider.
     final bytes = await MessageTileProvider.getTileBytes();
     final buffer = await ImmutableBuffer.fromUint8List(bytes);
-    // ignore: invalid_use_of_internal_member
-    final codec = await PaintingBinding.instance.instantiateImageCodecWithSize(
-      buffer,
-    );
-    // ⚠️ PAS de buffer.dispose() : le codec possède le buffer.
-    _cachedMessageCodec = codec;
-    return codec;
+    return decode(buffer);
   }
 
   /// Une tuile stockée identique au PNG transparent = placeholder = miss.
@@ -155,16 +143,13 @@ class NegativeFilteringImageProvider
     // Tuile absente (hors zones / zoom non téléchargé) ou placeholder :
     // message « Dézoomez » sur la couche du bas, transparent ailleurs.
     if (result.tile == null || _isTransparentPlaceholder(result.tile!.bytes)) {
-      return showMessageOnMiss ? _getMessageCodec() : _getTransparentCodec();
+      return showMessageOnMiss
+          ? _getMessageCodec(decode)
+          : _getTransparentCodec(decode);
     }
 
     final buffer = await ImmutableBuffer.fromUint8List(result.tile!.bytes);
-    // ignore: invalid_use_of_internal_member
-    final codec = await PaintingBinding.instance.instantiateImageCodecWithSize(
-      buffer,
-    );
-    // ⚠️ PAS de buffer.dispose() : le codec possède le buffer.
-    return codec;
+    return decode(buffer);
   }
 
   @override

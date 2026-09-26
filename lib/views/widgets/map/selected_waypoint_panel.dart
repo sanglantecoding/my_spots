@@ -134,8 +134,7 @@ class SelectedWaypointPanel extends StatelessWidget {
                         position: LatLng(waypoint.latitude, waypoint.longitude),
                         initialName: waypoint.name,
                         initialCategory: waypoint.category,
-                        initialColorHex:
-                            '#${waypoint.color.toARGB32().toRadixString(16).substring(2)}',
+                        initialColorHex: waypoint.colorHex,
                         initialDate: waypoint.createdAt,
                         isEditing: true,
                       );

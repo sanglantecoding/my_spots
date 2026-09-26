@@ -21,7 +21,9 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
   void initState() {
     super.initState();
     SatelliteService.startSatelliteTracking();
-    _startTracking();
+    unawaited(
+      _startTracking(),
+    ); // initState est synchrone : fire-and-forget assumé
   }
 
   @override
@@ -32,7 +34,7 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
   }
 
   /// Démarre le suivi altitude et précision
-  void _startTracking() async {
+  Future<void> _startTracking() async {
     try {
       final position = await GpsController.instance.getCurrentPosition();
       if (position != null && mounted) {
@@ -41,7 +43,6 @@ class _SatelliteBottomSheetState extends State<SatelliteBottomSheet> {
           _currentAccuracy = position.accuracy;
         });
       }
-
       _positionSubscription = GpsController.instance.positionStream.listen((
         Position position,
       ) {

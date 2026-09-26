@@ -1,7 +1,9 @@
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:my_spots/models/litto3d_layer.dart';
+import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/repositories/fmtc_tile_cache_repository.dart';
+import 'package:my_spots/repositories/offline_map_repository.dart';
 import 'package:my_spots/services/negative_tile_filter.dart';
 import 'package:my_spots/services/tile_cache/tile_provider_factory.dart'
     show TileProviderFactory;
@@ -29,6 +31,16 @@ class CacheManager {
       'bathymetryOverlay_$layerName';
   static String marineStoreForLayer(String layerName) =>
       'marineBase_$layerName';
+
+  /// Poids moyen constaté d'une tuile PNG 256 px par type de couche (octets).
+  /// Sert uniquement à l'estimation de taille quand la stat FMTC est muette
+  /// ou fausse (le backend ObjectBox ne renvoie que l'overhead du store).
+  static const Map<LayerType, int> _avgTileBytes = {
+    LayerType.marine50k: 14 * 1024,
+    LayerType.marine25k: 20 * 1024,
+    LayerType.marine10k: 28 * 1024,
+    LayerType.lidarLitto3d: 32 * 1024,
+  };
 
   static Future<void> initialise() async {
     await FMTCObjectBoxBackend().initialise();
@@ -110,18 +122,39 @@ class CacheManager {
     TileProviderFactory.clearZoneProviderCaches();
   }
 
+  /// Taille estimée d'une zone hors-ligne (octets).
+  ///
+  /// Croise deux sources :
+  /// 1. la stat FMTC (somme des stores de la zone) — fiable uniquement si le
+  ///   backend renvoie bien la somme des octets des tuiles ;
+  /// 2. une estimation basée sur les compteurs RÉELS de tuiles téléchargées
+  ///   (persistés par couche dans ObjectBox) × poids moyen constaté par type.
+  ///
+  /// On retient le max des deux : si FMTC renvoie une valeur crédible elle
+  /// domine, sinon l'estimation garantit le bon ordre de grandeur (fini les
+  /// « quelques Ko » à côté de milliers de tuiles).
   static Future<int> getZoneSizeBytes(String zoneUuid) async {
     final repo = FmtcTileCacheRepository.instance;
 
-    // Marine store size
+    // 1) Taille déclarée par FMTC (marine + tous les stores LiDAR de la zone).
     final marineBytes = await repo.getStoreSizeBytes(
       marineStoreForZone(zoneUuid).storeName,
     );
-
-    // All lidar stores for this zone (both new and legacy formats)
     final lidarBytes = await repo.getTotalSizeByPrefix('lidar_zone_$zoneUuid');
+    final fmtcBytes = marineBytes + lidarBytes;
 
-    return marineBytes + lidarBytes;
+    // 2) Estimation depuis les compteurs réels de tuiles téléchargées.
+    var estimatedBytes = 0;
+    final mapRepo = OfflineMapRepository.instance;
+    final map = mapRepo?.findByUuid(zoneUuid);
+    if (map != null) {
+      for (final layer in mapRepo!.findLayersForMap(map)) {
+        final avg = _avgTileBytes[layer.layerType] ?? 20 * 1024;
+        estimatedBytes += layer.downloadedTileCount * avg;
+      }
+    }
+
+    return estimatedBytes > fmtcBytes ? estimatedBytes : fmtcBytes;
   }
 
   static String formatBytes(int bytes) {

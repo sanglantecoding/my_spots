@@ -1,8 +1,8 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/offline_map.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
@@ -14,6 +14,7 @@ import 'package:my_spots/views/widgets/offline_maps/zone_list_tile.dart';
 /// Ecran de gestion des zones cartographiques hors-ligne.
 class OfflineMapsScreen extends StatefulWidget {
   const OfflineMapsScreen({super.key});
+
   @override
   State<OfflineMapsScreen> createState() => _OfflineMapsScreenState();
 }
@@ -25,40 +26,94 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   final Map<String, int?> _zoneSizesBytes = {};
   final Set<String> _downloadingUuids = {};
   final Map<String, String> _activeLabels = {};
+
+  StreamSubscription<ZoneProgressEvent>? _progressSubscription;
+  StreamSubscription<ZoneErrorEvent>? _errorSubscription;
+  StreamSubscription<String>? _completionSubscription;
+
   bool _isLoading = true;
   bool _hasError = false;
-
   late final ZoneDownloadService _zoneService;
   OfflineMapRepository? _offlineMapRepo;
-  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _offlineMapRepo = OfflineMapRepository.instance;
-    _zoneService = ZoneDownloadService.instance; // 👈 singleton, pas de new
+    _zoneService = ZoneDownloadService.instance;
     _loadZones();
 
-    // Rafraîchit automatiquement la liste quand des downloads sont actifs
-    // (pour voir le statut passer au vert sans sortir/revenir)
-    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    _progressSubscription = _zoneService.progressStream.listen((event) {
       if (!mounted) return;
-      // Continue de rafraîchir tant que :
-      // - le service a des téléchargements actifs, OU
-      // - l'écran a lancé des téléchargements, OU
-      // - des zones ont encore le statut "downloading" dans ObjectBox
-      final anyActive =
-          _zoneService.hasActiveZones ||
-          _downloadingUuids.isNotEmpty ||
-          _zones.any((z) => z.status == OfflineMapStatus.downloading);
-      if (anyActive) _loadZones();
+      setState(() {
+        _progress[event.zoneUuid] = event.progress;
+        _activeLabels[event.zoneUuid] = event.layerLabel;
+      });
+    });
+
+    _errorSubscription = _zoneService.errorStream.listen((event) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(event.message),
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    });
+
+    _completionSubscription = _zoneService.completionStream.listen((uuid) {
+      if (!mounted) return;
+      _refreshZone(uuid);
     });
   }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
+    _progressSubscription?.cancel();
+    _errorSubscription?.cancel();
+    _completionSubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _refreshZone(String uuid) async {
+    final repo = _offlineMapRepo;
+    if (repo == null) return;
+
+    final map = repo.findByUuid(uuid);
+    if (map == null) {
+      if (mounted) {
+        setState(() {
+          _zones.removeWhere((z) => z.uuid == uuid);
+          _layers.remove(uuid);
+          _zoneSizesBytes.remove(uuid);
+          _downloadingUuids.remove(uuid);
+          _progress.remove(uuid);
+          _activeLabels.remove(uuid);
+        });
+      }
+      return;
+    }
+
+    final layers = repo.findLayersForMap(map);
+    final bytes = await MapTileCacheService.getZoneSizeBytes(uuid);
+
+    if (mounted) {
+      setState(() {
+        final index = _zones.indexWhere((z) => z.uuid == uuid);
+        if (index != -1) {
+          _zones[index] = map;
+        } else {
+          _zones.add(map);
+        }
+        _layers[uuid] = layers;
+        _zoneSizesBytes[uuid] = bytes;
+
+        _downloadingUuids.remove(uuid);
+        _progress.remove(uuid);
+        _activeLabels.remove(uuid);
+      });
+    }
   }
 
   Future<void> _loadZones() async {
@@ -110,67 +165,45 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
       _activeLabels[map.uuid] = '';
     });
 
-    // Reconstruct the zone bounds from the persisted OfflineMap coordinates.
-    // This ensures _layerUrl() selects the correct Litto3D dataset
-    // (via LidarRegionCatalog / Litto3DCatalog) during "Mettre à jour la zone".
     final zoneBounds = LatLngBounds(
       LatLng(map.southLat, map.westLng),
       LatLng(map.northLat, map.eastLng),
     );
-    _zoneService
-        .downloadZone(
-          map: map,
-          layers: layers,
-          zoneBounds: zoneBounds,
-          onProgress: ({required double progress, required String layerLabel}) {
-            if (!mounted) return;
-            setState(() {
-              _progress[map.uuid] = progress;
-              _activeLabels[map.uuid] = layerLabel;
-            });
-          },
-          onError: (String message) {
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(message),
-                backgroundColor: Colors.redAccent,
-                duration: const Duration(seconds: 5),
-              ),
-            );
-          },
-        )
-        .whenComplete(() {
-          if (!mounted) return;
-          _loadZones().then((_) {
-            if (!mounted) return;
-            setState(() {
-              _downloadingUuids.remove(map.uuid);
-              _progress.remove(map.uuid);
-              _activeLabels.remove(map.uuid);
-            });
-          });
-        });
+
+    _zoneService.downloadZone(map: map, layers: layers, zoneBounds: zoneBounds);
   }
 
   Future<void> _handleCancel(String uuid) async {
     await _zoneService.cancelDownload(uuid);
     if (!mounted) return;
-    setState(() => _downloadingUuids.remove(uuid));
-    _loadZones();
     _snack('Telechargement annule');
   }
 
   void _handlePause(String uuid) {
-    _zoneService.pauseDownload(uuid);
-    setState(() {});
-    _snack('Telechargement en pause');
+    final success = _zoneService.pauseDownload(uuid);
+    if (success) {
+      // Le service a réellement mis l'instance FMTC en pause :
+      // on rebuild pour que la tuile affiche "Reprendre".
+      setState(() {});
+      _snack('Telechargement en pause');
+    } else {
+      // Échec (instance inactive / déjà terminée) : aucun état n'a changé,
+      // donc aucun rebuild — et surtout pas de faux message de succès.
+      _snack(
+        'Pause impossible : telechargement deja termine ou inactif',
+        isError: true,
+      );
+    }
   }
 
   void _handleResume(String uuid) {
-    _zoneService.resumeDownload(uuid);
-    setState(() {});
-    _snack('Telechargement repris');
+    final success = _zoneService.resumeDownload(uuid);
+    if (success) {
+      setState(() {});
+      _snack('Telechargement repris');
+    } else {
+      _snack('Reprise impossible : telechargement non en pause', isError: true);
+    }
   }
 
   Future<void> _handleDelete(OfflineMap map) async {
@@ -203,27 +236,84 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     );
     if (confirm != true) return;
 
-    // 👇 Annule ET attend la fin réelle du téléchargement (sortie de boucle,
-    // _finalizeZone, saves ObjectBox compris) avant de supprimer les stores
-    // et la ligne ObjectBox. Élimine la course "cancel → delete stores →
-    // delete DB" pendant que downloadZone finalise encore en arrière-plan.
     await _zoneService.cancelAndAwaitEnd(map.uuid);
-
     await MapTileCacheService.deleteStoresForZone(map.uuid);
     _offlineMapRepo!.deleteByUuid(map.uuid);
-    await _loadZones();
+
+    _zoneService.clearZoneHistory(map.uuid);
+
+    if (mounted) {
+      setState(() {
+        _zones.removeWhere((z) => z.uuid == map.uuid);
+        _layers.remove(map.uuid);
+        _zoneSizesBytes.remove(map.uuid);
+        _downloadingUuids.remove(map.uuid);
+        _progress.remove(map.uuid);
+        _activeLabels.remove(map.uuid);
+      });
+    }
     _snack('Zone supprimee');
   }
 
-  /// Navigates immediately to the map screen. The map will open the
-  /// zone-name sheet right after the first frame renders (via
-  /// [MapScreen.triggerZoneCreation]), then enter zone-edit mode on
-  /// confirmation.
-  ///
-  /// The current [_zoneService] instance is forwarded to [MapScreen] so
-  /// the zone-creation flow on the map side uses the same
-  /// [ZoneDownloadService] as the one tracking the lifecycle of all
-  /// zones here (downloads, cancellations, resumes, run counters).
+  /// 🛡️ NOUVEAU : Vérifie le mode hors-ligne avant de lancer la création de zone.
+  /// Si hors-ligne, affiche un dialog proposant de passer en ligne (comme MapScreen).
+  Future<void> _handleCreateZone() async {
+    if (!AppSettings.offlineModeEnabled) {
+      _showNewZoneSheet();
+      return;
+    }
+
+    final switchOnline = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF1A2F42),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.cloud_off, color: Colors.orangeAccent, size: 28),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Mode hors-ligne actif',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'La création d\'une zone hors-ligne nécessite une connexion internet '
+          '(téléchargement des tuiles SHOM). Passez en mode en ligne pour '
+          'continuer.',
+          style: TextStyle(color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text(
+              'Annuler',
+              style: TextStyle(color: Colors.white54),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text(
+              'Passer en ligne',
+              style: TextStyle(
+                color: Colors.greenAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (switchOnline != true) return;
+    await AppSettings.saveOfflineMode(false);
+    if (!mounted) return;
+    _showNewZoneSheet();
+  }
+
   void _showNewZoneSheet() {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -255,14 +345,9 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     body: _buildBody(),
   );
 
-  /// Layout principal : bouton "Creer une zone" fixe en haut, liste
-  /// (ou etat vide / degrade) dans la zone defilable en dessous.
-  /// Le bouton reste visible que la liste soit vide ou non.
   Widget _buildBody() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_hasError || _offlineMapRepo == null) {
-      // En mode degrade, on garde quand meme le bouton pour permettre a
-      // l'utilisateur d'essayer ulterieurement.
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -280,8 +365,6 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     );
   }
 
-  /// Bouton "Creer une zone" fixe en haut de l'ecran, sous l'AppBar.
-  /// Toujours visible, independamment du nombre de zones deja creees.
   Widget _buildCreateZoneButton() => Container(
     width: double.infinity,
     padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -290,7 +373,8 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
       border: Border(bottom: BorderSide(color: Color(0xFF1E3A5F), width: 1)),
     ),
     child: ElevatedButton.icon(
-      onPressed: _showNewZoneSheet,
+      onPressed:
+          _handleCreateZone, // 👈 Changé de _showNewZoneSheet à _handleCreateZone
       icon: const Icon(Icons.add),
       label: const Text('Creer une zone'),
       style: ElevatedButton.styleFrom(
@@ -330,8 +414,6 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     ),
   );
 
-  /// Etat vide discret : aucun asset lourd, juste un message. Le bouton
-  /// de creation reste visible au-dessus (gere par [_buildBody]).
   Widget _buildEmpty() => Center(
     child: Padding(
       padding: const EdgeInsets.all(32),
@@ -375,8 +457,6 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
         final layers = _layers[map.uuid] ?? [];
         final progress = _progress[map.uuid] ?? 0.0;
 
-        // Détecte les downloads actifs via le service (fonctionne aussi
-        // pour les downloads lancés depuis la carte)
         final isDownloading =
             _zoneService.isDownloading(map.uuid) ||
             _downloadingUuids.contains(map.uuid);

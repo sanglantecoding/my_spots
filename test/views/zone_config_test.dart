@@ -42,6 +42,15 @@ void main() {
           LayerType.marine10k,
         ]),
       );
+      // Vérifie que minZoom est >= 8 pour éviter le téléchargement des zooms 0-7
+      for (final layer in marineLayers) {
+        expect(
+          layer.minZoom,
+          greaterThanOrEqualTo(8),
+          reason:
+              'minZoom doit être >= 8 pour éviter le dépassement du plafond de tuiles',
+        );
+      }
     });
 
     test('Test B — 50K + 10K uniquement (25K absent)', () async {
@@ -69,6 +78,10 @@ void main() {
         isFalse,
         reason: '25K doit être absent si non couvert',
       );
+      // Vérifie que minZoom est >= 8
+      for (final layer in marineLayers) {
+        expect(layer.minZoom, greaterThanOrEqualTo(8));
+      }
     });
 
     test('Test C — 50K uniquement (25K/10K absents)', () async {
@@ -96,6 +109,8 @@ void main() {
         marineLayers.any((l) => l.layerType == LayerType.marine10k),
         isFalse,
       );
+      // Vérifie que minZoom est >= 8
+      expect(marineLayers.first.minZoom, greaterThanOrEqualTo(8));
     });
 
     test('Test D — aucune couverture marine', () async {
@@ -110,10 +125,13 @@ void main() {
         preflight: mock,
       );
 
+      final marineLayers = layers.where(
+        (l) => l.layerType != LayerType.lidarLitto3d,
+      );
       expect(
-        layers.where((l) => l.layerType != LayerType.lidarLitto3d),
+        marineLayers,
         isEmpty,
-        reason: 'Aucune couche marine ne doit être incluse',
+        reason: 'Aucune couche marine si aucune couverture',
       );
     });
 
@@ -129,11 +147,14 @@ void main() {
         preflight: mock,
       );
 
-      expect(
-        layers.where((l) => l.layerType != LayerType.lidarLitto3d),
-        hasLength(3),
-        reason: 'Fail-open : toutes les couches marines incluses',
+      final marineLayers = layers.where(
+        (l) => l.layerType != LayerType.lidarLitto3d,
       );
+      expect(marineLayers, hasLength(3));
+      // Vérifie que minZoom est >= 8
+      for (final layer in marineLayers) {
+        expect(layer.minZoom, greaterThanOrEqualTo(8));
+      }
     });
 
     test('Mixte — 50K couvert, autres injoignables → seul 50K inclus', () async {
@@ -148,7 +169,6 @@ void main() {
         preflight: mock,
       );
 
-      // 50K inclus (couvert), 25K/10K non inclus (fail-open ne s'applique pas car pas tous null)
       final marineLayers = layers.where(
         (l) => l.layerType != LayerType.lidarLitto3d,
       );
@@ -159,16 +179,10 @@ void main() {
             'Seul 50K est couvert, fail-open ne s\'applique que si tous sont null',
       );
       expect(marineLayers.first.layerType, LayerType.marine50k);
+      expect(marineLayers.first.minZoom, greaterThanOrEqualTo(8));
     });
-  });
 
-  group('resolveLayersForBounds — LiDAR', () {
-    final bounds = LatLngBounds(
-      const LatLng(43.5, -1.5),
-      const LatLng(43.0, -2.0),
-    );
-
-    test('LiDAR ajouté même sans couverture marine', () async {
+    test('LiDAR — LiDAR ajouté même sans couverture marine', () async {
       final mock = _MockPreflight({
         LayerType.marine50k: false,
         LayerType.marine25k: false,
@@ -180,15 +194,55 @@ void main() {
         preflight: mock,
       );
 
-      // LiDAR est ajouté par defaultLayersForBounds (via catalogue régional)
-      // et conservé dans resolveLayersForBounds
-      // Le catalogue peut être vide en test, donc on vérifie juste que la logique
-      // ne supprime pas les LiDAR existants
+      final lidarLayers = layers.where(
+        (l) => l.layerType == LayerType.lidarLitto3d,
+      );
+      expect(
+        lidarLayers,
+        isNotEmpty,
+        reason: 'LiDAR doit être ajouté même sans couverture marine',
+      );
+      // Vérifie que minZoom LiDAR est >= 8
+      for (final layer in lidarLayers) {
+        expect(
+          layer.minZoom,
+          greaterThanOrEqualTo(8),
+          reason:
+              'LiDAR minZoom doit être >= 8 pour éviter le dépassement du plafond',
+        );
+      }
       expect(
         layers.where((l) => l.layerType != LayerType.lidarLitto3d),
         isEmpty,
         reason: 'Pas de couches marines',
       );
+    });
+
+    test('Occitanie — toutes les campagnes sont incluses', () async {
+      // Bounds couvrant l'Occitanie
+      final occitanieBounds = LatLngBounds(
+        const LatLng(43.5, 3.0),
+        const LatLng(43.0, 3.5),
+      );
+
+      final layers = ZoneConfig.defaultLayersForBounds(occitanieBounds);
+
+      final lidarLayers = layers
+          .where((l) => l.layerType == LayerType.lidarLitto3d)
+          .toList();
+
+      // L'Occitanie a 3 campagnes : 2009, 2011, 2014-2015
+      // Toutes doivent être incluses pour le dédoublonnage au niveau de la tuile
+      expect(
+        lidarLayers,
+        hasLength(3),
+        reason: 'Les 3 campagnes LiDAR doivent être créées',
+      );
+
+      // Vérifie que minZoom est >= 8 pour toutes
+      for (final layer in lidarLayers) {
+        expect(layer.minZoom, greaterThanOrEqualTo(8));
+      }
     });
   });
 }

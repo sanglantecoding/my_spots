@@ -1,5 +1,4 @@
 import 'dart:developer' as developer;
-
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/core/app_initialization_status.dart';
 import 'package:my_spots/models/waypoint.dart';
@@ -11,40 +10,22 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 
 /// Orchestrateur du démarrage de l'application.
-///
-/// Stratégie :
-/// 1. `AppSettings.loadSettings()` est exécuté en premier (config requise).
-/// 2. Les services indépendants (`WaypointStore`, `MapTileCacheService`,
-///    `SatelliteService`) sont lancés en parallèle via `Future.wait`.
-/// 3. Chaque service secondaire est protégé par son propre `try/catch` :
-///    un échec de `SatelliteService` ou `MapTileCacheService` n'empêche
-///    pas le chargement des waypoints du pêcheur.
-///
-/// En cas d'échec d'un service critique (Settings ou Waypoints), un flag
-/// global est posé dans [AppInitializationStatus] pour que l'UI
-/// (ex. `HomePage`) puisse gérer sereinement le mode dégradé.
 class AppBootstrap {
   AppBootstrap._();
 
-  /// Tag utilisé pour les logs développeur.
   static const String _logName = 'MySpots.AppBootstrap';
+  static final AppInitializationStatus _status =
+      AppInitializationStatus.instance;
 
   /// Initialise les services applicatifs dans l'ordre optimal.
-  ///
-  /// Lève uniquement si [AppSettings.loadSettings()] échoue (chemin
-  /// strictement séquentiel). Tous les autres services sont isolés.
   static Future<void> initialize() async {
-    // -------------------------------------------------------------------
-    // 1) Paramètres de l'application (pré-requis avant tout le reste).
-    // -------------------------------------------------------------------
+    // 1) Paramètres de l'application (pré-requis séquentiel).
     try {
       await AppSettings.loadSettings();
-      AppInitializationStatus.settingsLoaded = true;
+      _status.markSettingsLoaded();
       developer.log('AppSettings.loadSettings OK', name: _logName);
     } catch (e, st) {
-      AppInitializationStatus.criticalServicesOk = false;
-      AppInitializationStatus.settingsLoaded = false;
-      AppInitializationStatus.errors['AppSettings'] = e;
+      _status.reportCriticalFailure('AppSettings', e);
       developer.log(
         'AppSettings.loadSettings a échoué',
         name: _logName,
@@ -54,11 +35,7 @@ class AppBootstrap {
       rethrow;
     }
 
-    // -------------------------------------------------------------------
     // 2) Services indépendants en parallèle.
-    //    Chaque service secondaire est isolé : un échec n'annule pas
-    //    le chargement des autres (notamment les waypoints du pêcheur).
-    // -------------------------------------------------------------------
     await Future.wait<void>(<Future<void>>[
       _loadWaypoints(),
       _initialiseMapTileCache(),
@@ -68,16 +45,13 @@ class AppBootstrap {
     ]);
   }
 
-  /// Charge les waypoints persistés (service critique pour l'usage principal).
   static Future<void> _loadWaypoints() async {
     try {
       await WaypointStore.load();
-      AppInitializationStatus.waypointsLoaded = true;
+      _status.markWaypointsLoaded();
       developer.log('WaypointStore.load OK', name: _logName);
     } catch (e, st) {
-      AppInitializationStatus.criticalServicesOk = false;
-      AppInitializationStatus.waypointsLoaded = false;
-      AppInitializationStatus.errors['WaypointStore'] = e;
+      _status.reportCriticalFailure('WaypointStore', e);
       developer.log(
         'WaypointStore.load a échoué (mode dégradé)',
         name: _logName,
@@ -87,15 +61,13 @@ class AppBootstrap {
     }
   }
 
-  /// Initialise le cache FMTC (non-bloquant : l'app fonctionne sans cache).
   static Future<void> _initialiseMapTileCache() async {
     try {
       await MapTileCacheService.initialise();
-      AppInitializationStatus.mapTileCacheReady = true;
+      _status.markMapTileCacheReady();
       developer.log('MapTileCacheService.initialise OK', name: _logName);
     } catch (e, st) {
-      AppInitializationStatus.mapTileCacheReady = false;
-      AppInitializationStatus.errors['MapTileCacheService'] = e;
+      _status.reportNonCriticalFailure('MapTileCacheService', e);
       developer.log(
         'MapTileCacheService.initialise a échoué (cache hors-ligne désactivé)',
         name: _logName,
@@ -105,15 +77,13 @@ class AppBootstrap {
     }
   }
 
-  /// Initialise le service satellites (non-bloquant : GPS peut démarrer plus tard).
   static Future<void> _initialiseSatellite() async {
     try {
       await SatelliteService.initialize();
-      AppInitializationStatus.satelliteReady = true;
+      _status.markSatelliteReady();
       developer.log('SatelliteService.initialize OK', name: _logName);
     } catch (e, st) {
-      AppInitializationStatus.satelliteReady = false;
-      AppInitializationStatus.errors['SatelliteService'] = e;
+      _status.reportNonCriticalFailure('SatelliteService', e);
       developer.log(
         'SatelliteService.initialize a échoué (GNSS visuel désactivé)',
         name: _logName,
@@ -123,10 +93,6 @@ class AppBootstrap {
     }
   }
 
-  /// Initialise ObjectBox et expose [OfflineMapRepository] via singleton.
-  ///
-  /// Non-bloquant : un échec n'empêche pas le démarrage de l'app,
-  /// mais l'écran de gestion des zones affichera un message dégradé.
   static Future<void> _initialiseObjectBox() async {
     try {
       final store = await openStore();
@@ -136,7 +102,7 @@ class AppBootstrap {
         name: _logName,
       );
     } catch (e, st) {
-      AppInitializationStatus.errors['OfflineMapRepository'] = e;
+      _status.reportNonCriticalFailure('OfflineMapRepository', e);
       developer.log(
         'OfflineMapRepository.init a échoué (zones hors-ligne désactivées)',
         name: _logName,
@@ -146,9 +112,6 @@ class AppBootstrap {
     }
   }
 
-  /// TileProviderFactory.appVersion pour que les User-Agent soient corrects.
-  /// Non-bloquant : en cas d'échec, le fallback '1.0.0' (ou ce que tu as mis)
-  /// reste utilisé.
   static Future<void> _initialisePackageInfo() async {
     try {
       final pkg = await PackageInfo.fromPlatform();
@@ -158,8 +121,7 @@ class AppBootstrap {
         name: _logName,
       );
     } catch (e, st) {
-      // Pas de flag AppInitializationStatus : ce n'est pas un service métier.
-      // Le fallback codé dur dans TileProviderFactory reste utilisé.
+      _status.reportNonCriticalFailure('PackageInfo', e);
       developer.log(
         'PackageInfo indisponible → fallback appVersion',
         name: _logName,
