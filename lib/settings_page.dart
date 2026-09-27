@@ -80,6 +80,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'proximityDistanceZ': AppSettings.proximityDistanceZ,
           'showFishingWaypointsOnMap': AppSettings.showFishingWaypointsOnMap,
           'showMushroomWaypointsOnMap': AppSettings.showMushroomWaypointsOnMap,
+          'showOtherWaypointsOnMap': AppSettings.showOtherWaypointsOnMap,
           'energySavingMode': AppSettings.energySavingMode,
           'favoritePorts': AppSettings.favoritePorts
               .map((p) => p.toMap())

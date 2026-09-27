@@ -57,7 +57,9 @@ class OfflineMapLayer {
   }
 
   LayerType get layerType =>
-      LayerType.values[layerTypeIndex.clamp(0, LayerType.values.length - 1)];
+      LayerType.values[layerTypeIndex
+          .clamp(0, LayerType.values.length - 1)
+          .toInt()];
 
   set layerType(LayerType value) {
     layerTypeIndex = value.index;

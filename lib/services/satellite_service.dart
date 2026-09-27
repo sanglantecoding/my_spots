@@ -183,7 +183,7 @@ class SatelliteService {
   static int get usedSatellites {
     final total = totalSatellites;
     // ~70-80% des satellites visibles sont typiquement utilisés
-    return (total * 0.75).round().clamp(0, total);
+    return (total * 0.75).round().clamp(0, total).toInt();
   }
 
   /// Type GNSS affiché

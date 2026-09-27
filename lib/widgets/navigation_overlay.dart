@@ -62,6 +62,16 @@ class _NavigationOverlayState extends State<NavigationOverlay> {
   }
 
   @override
+  void didUpdateWidget(covariant NavigationOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 🛡️ CORRECTION : si le waypoint cible change (nouvel objet ou coordonnées modifiées),
+    // on recalcule immédiatement les données de navigation sans attendre le prochain tick GPS.
+    if (oldWidget.targetWaypoint != widget.targetWaypoint) {
+      _updateNavigationData();
+    }
+  }
+
+  @override
   void dispose() {
     _positionSubscription?.cancel();
     _alarmSubscription?.cancel();

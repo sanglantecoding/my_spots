@@ -244,6 +244,11 @@ class ZoneDownloadService {
         switch (outcome) {
           case LayerOutcome.ok:
           case LayerOutcome.partial:
+            // 🛡️ SÉMANTIQUE : Une couche "partial" (ex: 98% de tuiles réussies,
+            // quelques échecs réseau tolérés) est marquée comme `completed` au
+            // niveau de la couche, car elle reste exploitable. La granularité
+            // fine (ok vs partial) est gérée au niveau de la zone (OfflineMapStatus.partial)
+            // et via les compteurs downloadedTileCount / estimatedTileCount.
             state.completedLayers++;
             layer.downloadStatus = LayerDownloadStatus.completed;
             break;
@@ -332,6 +337,10 @@ class ZoneDownloadService {
       case DownloadCancelReason.none:
         break;
     }
+    if (outcomes.isEmpty) {
+      map.lastError = 'Aucune couche à télécharger';
+      return OfflineMapStatus.failed;
+    }
     if (outcomes.every((o) => o == LayerOutcome.ok)) {
       map.lastError = null;
       return OfflineMapStatus.ready;
@@ -392,6 +401,8 @@ class ZoneDownloadService {
       );
     }
     NegativeFilteringImageProvider.clearStoreNamesCache();
+    // 🟢 Invalidation du cache de taille : les compteurs de tuiles ont changé.
+    MapTileCacheService.invalidateZoneSizeCache(map.uuid);
   }
 
   Future<void> cancelDownload(String zoneUuid) async {

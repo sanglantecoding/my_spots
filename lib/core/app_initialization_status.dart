@@ -19,6 +19,9 @@ class AppInitializationStatus extends ChangeNotifier {
   bool _satelliteReady = false;
   bool get satelliteReady => _satelliteReady;
 
+  bool _objectBoxReady = false;
+  bool get objectBoxReady => _objectBoxReady;
+
   final Map<String, Object> _errors = <String, Object>{};
   Map<String, Object> get errors => Map.unmodifiable(_errors);
 
@@ -41,6 +44,11 @@ class AppInitializationStatus extends ChangeNotifier {
 
   void markSatelliteReady() {
     _satelliteReady = true;
+    notifyListeners();
+  }
+
+  void markObjectBoxReady() {
+    _objectBoxReady = true;
     notifyListeners();
   }
 

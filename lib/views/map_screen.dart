@@ -385,7 +385,7 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     // Initialiser le service d'alarme
-    AlarmService.initialize();
+    unawaited(AlarmService.initialize());
     // S'abonner au flux broadcast d'événements d'alarme
     _alarmSubscription = AlarmService.onAlarmEvent.listen((event) {
       if (!mounted) return;
@@ -1047,9 +1047,10 @@ class _MapScreenState extends State<MapScreen> {
                                   if (index != -1) {
                                     WaypointStore.waypoints[index] =
                                         outcome.waypoint!;
+                                    final wasNavigationTarget =
+                                        _navigationTarget == _selectedWaypoint;
                                     _selectedWaypoint = outcome.waypoint;
-                                    if (_navigationTarget ==
-                                        _selectedWaypoint) {
+                                    if (wasNavigationTarget) {
                                       _navigationTarget = outcome.waypoint;
                                     }
                                   }

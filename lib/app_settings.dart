@@ -176,7 +176,9 @@ class AppSettings {
     bathymetryOverlayEnabled =
         prefs.getBool('bathymetry_overlay_enabled') ?? false;
     bathymetryOverlayOpacity =
-        (prefs.getDouble('bathymetry_overlay_opacity') ?? 0.7).clamp(0.0, 1.0);
+        (prefs.getDouble('bathymetry_overlay_opacity') ?? 0.7)
+            .clamp(0.0, 1.0)
+            .toDouble();
 
     final favoritesJson = prefs.getString('favorite_ports');
     if (favoritesJson != null) {
@@ -411,9 +413,9 @@ class AppSettings {
   /// Centre par défaut si le GPS n'est pas disponible (côte pour la carte marine).
   static LatLng getDefaultMapCenter() {
     if (mapType == MapType.marine) {
-      return const LatLng(43.5283, 3.5283); // Palavas-les-Flots
+      return const LatLng(43.392975, 3.700844); // Palavas-les-Flots
     }
-    return const LatLng(45.5017, -73.5673);
+    return const LatLng(43.500763, 3.711130);
   }
 
   /// Zoom natif min (RasterMarine 1M dès le niveau 3).

@@ -13,6 +13,7 @@ class CacheManager {
   static const String reliefMapStore = 'reliefMapStore';
   static const String hikingMapStore = 'hikingMapStore';
   static const String _legacyBathymetryStore = 'bathymetryOverlayTiles';
+  static final Map<String, int> _zoneSizeCache = {};
 
   static List<String> get bathymetryLayerNames =>
       Litto3DCatalog.allLayers.map((l) => l.wmtsLayerName).toList();
@@ -101,25 +102,23 @@ class CacheManager {
 
   static Future<void> deleteStoresForZone(String zoneUuid) async {
     final repo = FmtcTileCacheRepository.instance;
-
     // Delete marine store
     try {
       await marineStoreForZone(zoneUuid).manage.delete();
     } catch (_) {}
-
     // Delete new format lidar stores: lidar_zone_<uuid>_<layerId>
     try {
       await repo.deleteStoresByPrefix('lidar_zone_$zoneUuid');
     } catch (_) {}
-
     // Delete legacy format lidar store: lidar_zone_<uuid> (if exists)
     try {
       await lidarStoreForZone(zoneUuid).manage.delete();
     } catch (_) {}
-
     // Invalidate the store names cache to avoid stale references
     NegativeFilteringImageProvider.clearStoreNamesCache();
     TileProviderFactory.clearZoneProviderCaches();
+    // 🟢 Invalidation du cache de taille
+    _zoneSizeCache.remove(zoneUuid);
   }
 
   /// Taille estimée d'une zone hors-ligne (octets).
@@ -133,16 +132,20 @@ class CacheManager {
   /// On retient le max des deux : si FMTC renvoie une valeur crédible elle
   /// domine, sinon l'estimation garantit le bon ordre de grandeur (fini les
   /// « quelques Ko » à côté de milliers de tuiles).
+  ///
+  /// 🟢 Les résultats sont mis en cache mémoire. L'invalidation se fait
+  /// via [invalidateZoneSizeCache] (fin de téléchargement, suppression).
   static Future<int> getZoneSizeBytes(String zoneUuid) async {
-    final repo = FmtcTileCacheRepository.instance;
+    final cached = _zoneSizeCache[zoneUuid];
+    if (cached != null) return cached;
 
+    final repo = FmtcTileCacheRepository.instance;
     // 1) Taille déclarée par FMTC (marine + tous les stores LiDAR de la zone).
     final marineBytes = await repo.getStoreSizeBytes(
       marineStoreForZone(zoneUuid).storeName,
     );
     final lidarBytes = await repo.getTotalSizeByPrefix('lidar_zone_$zoneUuid');
     final fmtcBytes = marineBytes + lidarBytes;
-
     // 2) Estimation depuis les compteurs réels de tuiles téléchargées.
     var estimatedBytes = 0;
     final mapRepo = OfflineMapRepository.instance;
@@ -153,8 +156,20 @@ class CacheManager {
         estimatedBytes += layer.downloadedTileCount * avg;
       }
     }
+    final result = estimatedBytes > fmtcBytes ? estimatedBytes : fmtcBytes;
+    _zoneSizeCache[zoneUuid] = result;
+    return result;
+  }
 
-    return estimatedBytes > fmtcBytes ? estimatedBytes : fmtcBytes;
+  /// Invalide le cache de taille pour une zone (fin de téléchargement,
+  /// suppression, mise à jour).
+  static void invalidateZoneSizeCache(String zoneUuid) {
+    _zoneSizeCache.remove(zoneUuid);
+  }
+
+  /// Invalide tout le cache de taille (ex: au démarrage de l'app si besoin).
+  static void clearZoneSizeCache() {
+    _zoneSizeCache.clear();
   }
 
   static String formatBytes(int bytes) {

@@ -72,6 +72,8 @@ class FmtcLayerDownloader implements LayerDownloader {
   /// considérer comme gelées (une pause n'est pas un stall).
   static final Set<String> _pausedInstances = {};
 
+  static final Map<String, DateTime> _lastEventAtByInstance = {};
+
   const FmtcLayerDownloader();
 
   /// Nettoie les sets de tracking (réservé aux tests).
@@ -156,7 +158,7 @@ class FmtcLayerDownloader implements LayerDownloader {
     var successful = 0;
     var negative = 0;
     var failed = 0;
-    var lastEventAt = DateTime.now();
+    _lastEventAtByInstance[instanceId] = DateTime.now();
     var interruptReason = DownloadInterruptReason.none;
 
     try {
@@ -182,10 +184,10 @@ class FmtcLayerDownloader implements LayerDownloader {
 
       watchdog = Timer.periodic(const Duration(seconds: 30), (t) {
         if (_pausedInstances.contains(instanceId)) {
-          lastEventAt = DateTime.now(); // pause ≠ stall
           return;
         }
-        if (DateTime.now().difference(lastEventAt) > _stallWindow) {
+        final lastEvent = _lastEventAtByInstance[instanceId] ?? DateTime.now();
+        if (DateTime.now().difference(lastEvent) > _stallWindow) {
           t.cancel();
           if (kVerboseDownloader) {
             debugPrint(
@@ -202,9 +204,11 @@ class FmtcLayerDownloader implements LayerDownloader {
         successful = p.successfulTilesCount;
         negative = p.negativeResponseTilesCount;
         failed = p.failedRequestTilesCount;
-        lastEventAt = DateTime.now();
+        _lastEventAtByInstance[instanceId] = DateTime.now();
         if (maxTiles > 0) {
-          final progress = (p.attemptedTilesCount / maxTiles).clamp(0.0, 1.0);
+          final progress = (p.attemptedTilesCount / maxTiles)
+              .clamp(0.0, 1.0)
+              .toDouble();
           onProgress(progress);
         }
         if (maxTiles > _maxTileCountCeiling) {
@@ -226,16 +230,19 @@ class FmtcLayerDownloader implements LayerDownloader {
       // 👇 Nettoyage complet — s'exécute MÊME si startForeground() a échoué.
       _activeInstances.remove(instanceId);
       _pausedInstances.remove(instanceId);
+      _lastEventAtByInstance.remove(instanceId);
       watchdog?.cancel();
       await bridgeSub?.cancel();
       if (!ctrl.isClosed) {
         await ctrl.close();
       }
       try {
-        await store.download.cancel(instanceId: instanceId);
+        await store.download
+            .cancel(instanceId: instanceId)
+            .timeout(const Duration(seconds: 5));
       } catch (e) {
         if (kVerboseDownloader) {
-          debugPrint('[FmtcLayerDownloader] cancel error: $e');
+          debugPrint('[FmtcLayerDownloader] cancel error (timeout?): $e');
         }
       }
     }
@@ -350,6 +357,7 @@ class FmtcLayerDownloader implements LayerDownloader {
     try {
       store.download.resume(instanceId: instanceId);
       _pausedInstances.remove(instanceId);
+      _lastEventAtByInstance[instanceId] = DateTime.now();
       return true;
     } catch (e) {
       if (kVerboseDownloader) {

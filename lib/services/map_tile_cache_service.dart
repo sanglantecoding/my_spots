@@ -49,6 +49,10 @@ class MapTileCacheService {
       CacheManager.deleteStoresForZone(zoneUuid);
   static Future<int> getZoneSizeBytes(String zoneUuid) async =>
       CacheManager.getZoneSizeBytes(zoneUuid);
+
+  /// Invalide le cache mémoire de taille pour une zone.
+  static void invalidateZoneSizeCache(String zoneUuid) =>
+      CacheManager.invalidateZoneSizeCache(zoneUuid);
   static String formatBytes(int bytes) => CacheManager.formatBytes(bytes);
 
   static TileProvider marineTileProviderFor(

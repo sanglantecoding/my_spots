@@ -97,6 +97,7 @@ class AppBootstrap {
     try {
       final store = await openStore();
       OfflineMapRepository.initWithStore(store);
+      _status.markObjectBoxReady();
       developer.log(
         'OfflineMapRepository singleton initialisé',
         name: _logName,

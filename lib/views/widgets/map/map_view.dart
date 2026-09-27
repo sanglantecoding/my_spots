@@ -67,8 +67,12 @@ class MapView extends StatefulWidget {
   State<MapView> createState() => _MapViewState();
 }
 
+// ... existing code ...
 class _MapViewState extends State<MapView> {
   bool _tilesReady = false;
+
+  // Cache des TileLayers pour éviter les reconstructions inutiles
+  List<Widget>? _cachedTileLayers;
 
   @override
   void initState() {
@@ -81,6 +85,99 @@ class _MapViewState extends State<MapView> {
         });
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant MapView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Invalider le cache si les paramètres critiques ont changé
+    if (_criticalParamsChanged(oldWidget)) {
+      _cachedTileLayers = null;
+    }
+  }
+
+  bool _criticalParamsChanged(MapView oldWidget) {
+    // MapType et offlineMode
+    if (widget.mapType != oldWidget.mapType) return true;
+    if (widget.offlineMode != oldWidget.offlineMode) return true;
+
+    // Zones hors-ligne
+    if (!_listEquals(widget.readyZoneUuids, oldWidget.readyZoneUuids)) {
+      return true;
+    }
+    if (!_lidarMapEquals(
+      widget.readyLidarLayersByZone,
+      oldWidget.readyLidarLayersByZone,
+    )) {
+      return true;
+    }
+
+    // Bathymétrie
+    if (widget.bathymetryEnabled != oldWidget.bathymetryEnabled) return true;
+    if (widget.bathymetryOpacity != oldWidget.bathymetryOpacity) return true;
+
+    // Zoom pour carte marine (seuils de couches)
+    if (widget.mapType == MapType.marine &&
+        _marineZoomThresholdChanged(oldWidget.zoom, widget.zoom)) {
+      return true;
+    }
+
+    // visibleBounds pour LiDAR (filtrage spatial)
+    if (widget.bathymetryEnabled &&
+        !_boundsEqual(widget.visibleBounds, oldWidget.visibleBounds)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  bool _marineZoomThresholdChanged(double oldZoom, double newZoom) {
+    const thresholds = [7.0, 9.0, 11.0, 12.0, 14.0];
+    for (final t in thresholds) {
+      if ((oldZoom < t) != (newZoom < t)) return true;
+    }
+    return false;
+  }
+
+  bool _boundsEqual(LatLngBounds? a, LatLngBounds? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    return (a.north - b.north).abs() < 0.001 &&
+        (a.south - b.south).abs() < 0.001 &&
+        (a.east - b.east).abs() < 0.001 &&
+        (a.west - b.west).abs() < 0.001;
+  }
+
+  bool _listEquals<T>(List<T>? a, List<T>? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  bool _lidarMapEquals(
+    Map<String, List<OfflineMapLayer>>? a,
+    Map<String, List<OfflineMapLayer>>? b,
+  ) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key)) return false;
+      if (!_listEquals(a[key], b[key])) return false;
+    }
+    return true;
+  }
+
+  List<Widget> _getTileLayers() {
+    if (_cachedTileLayers != null) return _cachedTileLayers!;
+    final layers = _buildTileLayers();
+    _cachedTileLayers = layers;
+    return layers;
   }
 
   @override
@@ -118,9 +215,8 @@ class _MapViewState extends State<MapView> {
         },
       ),
       children: [
-        // ⚠️  Les couches doivent être des enfants DIRECTS de FlutterMap
-        if (_tilesReady) ..._buildTileLayers(),
-
+        // ⚠️   Les couches doivent être des enfants DIRECTS de FlutterMap
+        if (_tilesReady) ..._getTileLayers(),
         // Dans MapView, remplace le StreamBuilder existant par :
         StreamBuilder<Position>(
           stream: GpsController.instance.positionStream,
@@ -128,7 +224,6 @@ class _MapViewState extends State<MapView> {
           builder: (context, snapshot) {
             final pos = snapshot.data;
             if (pos == null) return const SizedBox.shrink();
-
             final currentLatLng = LatLng(pos.latitude, pos.longitude);
             return Stack(
               children: [
@@ -176,7 +271,7 @@ class _MapViewState extends State<MapView> {
     );
   }
 
-  // ─── Couches de tuiles ────────────────────────────────────────────────
+  // ───── Couches de tuiles ─────
   List<Widget> _buildTileLayers() {
     if (widget.mapType == MapType.marine) {
       return widget.offlineMode
@@ -263,7 +358,7 @@ class _MapViewState extends State<MapView> {
     );
   }
 
-  // ─── Waypoints ────────────────────────────────────────────────────────
+  // ───── Waypoints ─────
   bool _shouldShowWaypoint(Waypoint waypoint) {
     if (waypoint.category == WaypointCategory.fishing &&
         !AppSettings.showFishingWaypointsOnMap) {
