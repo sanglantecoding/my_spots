@@ -477,11 +477,6 @@ class _MapScreenState extends State<MapScreen> {
     final maps = repo.findReadyOrPartialMaps();
     final lidarByZone = <String, List<OfflineMapLayer>>{};
     for (final map in maps) {
-      debugPrint(
-        '[ZoneBounds] uuid=${map.uuid} '
-        'northLat=${map.northLat} southLat=${map.southLat} '
-        'westLng=${map.westLng} eastLng=${map.eastLng}',
-      );
       final layers = repo.findLayersForMap(map);
       final lidar = layers
           .where((l) => l.layerType == LayerType.lidarLitto3d)
@@ -788,18 +783,13 @@ class _MapScreenState extends State<MapScreen> {
 
   /// Saves the zone after the user has adjusted the rectangle or polygon.
   Future<void> _onZoneBoundsConfirmed(dynamic bounds) async {
-    debugPrint(
-      '[ZONE-POLYGON] confirm_callback_received bounds=$bounds (type: ${bounds.runtimeType})',
-    );
     final config = _pendingZoneConfig;
     if (config == null) {
-      debugPrint('[ZONE-POLYGON] config_null - exiting');
       _exitZoneEditMode();
       return;
     }
     final repo = OfflineMapRepository.instance;
     if (repo == null) {
-      debugPrint('[ZONE-POLYGON] repo_null - exiting');
       _exitZoneEditMode();
       return;
     }
@@ -809,9 +799,7 @@ class _MapScreenState extends State<MapScreen> {
     LatLngBounds finalBounds;
     if (bounds is List<LatLng>) {
       polygonVertices = bounds;
-      debugPrint(
-        '[ZONE-POLYGON] bounds_calculated vertices=${polygonVertices.length}',
-      );
+
       // Calculate bounding box from polygon vertices for SHOM analysis
       final lats = bounds.map((p) => p.latitude);
       final lngs = bounds.map((p) => p.longitude);
@@ -827,7 +815,6 @@ class _MapScreenState extends State<MapScreen> {
       );
     } else {
       finalBounds = bounds as LatLngBounds;
-      debugPrint('[ZONE-POLYGON] bounds_calculated rectangle');
     }
 
     // 1) PRÉFLIGHT SHOM (analyse de couverture) AVANT toute écriture en base.
@@ -840,12 +827,9 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    debugPrint('[ZONE-POLYGON] shom_analysis_start');
     final layers = await ZoneConfig.resolveLayersForBounds(finalBounds);
-    debugPrint('[ZONE-POLYGON] shom_done layers=${layers.length}');
 
     if (layers.isEmpty) {
-      debugPrint('[ZONE-POLYGON] shom_no_coverage - exiting');
       _exitZoneEditMode();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -868,10 +852,8 @@ class _MapScreenState extends State<MapScreen> {
           .map((latLng) => {'lat': latLng.latitude, 'lng': latLng.longitude})
           .toList();
       polygonJson = jsonEncode(verticesJson);
-      debugPrint('[ZONE-POLYGON] polygon_encoded length=${polygonJson.length}');
     }
 
-    debugPrint('[ZONE-POLYGON] map_creating');
     final map = OfflineMap.create(
       uuid: uuid,
       name: config.name,
@@ -881,15 +863,11 @@ class _MapScreenState extends State<MapScreen> {
       eastLng: finalBounds.east,
       polygonJson: polygonJson,
     );
-    debugPrint(
-      '[ZONE-POLYGON] map_created polygonJson=${map.polygonJson != null}',
-    );
 
     repo.save(map);
     for (final layer in layers) {
       repo.saveLayer(map, layer);
     }
-    debugPrint('[ZONE-POLYGON] map_saved');
 
     // 3) DOWNLOAD
     final zoneService = widget.zoneService ?? ZoneDownloadService.instance;
