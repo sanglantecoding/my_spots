@@ -71,6 +71,7 @@ class FakeLayerDownloader implements LayerDownloader {
     required void Function(double) onProgress,
     String? preCancelInstanceId,
     FMTCStore? preCancelStore,
+    List<LatLng>? polygon,
   }) async {
     // Record pre-cancel so tests can verify the service forwards it.
     if (preCancelInstanceId != null && preCancelStore != null) {

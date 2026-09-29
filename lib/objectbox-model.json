@@ -59,7 +59,7 @@
     },
     {
       "id": "2:5621580101653289067",
-      "lastPropertyId": "12:7284829012688782740",
+      "lastPropertyId": "13:5696986136219091070",
       "name": "OfflineMap",
       "properties": [
         {
@@ -116,6 +116,11 @@
         {
           "id": "12:7284829012688782740",
           "name": "lastError",
+          "type": 9
+        },
+        {
+          "id": "13:5696986136219091070",
+          "name": "polygonJson",
           "type": 9
         }
       ],

@@ -87,7 +87,7 @@ final _entities = <obx_int.ModelEntity>[
   obx_int.ModelEntity(
     id: const obx_int.IdUid(2, 5621580101653289067),
     name: 'OfflineMap',
-    lastPropertyId: const obx_int.IdUid(12, 7284829012688782740),
+    lastPropertyId: const obx_int.IdUid(13, 5696986136219091070),
     flags: 0,
     properties: <obx_int.ModelProperty>[
       obx_int.ModelProperty(
@@ -153,6 +153,12 @@ final _entities = <obx_int.ModelEntity>[
       obx_int.ModelProperty(
         id: const obx_int.IdUid(12, 7284829012688782740),
         name: 'lastError',
+        type: 9,
+        flags: 0,
+      ),
+      obx_int.ModelProperty(
+        id: const obx_int.IdUid(13, 5696986136219091070),
+        name: 'polygonJson',
         type: 9,
         flags: 0,
       ),
@@ -322,7 +328,10 @@ obx_int.ModelDefinition getObjectBoxModel() {
         final lastErrorOffset = object.lastError == null
             ? null
             : fbb.writeString(object.lastError!);
-        fbb.startTable(13);
+        final polygonJsonOffset = object.polygonJson == null
+            ? null
+            : fbb.writeString(object.polygonJson!);
+        fbb.startTable(14);
         fbb.addInt64(0, object.id);
         fbb.addOffset(1, uuidOffset);
         fbb.addOffset(2, nameOffset);
@@ -334,6 +343,7 @@ obx_int.ModelDefinition getObjectBoxModel() {
         fbb.addInt64(8, object.createdAt.millisecondsSinceEpoch);
         fbb.addInt64(10, object.completedAt.millisecondsSinceEpoch);
         fbb.addOffset(11, lastErrorOffset);
+        fbb.addOffset(12, polygonJsonOffset);
         fbb.finish(fbb.endTable());
         return object.id;
       },
@@ -376,6 +386,9 @@ obx_int.ModelDefinition getObjectBoxModel() {
           16,
           0,
         );
+        final polygonJsonParam = const fb.StringReader(
+          asciiOptimization: true,
+        ).vTableGetNullable(buffer, rootOffset, 28);
         final statusIndexParam = const fb.Int64Reader().vTableGet(
           buffer,
           rootOffset,
@@ -399,6 +412,7 @@ obx_int.ModelDefinition getObjectBoxModel() {
           southLat: southLatParam,
           westLng: westLngParam,
           eastLng: eastLngParam,
+          polygonJson: polygonJsonParam,
           statusIndex: statusIndexParam,
           createdAt: createdAtParam,
           lastError: lastErrorParam,
@@ -516,5 +530,10 @@ class OfflineMap_ {
   /// See [OfflineMap.lastError].
   static final lastError = obx.QueryStringProperty<OfflineMap>(
     _entities[1].properties[10],
+  );
+
+  /// See [OfflineMap.polygonJson].
+  static final polygonJson = obx.QueryStringProperty<OfflineMap>(
+    _entities[1].properties[11],
   );
 }

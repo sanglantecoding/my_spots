@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/offline_map.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/services/zone_download/zone_download.dart';
@@ -63,6 +64,7 @@ class FakeLayerDownloader implements LayerDownloader {
     required void Function(double) onProgress,
     String? preCancelInstanceId,
     FMTCStore? preCancelStore,
+    List<LatLng>? polygon,
   }) async {
     onProgress(1.0);
     return const LayerDownloadResult(

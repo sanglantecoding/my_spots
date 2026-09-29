@@ -12,12 +12,13 @@ import 'package:my_spots/services/zone_download/shom_coverage_preflight.dart';
 class ZoneConfig {
   final String name;
   final List<LayerType> layers;
+  final String zoneType;
 
-  const ZoneConfig({required this.name, required this.layers});
+  const ZoneConfig({required this.name, required this.layers, required this.zoneType});
 
   /// Creates a copy with the given [layers] attached.
   ZoneConfig withLayers(List<LayerType> layers) =>
-      ZoneConfig(name: name, layers: layers);
+      ZoneConfig(name: name, layers: layers, zoneType: zoneType);
 
   /// Default layer types for a zone covering [bounds].
   ///
@@ -169,6 +170,7 @@ class _NewZoneSheet extends StatefulWidget {
 class _NewZoneSheetState extends State<_NewZoneSheet> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
+  String _selectedZoneType = 'Rectangle';
 
   /// Non-null error message when the current name is already taken.
   /// Set by [_validateName] and cleared by [_onNameChanged].
@@ -246,7 +248,11 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
     // bounds.  Passing an empty list here is intentional.
     Navigator.of(
       context,
-    ).pop(ZoneConfig(name: _nameController.text.trim(), layers: const []));
+    ).pop(ZoneConfig(
+      name: _nameController.text.trim(),
+      layers: const [],
+      zoneType: _selectedZoneType,
+    ));
   }
 
   @override
@@ -291,6 +297,60 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
                 decoration: _input('Ma zone', Icons.edit_location_alt_outlined),
                 textCapitalization: TextCapitalization.words,
                 validator: _validateName,
+              ),
+              const SizedBox(height: 12),
+              // Choix du type de zone
+              const Text(
+                'Type de zone',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFF0D6999).withValues(alpha: 0.3),
+                  ),
+                ),
+                child: DropdownButtonFormField<String>(
+                  initialValue: _selectedZoneType,
+                  dropdownColor: const Color(0xFF1A2F42),
+                  style: const TextStyle(color: Colors.white, fontSize: 15),
+                  decoration: InputDecoration(
+                    border: InputBorder.none,
+                    prefixIcon: Icon(
+                      Icons.map,
+                      color: Colors.white38,
+                      size: 20,
+                    ),
+                    suffixIcon: Icon(
+                      Icons.arrow_drop_down,
+                      color: Colors.white38,
+                      size: 20,
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'Rectangle',
+                      child: Text('Rectangle'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Main levée',
+                      child: Text('Main levée'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _selectedZoneType = value);
+                    }
+                  },
+                ),
               ),
               const SizedBox(height: 12),
               Container(

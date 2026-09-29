@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -78,6 +79,9 @@ class _MapScreenState extends State<MapScreen> {
   /// Configuration (name + layers) collected from NewZoneSheet before
   /// entering _zoneEditMode.
   ZoneConfig? _pendingZoneConfig;
+
+  /// Key for accessing the zone editor overlay state.
+  final GlobalKey _zoneEditorKey = GlobalKey<ZoneEditorOverlayState>();
 
   /// 🛡️ P1 PERF : dernière position connue, lue À LA DEMANDE via le
   /// singleton. Plus aucun champ _currentPosition maintenu par setState :
@@ -720,17 +724,110 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _openNewOfflineZoneWithCenter(LatLng center) =>
       _openNewOfflineZone(center);
 
-  /// Saves the zone after the user has adjusted the rectangle.
-  Future<void> _onZoneBoundsConfirmed(LatLngBounds bounds) async {
+  /// Handles long press events on the map when in polygon mode.
+  void _onMapLongPress(LatLng latLng) {
+    if (!_zoneEditMode || _pendingZoneConfig?.zoneType != 'Main levée') return;
+    // Pass the point to the overlay to show confirmation dialog
+    (_zoneEditorKey.currentState as ZoneEditorOverlayState?)?.proposePoint(
+      latLng,
+    );
+  }
+
+  /// Confirmation dialog for a proposed polygon point.
+  ///
+  /// Shows "Ajouter ce point ?" with Ajouter/Annuler buttons.
+  Future<bool?> _onZoneProposedPoint(LatLng point) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0D1B2A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.add_location_alt, color: Color(0xFF0D6999)),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Ajouter un point ?',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Point à l\'emplacement :\n'
+          'Lat ${point.latitude.toStringAsFixed(5)}  Lon ${point.longitude.toStringAsFixed(5)}',
+          style: const TextStyle(color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text(
+              'Annuler',
+              style: TextStyle(color: Colors.white54),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Ajouter',
+              style: TextStyle(
+                color: Colors.greenAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return result;
+  }
+
+  /// Saves the zone after the user has adjusted the rectangle or polygon.
+  Future<void> _onZoneBoundsConfirmed(dynamic bounds) async {
+    debugPrint(
+      '[ZONE-POLYGON] confirm_callback_received bounds=$bounds (type: ${bounds.runtimeType})',
+    );
     final config = _pendingZoneConfig;
     if (config == null) {
+      debugPrint('[ZONE-POLYGON] config_null - exiting');
       _exitZoneEditMode();
       return;
     }
     final repo = OfflineMapRepository.instance;
     if (repo == null) {
+      debugPrint('[ZONE-POLYGON] repo_null - exiting');
       _exitZoneEditMode();
       return;
+    }
+
+    // Handle polygon mode - keep polygon vertices and calculate bounding box
+    List<LatLng>? polygonVertices;
+    LatLngBounds finalBounds;
+    if (bounds is List<LatLng>) {
+      polygonVertices = bounds;
+      debugPrint(
+        '[ZONE-POLYGON] bounds_calculated vertices=${polygonVertices.length}',
+      );
+      // Calculate bounding box from polygon vertices for SHOM analysis
+      final lats = bounds.map((p) => p.latitude);
+      final lngs = bounds.map((p) => p.longitude);
+      finalBounds = LatLngBounds(
+        LatLng(
+          lats.reduce((a, b) => a < b ? a : b),
+          lngs.reduce((a, b) => a < b ? a : b),
+        ),
+        LatLng(
+          lats.reduce((a, b) => a > b ? a : b),
+          lngs.reduce((a, b) => a > b ? a : b),
+        ),
+      );
+    } else {
+      finalBounds = bounds as LatLngBounds;
+      debugPrint('[ZONE-POLYGON] bounds_calculated rectangle');
     }
 
     // 1) PRÉFLIGHT SHOM (analyse de couverture) AVANT toute écriture en base.
@@ -743,9 +840,12 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    final layers = await ZoneConfig.resolveLayersForBounds(bounds);
+    debugPrint('[ZONE-POLYGON] shom_analysis_start');
+    final layers = await ZoneConfig.resolveLayersForBounds(finalBounds);
+    debugPrint('[ZONE-POLYGON] shom_done layers=${layers.length}');
 
     if (layers.isEmpty) {
+      debugPrint('[ZONE-POLYGON] shom_no_coverage - exiting');
       _exitZoneEditMode();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -760,23 +860,40 @@ class _MapScreenState extends State<MapScreen> {
 
     // 2) CRÉATION & PERSISTANCE (Zone + Couches) d'un bloc.
     final uuid = DateTime.now().millisecondsSinceEpoch.toString();
+
+    // Encode polygon vertices to JSON if polygon mode
+    String? polygonJson;
+    if (polygonVertices != null) {
+      final verticesJson = polygonVertices
+          .map((latLng) => {'lat': latLng.latitude, 'lng': latLng.longitude})
+          .toList();
+      polygonJson = jsonEncode(verticesJson);
+      debugPrint('[ZONE-POLYGON] polygon_encoded length=${polygonJson.length}');
+    }
+
+    debugPrint('[ZONE-POLYGON] map_creating');
     final map = OfflineMap.create(
       uuid: uuid,
       name: config.name,
-      northLat: bounds.north,
-      southLat: bounds.south,
-      westLng: bounds.west,
-      eastLng: bounds.east,
+      northLat: finalBounds.north,
+      southLat: finalBounds.south,
+      westLng: finalBounds.west,
+      eastLng: finalBounds.east,
+      polygonJson: polygonJson,
+    );
+    debugPrint(
+      '[ZONE-POLYGON] map_created polygonJson=${map.polygonJson != null}',
     );
 
     repo.save(map);
     for (final layer in layers) {
       repo.saveLayer(map, layer);
     }
+    debugPrint('[ZONE-POLYGON] map_saved');
 
     // 3) DOWNLOAD
     final zoneService = widget.zoneService ?? ZoneDownloadService.instance;
-    zoneService.downloadZone(map: map, layers: layers, zoneBounds: bounds);
+    zoneService.downloadZone(map: map, layers: layers, zoneBounds: finalBounds);
     if (!mounted) return;
 
     // 4) UI & CLEANUP
@@ -951,7 +1068,10 @@ class _MapScreenState extends State<MapScreen> {
                   bathymetryEnabled: AppSettings.bathymetryOverlayEnabled,
                   bathymetryOpacity: AppSettings.bathymetryOverlayOpacity,
                   onLongPress: (latLng) {
-                    if (_zoneEditMode) return;
+                    if (_zoneEditMode) {
+                      _onMapLongPress(latLng);
+                      return;
+                    }
                     _showMapContextMenu(latLng);
                   },
                   onTap: (wp) => setState(() => _selectedWaypoint = wp),
@@ -968,10 +1088,16 @@ class _MapScreenState extends State<MapScreen> {
                 if (_zoneEditMode)
                   Positioned.fill(
                     child: ZoneEditorOverlay(
+                      key: _zoneEditorKey,
                       centerPoint: _mapController.camera.center,
+                      // Extract zone type from config; default to rectangle if null
+                      drawMode: _pendingZoneConfig?.zoneType == 'Main levée'
+                          ? ZoneDrawMode.polygon
+                          : ZoneDrawMode.rectangle,
                       onConfirm: _onZoneBoundsConfirmed,
                       onCancel: _exitZoneEditMode,
                       mapController: _mapController,
+                      onPointProposed: _onZoneProposedPoint,
                     ),
                   ),
                 if (_isMeasuringDistance && _measurementPoint1 != null)

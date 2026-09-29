@@ -185,6 +185,7 @@ class ZoneDownloadService {
             minZoom: layer.minZoom,
             maxZoom: layer.maxZoom,
             headers: _layerHeaders(layer.layerType),
+            polygon: map.polygonPoints,
             onProgress: (layerProgress) {
               if (sortedLayers.isNotEmpty) {
                 final globalProgress =

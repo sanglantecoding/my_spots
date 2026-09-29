@@ -1,56 +1,87 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-/// Interactive rectangle-selection overlay displayed on the map
-/// during zone-adjustment mode.
+/// Draw mode selection for the zone editor overlay.
+enum ZoneDrawMode { rectangle, polygon }
+
+/// Interactive overlay displayed on the map during zone-adjustment mode.
 ///
-/// Features:
+/// When [drawMode] is [ZoneDrawMode.rectangle] (default):
 /// - Drag the rectangle body to translate the whole selection.
 /// - Resize via 8 handles (corners + edge midpoints).
 /// - FAB confirmation button pinned to the bottom of the screen.
-/// Returns [LatLngBounds] via [onConfirm] when the button is tapped.
+/// Returns [LatLngBounds] via [onConfirm].
+///
+/// When [drawMode] is [ZoneDrawMode.polygon]:
+/// - Long press the map to propose a new vertex.
+/// - A confirmation dialog asks "Ajouter ce point ?" with Ajouter/Annuler.
+/// - Confirmed points are drawn and connected to the previous one.
+/// - At least 3 vertices are required to confirm.
+/// - Auto-closes the polygon by connecting last to first.
+/// Returns [List<LatLng>] via [onConfirm].
 class ZoneEditorOverlay extends StatefulWidget {
-  /// Center point for the initial rectangle.
+  /// Center point for the initial rectangle (used only in rectangle mode).
   final LatLng centerPoint;
 
+  /// The current draw mode.
+  final ZoneDrawMode drawMode;
+
   /// Called when the user confirms the bounds.
-  final void Function(LatLngBounds bounds) onConfirm;
+  ///
+  /// - Rectangle mode: receives a [LatLngBounds].
+  /// - Polygon mode: receives a [List<LatLng>] of vertices in order.
+  final void Function(dynamic bounds) onConfirm;
 
   /// Called when the user cancels the adjustment.
   final VoidCallback onCancel;
 
+  /// Called when a point is proposed in polygon mode.
+  /// Returns true if the point should be added, false otherwise.
+  final Future<bool?> Function(LatLng)? onPointProposed;
+
   /// Optional controller from the underlying [FlutterMap]. When provided,
   /// bounds-to-LatLng conversions use the real map camera instead of an
-  /// unattached default [MapController] (which would return garbage for the
-  /// current visible region and break [onConfirm]).
+  /// unattached default [MapController].
   final MapController? mapController;
 
   const ZoneEditorOverlay({
     super.key,
     required this.centerPoint,
+    required this.drawMode,
     required this.onConfirm,
     required this.onCancel,
     this.mapController,
+    this.onPointProposed,
   });
 
   @override
-  State<ZoneEditorOverlay> createState() => _ZoneEditorOverlayState();
+  State<ZoneEditorOverlay> createState() => ZoneEditorOverlayState();
 }
 
-class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
-  /// Fallback controller used only if the host does not inject one.
-  /// NOTE: an unattached MapController has a default (0,0) camera, so any
-  /// `screenOffsetToLatLng` would return bogus coordinates. Hosts MUST pass
-  /// the same controller used by the [FlutterMap] in the background.
+class ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
   late final MapController _mapController =
       widget.mapController ?? MapController();
 
-  /// Pixel coordinates of the selection rectangle.
+  int _cameraGeneration = 0;
+  LatLngBounds? _lastCameraBounds;
+  Timer? _cameraTimer;
+
+  // ── Rectangle mode state ──
   double _left = 0;
   double _top = 0;
   double _right = 0;
   double _bottom = 0;
+
+  // ── Polygon mode state ──
+  /// Definitive LatLng coordinates (source of truth).
+  final List<LatLng> _polygonLatLngPoints = [];
+
+  /// Provisional point shown while awaiting user confirmation.
+  LatLng? _provisionalLatLng;
 
   Size _mapSize = Size.zero;
   bool _layoutInitialized = false;
@@ -59,12 +90,36 @@ class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
   static const double _minSize = 60;
   static const double _handleSize = 28;
 
-  /// `null` → idle. A handle value → resize. `_Handle.drag` → global translate.
   _Handle? _activeHandle;
+
+  /// While awaiting confirmation of the provisional point, this flag
+  /// blocks further long-presses so the user cannot stack confirmations.
+  bool _awaitingConfirmation = false;
+
+  bool get _isPolygonMode => widget.drawMode == ZoneDrawMode.polygon;
 
   @override
   void initState() {
     super.initState();
+    _startCameraCheck();
+  }
+
+  void _startCameraCheck() {
+    _cameraTimer = Timer.periodic(const Duration(milliseconds: 150), (_) {
+      final currentBounds = _mapController.camera.visibleBounds;
+      if (_lastCameraBounds != null && _lastCameraBounds != currentBounds) {
+        setState(() {
+          _cameraGeneration++;
+        });
+      }
+      _lastCameraBounds = currentBounds;
+    });
+  }
+
+  @override
+  void dispose() {
+    _cameraTimer?.cancel();
+    super.dispose();
   }
 
   void _initRectOnLayout(Size mapSize) {
@@ -78,9 +133,7 @@ class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
           : _mapSize.height,
     );
     if (newSize.width <= 0 || newSize.height <= 0) return;
-
     if (!_layoutInitialized) {
-      // First time: centre the rect on the available area.
       _mapSize = newSize;
       final cx = newSize.width / 2;
       final cy = newSize.height / 2;
@@ -92,10 +145,89 @@ class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
         _layoutInitialized = true;
       });
     } else {
-      // Subsequent re-layouts: keep the rect edges proportional
-      // (we don't shrink the available area when the FAB is visible).
       _mapSize = newSize;
     }
+  }
+
+  /// Public method called by the parent (via GlobalKey) when a long press
+  /// event is received from FlutterMap. Shows a provisional point and asks
+  /// for user confirmation before adding it to the definitive list.
+  Future<void> proposePoint(LatLng latLng) async {
+    if (!_isPolygonMode) return;
+    if (_awaitingConfirmation) return;
+
+    setState(() {
+      _provisionalLatLng = latLng;
+      _awaitingConfirmation = true;
+    });
+
+    // Use parent callback if provided, otherwise use internal dialog
+    final confirmed = widget.onPointProposed != null
+        ? await widget.onPointProposed!(latLng)
+        : await _showConfirmationDialog(latLng);
+
+    if (!mounted) return;
+
+    setState(() {
+      _provisionalLatLng = null;
+      _awaitingConfirmation = false;
+    });
+
+    if (confirmed == true) {
+      setState(() {
+        _polygonLatLngPoints.add(latLng);
+      });
+    }
+  }
+
+  /// Shows the "Ajouter ce point ?" confirmation dialog.
+  Future<bool?> _showConfirmationDialog(LatLng point) async {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0D1B2A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.add_location_alt, color: Color(0xFF0D6999)),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Ajouter ce point ?',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Point à l\'emplacement :\n'
+          'Lat ${point.latitude.toStringAsFixed(5)}  Lon ${point.longitude.toStringAsFixed(5)}',
+          style: const TextStyle(color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text(
+              'Annuler',
+              style: TextStyle(color: Colors.white54),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Ajouter',
+              style: TextStyle(
+                color: Colors.greenAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   LatLng _pixelToLatLng(double px, double py) {
@@ -107,18 +239,16 @@ class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
     _pixelToLatLng(_right, _top),
   );
 
-  /// Translates the rectangle by (dx, dy) while STRICTLY preserving its
-  /// width and height. Clamping is applied only to the top-left origin so that
-  /// the dimensions are never altered by a boundary collision.
   void _moveRect(double dx, double dy) {
     setState(() {
       final double width = _right - _left;
       final double height = _bottom - _top;
-
-      // Clamp only the origin; dimensions stay fixed.
-      double newLeft = (_left + dx).clamp(0.0, _mapSize.width - width).toDouble();
-      double newTop = (_top + dy).clamp(0.0, _mapSize.height - height).toDouble();
-
+      double newLeft = (_left + dx)
+          .clamp(0.0, _mapSize.width - width)
+          .toDouble();
+      double newTop = (_top + dy)
+          .clamp(0.0, _mapSize.height - height)
+          .toDouble();
       _left = newLeft;
       _top = newTop;
       _right = newLeft + width;
@@ -126,7 +256,6 @@ class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
     });
   }
 
-  /// Returns the pixel centre of [handle]; null for [_Handle.drag].
   Offset? _handleCenter(_Handle handle) {
     switch (handle) {
       case _Handle.topLeft:
@@ -150,16 +279,6 @@ class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
     }
   }
 
-  /// Resizes the rectangle for [handle] by (dx, dy).
-  ///
-  /// Each axis is clamped so that the rect never leaves the map bounds and
-  /// never collapses below [_minSize] on any side. The two axes are clamped
-  /// independently, which preserves the [_minSize] invariant even when the
-  /// handle is a corner dragged diagonally into a corner of the screen.
-  ///
-  /// Every case ends with a [break] to prevent Dart's fall-through from
-  /// corrupting the next case (this was a latent bug in the previous
-  /// implementation).
   void _resizeRect(_Handle handle, double dx, double dy) {
     setState(() {
       switch (handle) {
@@ -189,19 +308,27 @@ class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
           break;
         case _Handle.middleLeft:
           _left = (_left + dx).clamp(0.0, _right - _minSize).toDouble();
+          _bottom = (_bottom + dy)
+              .clamp(_top + _minSize, _mapSize.height)
+              .toDouble();
           break;
         case _Handle.middleRight:
           _right = (_right + dx)
               .clamp(_left + _minSize, _mapSize.width)
               .toDouble();
+          _bottom = (_bottom + dy)
+              .clamp(_top + _minSize, _mapSize.height)
+              .toDouble();
           break;
         case _Handle.middleTop:
           _top = (_top + dy).clamp(0.0, _bottom - _minSize).toDouble();
+          _left = (_left + dx).clamp(0.0, _right - _minSize).toDouble();
           break;
         case _Handle.middleBottom:
           _bottom = (_bottom + dy)
               .clamp(_top + _minSize, _mapSize.height)
               .toDouble();
+          _left = (_left + dx).clamp(0.0, _right - _minSize).toDouble();
           break;
         case _Handle.drag:
           break;
@@ -209,81 +336,103 @@ class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
     });
   }
 
+  void _confirmPolygon() {
+    if (_polygonLatLngPoints.length < 3) return;
+    debugPrint(
+      '[ZONE-POLYGON] confirm_button points=${_polygonLatLngPoints.length}',
+    );
+    widget.onConfirm(List<LatLng>.from(_polygonLatLngPoints));
+    debugPrint('[ZONE-POLYGON] confirm_callback_invoked');
+  }
+
+  /// Supprime le dernier point placé en mode polygon.
+  void _removeLastPoint() {
+    if (_polygonLatLngPoints.isNotEmpty) {
+      setState(() {
+        _polygonLatLngPoints.removeLast();
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _initRectOnLayout(Size(constraints.maxWidth, constraints.maxHeight));
+          if (!_isPolygonMode) {
+            _initRectOnLayout(
+              Size(constraints.maxWidth, constraints.maxHeight),
+            );
+          }
         });
         return Stack(
           clipBehavior: Clip.none,
           children: [
             // ── Layer 0: Pure drawing (no hit-test) ──
-            //
-            // The CustomPaint used to be wrapped in a bare Positioned.fill,
-            // which made the whole screen opaque to hit-testing and blocked
-            // gestures from reaching the underlying [FlutterMap] (a sibling
-            // inside the outer Stack of MapScreen). Wrapping it in an
-            // [IgnorePointer] makes the painter truly hit-test transparent,
-            // so taps and pans in the empty areas of the overlay fall through
-            // to the map below.
             Positioned.fill(
               child: IgnorePointer(
                 child: CustomPaint(
-                  painter: _SelectionPainter(
-                    left: _left,
-                    top: _top,
-                    right: _right,
-                    bottom: _bottom,
-                  ),
+                  painter: _isPolygonMode
+                      ? _PolygonPainter(
+                          latLngPoints: _polygonLatLngPoints,
+                          provisionalLatLng: _provisionalLatLng,
+                          mapController: _mapController,
+                          mapSize: _mapSize,
+                          cameraGeneration: _cameraGeneration,
+                        )
+                      : _SelectionPainter(
+                          left: _left,
+                          top: _top,
+                          right: _right,
+                          bottom: _bottom,
+                        ),
                 ),
               ),
             ),
-
-            // ── Layer 1: Body drag detector (opaque inside the rect) ──
-            Positioned(
-              left: _left,
-              top: _top,
-              width: _right - _left,
-              height: _bottom - _top,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onPanStart: (_) => _activeHandle = _Handle.drag,
-                onPanUpdate: (d) {
-                  if (_activeHandle == _Handle.drag) {
-                    _moveRect(d.delta.dx, d.delta.dy);
-                  }
-                },
-                onPanEnd: (_) => _activeHandle = null,
-                child: const SizedBox.expand(),
+            if (!_isPolygonMode) ...[
+              // ── Layer 1: Body drag detector (opaque inside the rect) ──
+              Positioned(
+                left: _left,
+                top: _top,
+                width: _right - _left,
+                height: _bottom - _top,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanStart: (_) => _activeHandle = _Handle.drag,
+                  onPanUpdate: (d) {
+                    if (_activeHandle == _Handle.drag) {
+                      _moveRect(d.delta.dx, d.delta.dy);
+                    }
+                  },
+                  onPanEnd: (_) => _activeHandle = null,
+                  child: const SizedBox.expand(),
+                ),
               ),
-            ),
-
-            // ── Layer 2: 8 handle hit boxes (opaque) ──
-            for (final h in [
-              _Handle.topLeft,
-              _Handle.topRight,
-              _Handle.bottomLeft,
-              _Handle.bottomRight,
-              _Handle.middleLeft,
-              _Handle.middleRight,
-              _Handle.middleTop,
-              _Handle.middleBottom,
-            ])
-              _buildHandle(h),
+              // ── Layer 2: 8 handle hit boxes (opaque) ──
+              for (final h in [
+                _Handle.topLeft,
+                _Handle.topRight,
+                _Handle.bottomLeft,
+                _Handle.bottomRight,
+                _Handle.middleLeft,
+                _Handle.middleRight,
+                _Handle.middleTop,
+                _Handle.middleBottom,
+              ])
+                _buildHandle(h),
+            ],
             // ── Layer 3: Top bar (Annuler + title) (opaque) ──
             _buildTopBar(context),
-
-            // ── Layer 4: Confirmation FAB (opaque) ──
-            _buildConfirmButton(),
+            if (_isPolygonMode)
+              _buildPolygonConfirmButton()
+            else
+              _buildConfirmButton(),
           ],
         );
       },
     );
   }
 
-  /// Builds an opaque hit box for a single resize handle.
   Widget _buildHandle(_Handle handle) {
     final center = _handleCenter(handle);
     if (center == null) return const SizedBox.shrink();
@@ -301,13 +450,6 @@ class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
     );
   }
 
-  /// Top bar with cancel button (opaque).
-  ///
-  /// The earlier layout paired the [onCancel] button on the left with a
-  /// "Ajuster la zone" badge on the right. The badge added visual noise and
-  /// also occupied the top-right corner of the screen, which can shadow the
-  /// "topRight" handle of the selection rectangle. We removed the badge and
-  /// keep only the cancel control on the left.
   Widget _buildTopBar(BuildContext context) => Positioned(
     left: 0,
     right: 0,
@@ -342,24 +484,89 @@ class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
               ),
             ),
           ),
+          if (_isPolygonMode) ...[
+            const Spacer(),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _polygonLatLngPoints.isNotEmpty ? _removeLastPoint : null,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: _polygonLatLngPoints.isNotEmpty
+                      ? Colors.black.withValues(alpha: 0.55)
+                      : Colors.black.withValues(alpha: 0.25),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: _polygonLatLngPoints.isNotEmpty
+                        ? Colors.orange.withValues(alpha: 0.5)
+                        : Colors.transparent,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.undo,
+                      color: _polygonLatLngPoints.isNotEmpty
+                          ? Colors.orange
+                          : Colors.white38,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Retirer',
+                      style: TextStyle(
+                        color: _polygonLatLngPoints.isNotEmpty
+                            ? Colors.orange
+                            : Colors.white38,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _polygonLatLngPoints.length < 3
+                        ? Icons.warning
+                        : Icons.check_circle,
+                    color: _polygonLatLngPoints.length < 3
+                        ? Colors.orange
+                        : Colors.green,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${_polygonLatLngPoints.length}/3 pts min',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     ),
   );
 
-  /// Confirmation FAB — anchored at the bottom-center of the screen.
-  ///
-  /// CRITICAL: this widget is wrapped in a *plain* `Align` (not `Positioned`).
-  /// `Positioned(left: 0, right: 0, bottom: 0)` would have stretched the
-  /// `GestureDetector` to a full-screen-width opaque hit area, which would
-  /// intercept every pointer event along the bottom strip — making the
-  /// bottom handles (bottomLeft / middleBottom / bottomRight) of the
-  /// selection rectangle un-tappable whenever they crossed the FAB's band.
-  ///
-  /// Using `Align` alone keeps the FAB at its intrinsic width; taps on
-  /// background space to the left/right of the FAB pass cleanly through to
-  /// the underlying [FlutterMap]. The bottom edge of the selection rectangle
-  /// can therefore be dragged all the way to `_mapSize.height`.
   Widget _buildConfirmButton() => Align(
     alignment: Alignment.bottomCenter,
     child: SafeArea(
@@ -392,6 +599,42 @@ class _ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
       ),
     ),
   );
+
+  Widget _buildPolygonConfirmButton() {
+    final canConfirm = _polygonLatLngPoints.length >= 3;
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: SafeArea(
+        top: false,
+        bottom: true,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 24),
+          child: FloatingActionButton.extended(
+            heroTag: 'zoneEditorConfirmPoly',
+            backgroundColor: canConfirm ? const Color(0xFF0D6999) : Colors.grey,
+            foregroundColor: Colors.white,
+            elevation: 6,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(30),
+            ),
+            icon: const Icon(Icons.check, size: 22),
+            label: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+              child: Text(
+                'Terminer le tracé',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+            onPressed: canConfirm ? _confirmPolygon : null,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 enum _Handle {
@@ -482,4 +725,142 @@ class _SelectionPainter extends CustomPainter {
       top != old.top ||
       right != old.right ||
       bottom != old.bottom;
+}
+
+class _PolygonPainter extends CustomPainter {
+  final List<LatLng> latLngPoints;
+  final LatLng? provisionalLatLng;
+  final MapController mapController;
+  final Size mapSize;
+  final int cameraGeneration;
+
+  _PolygonPainter({
+    required this.latLngPoints,
+    this.provisionalLatLng,
+    required this.mapController,
+    required this.mapSize,
+    required this.cameraGeneration,
+  });
+
+  static const double _pointRadius = 8.0;
+  static const double _lineWidth = 3.0;
+
+  /// Convert LatLng to screen offset using FlutterMap camera
+  Offset _latLngToScreen(LatLng latLng) {
+    return mapController.camera.latLngToScreenOffset(latLng);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (latLngPoints.isEmpty && provisionalLatLng == null) return;
+
+    // Convert all LatLng points to screen coordinates
+    final screenPoints = latLngPoints
+        .map((latLng) => _latLngToScreen(latLng))
+        .toList();
+    final provisionalScreenPoint = provisionalLatLng != null
+        ? _latLngToScreen(provisionalLatLng!)
+        : null;
+
+    final linePaint = Paint()
+      ..color = const Color(0xFF0D6999)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _lineWidth;
+
+    final closurePaint = Paint()
+      ..color = const Color(0xFF0D6999).withValues(alpha: 0.2)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _lineWidth;
+
+    final previewPaint = Paint()
+      ..color = const Color(0xFF0D6999).withValues(alpha: 0.4)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _lineWidth;
+
+    final provisionalPaint = Paint()
+      ..color = Colors.orange.withValues(alpha: 0.6)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _lineWidth;
+
+    final pointPaint = Paint()
+      ..color = const Color(0xFF0D6999)
+      ..style = PaintingStyle.fill;
+
+    final provisionalPointPaint = Paint()
+      ..color = Colors.orange
+      ..style = PaintingStyle.fill;
+
+    final whiteStrokePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    final provisionalStrokePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    final pointStrokePaint = Paint()
+      ..color = const Color(0xFF0D6999)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    // Lines between definitive points
+    for (int i = 0; i < screenPoints.length - 1; i++) {
+      canvas.drawLine(screenPoints[i], screenPoints[i + 1], linePaint);
+    }
+
+    // Preview line from last definitive point to cursor
+    if (provisionalScreenPoint != null && screenPoints.isNotEmpty) {
+      canvas.drawLine(screenPoints.last, provisionalScreenPoint, previewPaint);
+    }
+
+    // Provisional point and connection line
+    if (provisionalScreenPoint != null && screenPoints.isNotEmpty) {
+      canvas.drawLine(
+        screenPoints.last,
+        provisionalScreenPoint,
+        provisionalPaint,
+      );
+    }
+
+    // Auto-closure line when 3+ definitive points
+    if (screenPoints.length >= 3) {
+      canvas.drawLine(screenPoints.last, screenPoints.first, closurePaint);
+    }
+
+    // Definitive points
+    for (int i = 0; i < screenPoints.length; i++) {
+      final offset = screenPoints[i];
+      canvas.drawCircle(
+        offset,
+        _pointRadius + 3,
+        pointPaint..color = const Color(0xFF0D6999).withValues(alpha: 0.2),
+      );
+      canvas.drawCircle(offset, _pointRadius + 1, whiteStrokePaint);
+      canvas.drawCircle(offset, _pointRadius, pointPaint);
+      canvas.drawCircle(offset, _pointRadius, pointStrokePaint);
+    }
+
+    // Provisional point (orange)
+    if (provisionalScreenPoint != null) {
+      final po = provisionalScreenPoint;
+      canvas.drawCircle(
+        po,
+        _pointRadius + 3,
+        provisionalPointPaint..color = Colors.orange.withValues(alpha: 0.2),
+      );
+      canvas.drawCircle(po, _pointRadius + 1, provisionalStrokePaint);
+      canvas.drawCircle(po, _pointRadius, provisionalPointPaint);
+      canvas.drawCircle(po, _pointRadius, provisionalStrokePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PolygonPainter old) {
+    return latLngPoints.length != old.latLngPoints.length ||
+        provisionalLatLng != old.provisionalLatLng ||
+        !listEquals(latLngPoints, old.latLngPoints) ||
+        cameraGeneration != old.cameraGeneration;
+  }
 }

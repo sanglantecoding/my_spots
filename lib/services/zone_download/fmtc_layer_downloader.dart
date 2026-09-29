@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
+import 'package:latlong2/latlong.dart';
 
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/services/zone_download/layer_download_result.dart';
@@ -32,6 +33,7 @@ abstract class LayerDownloader {
     required LayerProgressCallback onProgress,
     String? preCancelInstanceId,
     FMTCStore? preCancelStore,
+    List<LatLng>? polygon,
   });
 
   /// Annule un téléchargement en cours.
@@ -111,6 +113,7 @@ class FmtcLayerDownloader implements LayerDownloader {
     required LayerProgressCallback onProgress,
     String? preCancelInstanceId,
     FMTCStore? preCancelStore,
+    List<LatLng>? polygon,
   }) async {
     // Force minZoom à au moins 8 pour éviter le téléchargement des zooms 0-7
     // (trop de tuiles, inutiles pour la navigation hors-ligne)
@@ -119,15 +122,26 @@ class FmtcLayerDownloader implements LayerDownloader {
 
     await store.manage.create();
 
-    final region = RectangleRegion(bounds).toDownloadable(
-      minZoom: effectiveMinZoom,
-      maxZoom: effectiveMaxZoom,
-      options: TileLayer(
-        urlTemplate: urlTemplate,
-        userAgentPackageName: MapTileCacheService.packageName,
-        tileProvider: _DownloadOnlyTileProvider(headers: headers),
-      ),
-    );
+    // Use CustomPolygonRegion if polygon is provided and valid, otherwise RectangleRegion
+    final region = (polygon != null && polygon.length >= 3)
+        ? CustomPolygonRegion(polygon).toDownloadable(
+            minZoom: effectiveMinZoom,
+            maxZoom: effectiveMaxZoom,
+            options: TileLayer(
+              urlTemplate: urlTemplate,
+              userAgentPackageName: MapTileCacheService.packageName,
+              tileProvider: _DownloadOnlyTileProvider(headers: headers),
+            ),
+          )
+        : RectangleRegion(bounds).toDownloadable(
+            minZoom: effectiveMinZoom,
+            maxZoom: effectiveMaxZoom,
+            options: TileLayer(
+              urlTemplate: urlTemplate,
+              userAgentPackageName: MapTileCacheService.packageName,
+              tileProvider: _DownloadOnlyTileProvider(headers: headers),
+            ),
+          );
 
     // Annule un éventuel téléchargement orphelin de la même zone.
     if (preCancelInstanceId != null && preCancelStore != null) {

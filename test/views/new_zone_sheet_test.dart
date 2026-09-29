@@ -63,7 +63,7 @@ void main() {
 
   group('ZoneConfig.withLayers', () {
     test('replaces the layers list with the given one', () {
-      const initial = ZoneConfig(name: 'Test', layers: []);
+      const initial = ZoneConfig(name: 'Test', layers: [], zoneType: 'Rectangle');
       final updated = initial.withLayers([LayerType.marine50k]);
       expect(updated.name, 'Test');
       expect(updated.layers, [LayerType.marine50k]);

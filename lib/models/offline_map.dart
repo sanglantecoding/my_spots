@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:latlong2/latlong.dart';
 import 'package:objectbox/objectbox.dart';
 
 enum OfflineMapStatus { notStarted, downloading, partial, ready, failed }
@@ -13,6 +16,10 @@ class OfflineMap {
   final double southLat;
   final double westLng;
   final double eastLng;
+
+  /// Polygon vertices as JSON string (null for rectangle zones)
+  /// Format: [{"lat": 45.0, "lng": 2.0}, ...] in order of points
+  String? polygonJson;
 
   int statusIndex;
 
@@ -34,6 +41,7 @@ class OfflineMap {
     required this.southLat,
     required this.westLng,
     required this.eastLng,
+    this.polygonJson,
     required this.statusIndex,
     required this.createdAt,
     this.lastError,
@@ -47,6 +55,7 @@ class OfflineMap {
     required double southLat,
     required double westLng,
     required double eastLng,
+    String? polygonJson,
   }) {
     return OfflineMap(
       uuid: uuid,
@@ -55,6 +64,7 @@ class OfflineMap {
       southLat: southLat,
       westLng: westLng,
       eastLng: eastLng,
+      polygonJson: polygonJson,
       statusIndex: OfflineMapStatus.notStarted.index,
       createdAt: DateTime.now(),
       lastError: null,
@@ -74,6 +84,33 @@ class OfflineMap {
   bool get isNotStarted => status == OfflineMapStatus.notStarted;
 
   bool get isCompleted => completedAt.millisecondsSinceEpoch > 0;
+
+  /// Decode polygon vertices from JSON string
+  /// Returns null if polygonJson is null, invalid, or has fewer than 3 points
+  List<LatLng>? get polygonPoints {
+    if (polygonJson == null) return null;
+
+    try {
+      final dynamic decoded = jsonDecode(polygonJson!);
+      if (decoded is! List) return null;
+
+      final points = <LatLng>[];
+      for (final item in decoded) {
+        if (item is! Map<String, dynamic>) return null;
+        final lat = item['lat'];
+        final lng = item['lng'];
+        if (lat is! num || lng is! num) return null;
+        points.add(LatLng(lat.toDouble(), lng.toDouble()));
+      }
+
+      // Require at least 3 points for a valid polygon
+      if (points.length < 3) return null;
+
+      return points;
+    } catch (e) {
+      return null;
+    }
+  }
 
   void markCompleted() {
     completedAt = DateTime.now();
