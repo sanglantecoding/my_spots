@@ -167,11 +167,6 @@ class CacheManager {
     _zoneSizeCache.remove(zoneUuid);
   }
 
-  /// Invalide tout le cache de taille (ex: au démarrage de l'app si besoin).
-  static void clearZoneSizeCache() {
-    _zoneSizeCache.clear();
-  }
-
   static String formatBytes(int bytes) {
     if (bytes <= 0) return '0 o';
     const units = ['o', 'Ko', 'Mo', 'Go', 'To'];

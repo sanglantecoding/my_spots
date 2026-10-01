@@ -110,15 +110,7 @@ class TileProviderFactory {
 
   // ── Caches de providers : instances STABLES, taille BORNÉE ────────────────
   // flutter_map reset les tuiles d'une TileLayer quand l'instance de
-  // tileProvider change. Comme MapView se reconstruit à chaque tick GPS,
-  // on mémoïse les providers par clé structurelle (couche + zones) pour
-  // que les rebuilds ne rechargent jamais les tuiles.
-  //
-  // 🛡️ Politique de taille : chaque cache est un LRU borné à
-  // [_maxProvidersPerCache] entrées. Sans cela, les combinaisons
-  // historiques de zones (A, A+B, A+B+C…) s'accumuleraient sans limite
-  // pendant toute la session, alors que seule la combinaison courante
-  // ressert réellement.
+  // tileProvider change.
   static const int _maxProvidersPerCache = 8;
 
   static final _marineTileProviders = _BoundedProviderCache(
@@ -281,21 +273,6 @@ class TileProviderFactory {
       );
     });
   }
-
-  static TileProvider? _lidarOmbrageTileProvider;
-  static TileProvider lidarOmbrageTileProvider() {
-    return _lidarOmbrageTileProvider ??= OfflineTransparentTileProvider(
-      stores: {
-        CacheManager.marineStoreForLayer('LIDAR_OMBRAGE_WMTS'):
-            BrowseStoreStrategy.readUpdateCreate,
-      },
-      otherStoresStrategy: null,
-      loadingStrategy: BrowseLoadingStrategy.cacheOnly,
-      headers: shomTileHeaders,
-      errorHandler: handleFmtcBrowsingError,
-      httpClient: httpClient,
-    );
-  }
 }
 
 /// Cache LRU borné de [TileProvider].
@@ -318,13 +295,13 @@ class _BoundedProviderCache {
   TileProvider putIfAbsent(String key, TileProvider Function() create) {
     final existing = _entries.remove(key);
     if (existing != null) {
-      _entries[key] = existing; // touche LRU
+      _entries[key] = existing;
       return existing;
     }
     final created = create();
     _entries[key] = created;
     while (_entries.length > maxEntries) {
-      _entries.remove(_entries.keys.first); // évince le plus ancien
+      _entries.remove(_entries.keys.first);
     }
     return created;
   }

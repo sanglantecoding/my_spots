@@ -1,3 +1,4 @@
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/material.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/waypoint.dart';
@@ -9,6 +10,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
 import 'dart:io';
+
+/// Mode d'application d'un import de sauvegarde sur les waypoints locaux.
+enum _ImportMode { merge, replace }
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -128,6 +132,131 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// 🛡️ Demande explicitement à l'utilisateur si l'import doit FUSIONNER
+  /// avec les waypoints existants ou les REMPLACER (destructif).
+  /// Retourne `null` si l'utilisateur annule : aucune donnée n'est touchée.
+  Future<_ImportMode?> _askImportMode(int importedCount) async {
+    final currentCount = WaypointStore.waypoints.length;
+    return showDialog<_ImportMode>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A2F42),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Importer la sauvegarde',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Le fichier contient $importedCount waypoint(s).\n'
+              'Votre appareil en contient actuellement $currentCount.\n\n'
+              'Les réglages (ports, unités, affichage…) seront remplacés '
+              'dans les deux cas.',
+              style: const TextStyle(color: Colors.white70, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            // ── Option 1 : fusion (non destructive) ──
+            Material(
+              color: Colors.green.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => Navigator.pop(ctx, _ImportMode.merge),
+                child: const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.add_circle_outline, color: Colors.greenAccent),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Ajouter aux existants',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Aucun point perdu, doublons ignorés',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // ── Option 2 : remplacement (destructif) ──
+            Material(
+              color: Colors.red.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => Navigator.pop(ctx, _ImportMode.replace),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Colors.redAccent,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Remplacer tous les waypoints',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '⚠️ Les $currentCount point(s) actuels seront supprimés',
+                              style: const TextStyle(
+                                color: Colors.redAccent,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx), // null = annulé
+            child: const Text(
+              'ANNULER',
+              style: TextStyle(color: Colors.white54),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _importAllData() async {
     try {
       final result = await FilePicker.pickFiles(type: FileType.any);
@@ -169,8 +298,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       }
 
-      WaypointStore.waypoints.clear();
-      WaypointStore.waypoints.addAll(importedWaypoints);
+      if (importedWaypoints.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Aucun waypoint valide trouvé dans le fichier'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      // 🛡️ NOUVEAU : choix explicite fusion / remplacement AVANT toute
+      // mutation du store. Annuler = fichier lu mais rien n'est touché.
+      final mode = await _askImportMode(importedWaypoints.length);
+      if (mode == null) return;
+      if (!mounted) return;
+
+      int addedCount = 0;
+      int duplicateCount = 0;
+      if (mode == _ImportMode.replace) {
+        WaypointStore.waypoints.clear();
+        WaypointStore.waypoints.addAll(importedWaypoints);
+        addedCount = importedWaypoints.length;
+      } else {
+        // Fusion : même tolérance de doublons que l'import GPX
+        // (~5 décimales ≈ 1,1 m). La liste grossit au fur et à mesure,
+        // donc les doublons INTERNES au fichier sont aussi ignorés.
+        for (final wp in importedWaypoints) {
+          final isDuplicate = WaypointStore.waypoints.any(
+            (existing) =>
+                (existing.latitude - wp.latitude).abs() < 0.00001 &&
+                (existing.longitude - wp.longitude).abs() < 0.00001,
+          );
+          if (isDuplicate) {
+            duplicateCount++;
+          } else {
+            WaypointStore.waypoints.add(wp);
+            addedCount++;
+          }
+        }
+      }
       await WaypointStore.save();
 
       final settings = data['settings'] as Map<String, dynamic>? ?? {};
@@ -286,11 +455,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await AppSettings.saveFavoritePorts(AppSettings.favoritePorts);
 
       if (mounted) {
+        final String message;
+        if (mode == _ImportMode.replace) {
+          message =
+              '${importedWaypoints.length} waypoints importés (remplacement) + réglages appliqués';
+        } else if (addedCount > 0 && duplicateCount > 0) {
+          message =
+              '$addedCount waypoint(s) ajouté(s), $duplicateCount doublon(s) ignoré(s) + réglages appliqués';
+        } else if (addedCount > 0) {
+          message = '$addedCount waypoint(s) ajouté(s) + réglages appliqués';
+        } else {
+          message =
+              '$duplicateCount doublon(s) ignoré(s), aucun nouveau point + réglages appliqués';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              '${importedWaypoints.length} waypoints et tous les réglages importés',
-            ),
+            content: Text(message),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 4),
           ),
@@ -365,6 +545,184 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
     }
+  }
+
+  /// Dialog de configuration de la clé API Thunderforest.
+  ///
+  /// Deux chemins :
+  ///   1. "Créer une clé API" → ouvre la page d'inscription Thunderforest
+  ///      (plan Hobby gratuit) dans le navigateur externe, puis ferme le
+  ///      dialog SANS activer la Randonnée (l'utilisateur devra revenir
+  ///      cliquer après avoir copié sa clé).
+  ///   2. "Coller ma clé" → bascule en mode saisie avec un TextField.
+  ///      Si la clé est valide (UUID 32/36 caractères), elle est persistée
+  ///      et la Randonnée devient disponible.
+  ///
+  /// Retourne `true` si une clé valide a été enregistrée pendant ce dialog.
+  Future<bool> _showThunderforestKeyDialog() async {
+    const signUpUrl =
+        'https://manage.thunderforest.com/users/sign_up?price=hobby-project';
+    final keyController = TextEditingController();
+    String? errorText;
+    bool inputMode = false; // false = choix initial, true = TextField visible
+
+    // Regex UUID Thunderforest : 32 hex (ou 36 avec tirets).
+    final uuidRegex = RegExp(
+      r'^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$',
+    );
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1A2F42),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: const Row(
+              children: [
+                Icon(Icons.vpn_key, color: Colors.orangeAccent, size: 24),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Clé API Thunderforest',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            content: inputMode
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Collez votre clé API Thunderforest ci-dessous.\n'
+                        'Vous la trouverez sur manage.thunderforest.com → '
+                        'onglet "API Keys".',
+                        style: TextStyle(color: Colors.white70, height: 1.4),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: keyController,
+                        autofocus: true,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+                          hintStyle: const TextStyle(color: Colors.white30),
+                          errorText: errorText,
+                          errorStyle: const TextStyle(color: Colors.redAccent),
+                          filled: true,
+                          fillColor: Colors.white.withValues(alpha: 0.08),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide.none,
+                          ),
+                          suffixIcon: IconButton(
+                            icon: const Icon(
+                              Icons.clear,
+                              color: Colors.white54,
+                            ),
+                            onPressed: () {
+                              keyController.clear();
+                              setDialogState(() => errorText = null);
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : const Text(
+                    'La carte "Randonnée" utilise le service Thunderforest, '
+                    'qui nécessite une clé API gratuite (plan Hobby).\n\n'
+                    '• "Créer une clé API" : ouvre la page d\'inscription '
+                    'dans votre navigateur.\n'
+                    '• "Coller ma clé" : si vous en avez déjà une.',
+                    style: TextStyle(color: Colors.white70, height: 1.4),
+                  ),
+            actions: inputMode
+                ? [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text(
+                        'ANNULER',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        final raw = keyController.text.trim();
+                        if (raw.isEmpty) {
+                          setDialogState(
+                            () => errorText = 'La clé ne peut pas être vide.',
+                          );
+                          return;
+                        }
+                        if (!uuidRegex.hasMatch(raw)) {
+                          setDialogState(
+                            () => errorText = 'Format invalide (UUID attendu).',
+                          );
+                          return;
+                        }
+                        await AppSettings.saveThunderforestApiKey(raw);
+                        if (ctx.mounted) Navigator.pop(ctx, true);
+                      },
+                      child: const Text(
+                        'ENREGISTRER',
+                        style: TextStyle(
+                          color: Colors.greenAccent,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ]
+                : [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text(
+                        'ANNULER',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final uri = Uri.parse(signUpUrl);
+                        await launchUrl(
+                          uri,
+                          mode: LaunchMode.externalApplication,
+                        );
+                        if (ctx.mounted) Navigator.pop(ctx, false);
+                      },
+                      icon: const Icon(Icons.open_in_new, size: 16),
+                      label: const Text('Créer une clé API'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.orangeAccent,
+                        side: const BorderSide(color: Colors.orangeAccent),
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        setDialogState(() {
+                          inputMode = true;
+                          errorText = null;
+                        });
+                      },
+                      icon: const Icon(Icons.content_paste, size: 16),
+                      label: const Text('Coller ma clé'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueAccent,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+          );
+        },
+      ),
+    );
+
+    keyController.dispose();
+    return result == true;
   }
 
   @override
@@ -721,9 +1079,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    subtitle: const Text(
-                      'Thunderforest Outdoors',
-                      style: TextStyle(color: Colors.white54),
+                    subtitle: Text(
+                      AppSettings.hasThunderforestApiKey
+                          ? 'Thunderforest Outdoors ✓'
+                          : 'Thunderforest Outdoors (clé API requise)',
+                      style: TextStyle(
+                        color: AppSettings.hasThunderforestApiKey
+                            ? Colors.white54
+                            : Colors.orangeAccent,
+                      ),
                     ),
                     value: MapType.hiking,
                     // ignore: deprecated_member_use
@@ -731,12 +1095,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     activeColor: Colors.blueAccent,
                     // ignore: deprecated_member_use
                     onChanged: (MapType? value) async {
-                      if (value != null) {
-                        setState(() {
-                          _selectedMapType = value;
-                        });
-                        await AppSettings.saveMapType(value);
+                      if (value == null) return;
+                      if (value == MapType.hiking &&
+                          !AppSettings.hasThunderforestApiKey) {
+                        final configured = await _showThunderforestKeyDialog();
+                        if (!configured) {
+                          // Même en cas d'annulation, refresh pour refléter une éventuelle
+                          // clé posée entre-temps via un autre chemin.
+                          setState(() {});
+                          return;
+                        }
                       }
+                      setState(() {
+                        _selectedMapType = value;
+                      });
+                      await AppSettings.saveMapType(value);
                     },
                   ),
                   const Divider(

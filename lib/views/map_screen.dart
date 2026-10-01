@@ -300,11 +300,6 @@ class _MapScreenState extends State<MapScreen> {
         (a.west - b.west).abs() < epsilon;
   }
 
-  void _logMapTileError(TileImage tile, Object error, StackTrace? stackTrace) {
-    // Simple logging for tile errors - can be enhanced if needed.
-    debugPrint('Tile error: $tile - $error');
-  }
-
   Widget _buildBathymetryOverlayControls() {
     return Material(
       color: Colors.black.withValues(alpha: 0.72),
@@ -1060,15 +1055,12 @@ class _MapScreenState extends State<MapScreen> {
                       setState(() => _isFollowingUser = false);
                     }
                   },
-                  onErrorTile: _logMapTileError,
                 ),
                 // Zone-adjustment overlay (active quand tracé de zone).
                 if (_zoneEditMode)
                   Positioned.fill(
                     child: ZoneEditorOverlay(
                       key: _zoneEditorKey,
-                      centerPoint: _mapController.camera.center,
-                      // Extract zone type from config; default to rectangle if null
                       drawMode: _pendingZoneConfig?.zoneType == 'Main levée'
                           ? ZoneDrawMode.polygon
                           : ZoneDrawMode.rectangle,
@@ -1094,12 +1086,13 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 // ── UI masquée pendant le tracé de zone ──
                 if (!_zoneEditMode) ...[
-                  // Sélecteur LiDAR / Bathymétrie (haut-gauche).
-                  Positioned(
-                    left: 6,
-                    top: 10,
-                    child: _buildBathymetryOverlayControls(),
-                  ),
+                  if (AppSettings.mapType == MapType.marine)
+                    // Sélecteur LiDAR / Bathymétrie (haut-gauche).
+                    Positioned(
+                      left: 6,
+                      top: 10,
+                      child: _buildBathymetryOverlayControls(),
+                    ),
                   // Boutons : recentrage GPS, toggle waypoints, + waypoint.
                   Positioned(
                     right: 6,

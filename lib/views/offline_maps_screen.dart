@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
-import 'package:my_spots/core/app_initialization_status.dart'; // 🟢 NOUVEAU
+import 'package:my_spots/core/app_initialization_status.dart';
 import 'package:my_spots/models/offline_map.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
@@ -93,7 +93,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     _progressSubscription?.cancel();
     _errorSubscription?.cancel();
     _completionSubscription?.cancel();
-    _objectBoxReadySubscription?.cancel(); // 🟢 NOUVEAU
+    _objectBoxReadySubscription?.cancel();
     super.dispose();
   }
 
@@ -101,7 +101,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   /// Sinon, ne fait rien : le listener du notifier réessaiera plus tard.
   void _tryLoadZones() {
     final repo = OfflineMapRepository.instance;
-    if (repo == null) return; // 🟢 pas de _hasError = true ici, on attend
+    if (repo == null) return;
     _offlineMapRepo = repo;
     _loadZones();
   }
@@ -128,7 +128,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     final layers = repo.findLayersForMap(map);
     final bytes = await MapTileCacheService.getZoneSizeBytes(uuid);
 
-    if (!mounted) return; // 🛡️ Garde-fou
+    if (!mounted) return;
 
     setState(() {
       final index = _zones.indexWhere((z) => z.uuid == uuid);
@@ -163,7 +163,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
       layerMap[z.uuid] = repo.findLayersForMap(z);
     }
 
-    if (!mounted) return; // 🛡️ Garde-fou
+    if (!mounted) return;
 
     setState(() {
       _zones = zones;
@@ -176,14 +176,11 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   }
 
   Future<void> _computeZoneSizes() async {
-    // 🟢 Parallélisation : tous les appels FMTC partent en même temps.
-    // Le cache mémoire de CacheManager évite en plus de recalculer les zones
-    // déjà connues (cache hit instantané).
     final futures = <Future<void>>[];
     for (final zone in _zones) {
       futures.add(() async {
         final bytes = await MapTileCacheService.getZoneSizeBytes(zone.uuid);
-        if (!mounted) return; // 🛡️ Garde-fou
+        if (!mounted) return;
         setState(() => _zoneSizesBytes[zone.uuid] = bytes);
       }());
     }
@@ -197,7 +194,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     if (_downloadingUuids.contains(map.uuid)) {
       return;
     }
-    if (!mounted) return; // 🛡️ Garde-fou
+    if (!mounted) return;
     setState(() {
       _downloadingUuids.add(map.uuid);
       _progress[map.uuid] = 0.0;
@@ -214,14 +211,14 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
 
   Future<void> _handleCancel(String uuid) async {
     await _zoneService.cancelDownload(uuid);
-    if (!mounted) return; // 🛡️ Garde-fou
+    if (!mounted) return;
     _snack('Telechargement annule');
   }
 
   void _handlePause(String uuid) {
     final success = _zoneService.pauseDownload(uuid);
     if (success) {
-      if (!mounted) return; // 🛡️ Garde-fou
+      if (!mounted) return;
       setState(() {});
       _snack('Telechargement en pause');
     } else {
@@ -235,7 +232,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   void _handleResume(String uuid) {
     final success = _zoneService.resumeDownload(uuid);
     if (success) {
-      if (!mounted) return; // 🛡️ Garde-fou
+      if (!mounted) return;
       setState(() {});
       _snack('Telechargement repris');
     } else {
@@ -279,7 +276,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
 
     _zoneService.clearZoneHistory(map.uuid);
 
-    if (!mounted) return; // 🛡️ Garde-fou
+    if (!mounted) return;
     setState(() {
       _zones.removeWhere((z) => z.uuid == map.uuid);
       _layers.remove(map.uuid);
@@ -291,7 +288,6 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     _snack('Zone supprimee');
   }
 
-  /// 🛡️ NOUVEAU : Vérifie le mode hors-ligne avant de lancer la création de zone.
   /// Si hors-ligne, affiche un dialog proposant de passer en ligne (comme MapScreen).
   Future<void> _handleCreateZone() async {
     if (!AppSettings.offlineModeEnabled) {
@@ -346,7 +342,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
 
     if (switchOnline != true) return;
     await AppSettings.saveOfflineMode(false);
-    if (!mounted) return; // 🛡️ Garde-fou
+    if (!mounted) return;
     _showNewZoneSheet();
   }
 
@@ -360,7 +356,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   }
 
   void _snack(String message, {bool isError = false}) {
-    if (!mounted) return; // 🛡️ Garde-fou
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(color: Colors.white)),

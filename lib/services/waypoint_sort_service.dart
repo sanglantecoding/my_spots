@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/waypoint.dart';
 import 'gps_service.dart';
-import 'dart:math';
 
 /// Service pour le tri et la gestion des waypoints par distance
 class WaypointSortService {
@@ -48,60 +47,6 @@ class WaypointSortService {
     } else {
       return '${(meters / 1000).toStringAsFixed(1)} km';
     }
-  }
-
-  /// Détermine si le tri doit être rafraîchi
-  static bool shouldRefreshSort(LatLng? oldPosition, LatLng? newPosition) {
-    if (oldPosition == null || newPosition == null) return true;
-
-    // Calcul de la distance entre les positions
-    final distanceMoved = _calculateDistanceBetweenPositions(
-      oldPosition,
-      newPosition,
-    );
-
-    // Rafraîchir si l'utilisateur a bougé de plus de 100 mètres
-    return distanceMoved > 100.0;
-  }
-
-  /// Calcule la distance entre deux positions LatLng
-  static double _calculateDistanceBetweenPositions(LatLng pos1, LatLng pos2) {
-    const double earthRadius = 6371000.0; // Rayon de la Terre en mètres
-    final double dLat = _toRadians(pos2.latitude - pos1.latitude);
-    final double dLon = _toRadians(pos2.longitude - pos1.longitude);
-    final double a =
-        sin(dLat / 2) * sin(dLat / 2) +
-        cos(_toRadians(pos1.latitude)) *
-            cos(_toRadians(pos2.latitude)) *
-            sin(dLon / 2) *
-            sin(dLon / 2);
-    final double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    return earthRadius * c;
-  }
-
-  /// Convertit les degrés en radians
-  static double _toRadians(double degrees) => degrees * pi / 180;
-
-  /// Obtient une liste enrichie avec distances pour l'affichage
-  static List<WaypointWithDistance> getWaypointsWithDistance(
-    List<Waypoint> waypoints,
-    LatLng? currentPosition,
-  ) {
-    final sortedWaypoints = sortWaypointsByDistance(waypoints, currentPosition);
-
-    return sortedWaypoints.map((waypoint) {
-      final distance = currentPosition != null
-          ? GpsService.calculateDistance(currentPosition, waypoint)
-          : null;
-
-      return WaypointWithDistance(
-        waypoint: waypoint,
-        distance: distance,
-        formattedDistance: distance != null
-            ? 'à ${_formatDistanceForDisplay(distance)}'
-            : 'Distance inconnue',
-      );
-    }).toList();
   }
 }
 

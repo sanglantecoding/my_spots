@@ -12,12 +12,9 @@ class Waypoint {
   final DateTime createdAt;
   final String colorHex;
   final WaypointCategory category;
-  final double? creationAccuracy; // Précision GPS lors de la création
-  final String?
-  gpsStatus; // Statut de précision ("Vert", "Jaune", "Orange", "Rouge", "Inconnu")
+  final double? creationAccuracy;
+  final String? gpsStatus;
 
-  // ✅ CORRECTION : On retire le `this.` et la valeur par défaut du paramètre.
-  // C'est la liste d'initialisation en dessous qui s'occupe de tout.
   Waypoint({
     required this.name,
     required this.latitude,
@@ -36,7 +33,7 @@ class Waypoint {
     final value = (raw ?? '').trim().replaceFirst('#', '').toUpperCase();
     if (_argb8Hex.hasMatch(value)) return value;
     if (_rgb6Hex.hasMatch(value)) return 'FF$value';
-    return 'FFFFEB3B'; // Valeur par défaut (Jaune) si null ou invalide
+    return 'FFFFEB3B';
   }
 
   Color get color => Color(int.parse(colorHex, radix: 16));
@@ -75,8 +72,7 @@ class Waypoint {
       latitude: (json['latitude'] as num?)?.toDouble() ?? 0.0,
       longitude: (json['longitude'] as num?)?.toDouble() ?? 0.0,
       createdAt: createdAt,
-      colorHex: json['colorHex']
-          ?.toString(), // Sera nettoyé par le constructeur
+      colorHex: json['colorHex']?.toString(),
       category: parsedCategory,
       creationAccuracy: (json['creationAccuracy'] as num?)?.toDouble(),
       gpsStatus: json['gpsStatus'] as String? ?? 'Inconnu',
@@ -110,9 +106,7 @@ class WaypointStore {
           if (item is Map) {
             waypoints.add(Waypoint.fromJson(Map<String, dynamic>.from(item)));
           }
-        } catch (_) {
-          // Ignore a single corrupted waypoint instead of dropping the store.
-        }
+        } catch (_) {}
       }
     } catch (_) {
       waypoints.clear();

@@ -66,20 +66,12 @@ class AlarmEvent {
   Waypoint get waypointPayload => payload as Waypoint;
 }
 
-/// Machine à états pour une initialisation robuste du player audio.
 enum _PlayerState { uninitialized, initializing, ready, failed }
 
-/// Service centralisé pour la gestion des alarmes de proximité.
-///
-/// Gère les zones X, Y, Z avec différentes fréquences de bip.
 class AlarmService {
   static Timer? _proximityTimer;
   static AudioPlayer? _proximityPlayer;
-
-  // 🟢 NOUVEAU : Cache audio pour éviter de re-parser l'asset à chaque bip (ex: 500ms en zone Z).
-  // AudioCache extrait le fichier une seule fois, les lectures suivantes sont quasi instantanées.
   static final AudioCache _audioCache = AudioCache(prefix: 'sounds/');
-
   static Waypoint? _targetWaypoint;
   static LatLng? _currentPosition;
   static String? _lastProximityZone;
@@ -91,8 +83,6 @@ class AlarmService {
 
   /// Vrai si un [play] a réussi et n'a pas encore été suivi d'un [stop].
   static bool _isPlayerStarted = false;
-
-  // 🟢 NOUVEAU : Remplace _isInitialized pour un suivi précis de l'état.
   static _PlayerState _playerState = _PlayerState.uninitialized;
 
   static final StreamController<AlarmEvent> _alarmEventController =
@@ -102,10 +92,6 @@ class AlarmService {
   static Stream<AlarmEvent> get onAlarmEvent => _alarmEventController.stream;
 
   /// Initialise le service d'alarme.
-  ///
-  /// 🛡️ CORRECTION : L'état ne passe à `ready` qu'APRÈS la réussite des await.
-  /// On ne précharge PAS le son ici (setSource) pour éviter la boucle
-  /// getDuration/seekTo du MediaPlayer Android observée précédemment.
   static Future<void> initialize() async {
     if (_playerState == _PlayerState.initializing ||
         _playerState == _PlayerState.ready) {
@@ -128,7 +114,6 @@ class AlarmService {
       await _proximityPlayer!.setVolume(1.0);
       await _proximityPlayer!.setReleaseMode(ReleaseMode.stop);
 
-      // 🟢 L'état ne devient ready que si tout a réussi.
       _playerState = _PlayerState.ready;
     } catch (e) {
       if (kVerboseAlarm) {
@@ -137,30 +122,6 @@ class AlarmService {
       _playerState = _PlayerState.failed;
       _proximityPlayer = null;
     }
-  }
-
-  @Deprecated('Utilisez AlarmService.onAlarmEvent (Stream multi-abonnés)')
-  static void setCallbacks({
-    Function(bool)? onSpeakerIconChanged,
-    Function()? onAlarmTriggered,
-    Function(bool)? onMutedChanged,
-  }) {
-    onAlarmEvent.listen((event) {
-      switch (event.type) {
-        case AlarmEventType.speakerIconChanged:
-          onSpeakerIconChanged?.call(event.boolPayload);
-          break;
-        case AlarmEventType.alarmTriggered:
-          onAlarmTriggered?.call();
-          break;
-        case AlarmEventType.mutedChanged:
-          onMutedChanged?.call(event.boolPayload);
-          break;
-        // ignore: no_default_cases
-        default:
-          break;
-      }
-    });
   }
 
   /// Met à jour la position actuelle depuis le flux GPS principal
@@ -183,12 +144,6 @@ class AlarmService {
     _targetWaypoint = null;
     _emit(AlarmEvent.monitoringStopped());
     _stopProximityAlarm();
-  }
-
-  /// Définit le waypoint cible pour les alarmes
-  static void setTargetWaypoint(Waypoint? waypoint) {
-    _targetWaypoint = waypoint;
-    _updateProximityAlarm();
   }
 
   /// Émet un événement sur le flux broadcast (safe si déjà fermé).
@@ -308,15 +263,8 @@ class AlarmService {
   }
 
   /// Joue le bip en toute sécurité.
-  ///
-  /// 🛡️ CORRECTION : Utilise `AudioCache` pour charger l'asset une seule fois.
-  /// Cela évite de re-parser le fichier MP3 à chaque cycle (critique en zone Z à 500ms),
-  /// tout en évitant le `setSource()` prématuré dans `initialize()` qui causait
-  /// des boucles MediaPlayer sur Android.
   static Future<bool> _safePlayBeep() async {
     if (_isMuted) return false;
-
-    // 🟢 Initialisation à la volée si elle a échoué ou n'a pas été faite
     if (_playerState != _PlayerState.ready) {
       await initialize();
       if (_playerState != _PlayerState.ready) return false;
@@ -325,9 +273,6 @@ class AlarmService {
     try {
       final p = _proximityPlayer!;
       _isPlayerStarted = true;
-
-      // 🟢 AudioCache gère l'extraction de l'asset. Les appels suivants
-      // après le premier sont quasi instantanés.
       final source = await _audioCache.load('beep.mp3');
       await p.play(DeviceFileSource(source.path));
 
@@ -387,6 +332,6 @@ class AlarmService {
       _proximityPlayer = null;
     }
     _isPlayerStarted = false;
-    _playerState = _PlayerState.uninitialized; // 🟢 Reset complet de l'état
+    _playerState = _PlayerState.uninitialized;
   }
 }

@@ -10,7 +10,9 @@ import 'package:my_spots/services/port_service.dart';
 // que par les icones d'etat de ce widget.
 const Color _kActivePortGreen = Color(0xFF2E7D32); // vert material 800
 const Color _kFavoriteStarGold = Color(0xFFFFC107); // ambre material 500
-const Color _kFavoriteStarOff = Color(0xFF616161); // gris pour etoile non favori
+const Color _kFavoriteStarOff = Color(
+  0xFF616161,
+); // gris pour etoile non favori
 
 /// Widget de selection du port meteo.
 /// Permet de choisir un port francais dans une liste deroulante,
@@ -23,12 +25,8 @@ class MeteoPortSetting extends StatefulWidget {
 }
 
 class _MeteoPortSettingState extends State<MeteoPortSetting> {
-  int _version = 0;
-
   void _rebuild() {
-    setState(() {
-      _version++;
-    });
+    setState(() {});
   }
 
   Future<void> _openPicker() async {
@@ -42,15 +40,10 @@ class _MeteoPortSettingState extends State<MeteoPortSetting> {
 
   @override
   Widget build(BuildContext context) {
-    // _version est lu pour forcer le rebuild apres modif (favoris, selection).
-    // ignore: unused_local_variable
-    final v = _version;
     final selected = AppSettings.selectedPortKey == null
         ? null
         : PortService.instance.getPortByKey(AppSettings.selectedPortKey!);
-    final label = selected == null
-        ? 'Aucun (meteo generale)'
-        : selected.name;
+    final label = selected == null ? 'Aucun (meteo generale)' : selected.name;
     return ListTile(
       leading: const Icon(Icons.wb_cloudy),
       title: const Text('Port meteo'),
@@ -127,7 +120,9 @@ class _PortPickerSheetState extends State<_PortPickerSheet> {
                 decoration: InputDecoration(
                   labelText: 'Nom',
                   labelStyle: TextStyle(
-                    color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.7),
+                    color: Theme.of(
+                      ctx,
+                    ).colorScheme.onSurface.withValues(alpha: 0.7),
                   ),
                 ),
               ),
@@ -137,7 +132,9 @@ class _PortPickerSheetState extends State<_PortPickerSheet> {
                 decoration: InputDecoration(
                   labelText: 'URL meteo',
                   labelStyle: TextStyle(
-                    color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.7),
+                    color: Theme.of(
+                      ctx,
+                    ).colorScheme.onSurface.withValues(alpha: 0.7),
                   ),
                 ),
               ),
@@ -150,7 +147,9 @@ class _PortPickerSheetState extends State<_PortPickerSheet> {
             child: Text(
               'Annuler',
               style: TextStyle(
-                color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.7),
+                color: Theme.of(
+                  ctx,
+                ).colorScheme.onSurface.withValues(alpha: 0.7),
               ),
             ),
           ),
@@ -168,8 +167,7 @@ class _PortPickerSheetState extends State<_PortPickerSheet> {
       PortService.instance.updatePortInfo(
         key: port.key,
         name: nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
-        weatherUrl:
-            urlCtrl.text.trim().isEmpty ? null : urlCtrl.text.trim(),
+        weatherUrl: urlCtrl.text.trim().isEmpty ? null : urlCtrl.text.trim(),
       );
       widget.onChanged();
       setState(() {});
@@ -275,10 +273,7 @@ class _PortPickerSheetState extends State<_PortPickerSheet> {
                 color: colorScheme.onSurface.withValues(alpha: 0.5),
               ),
       ),
-      title: Text(
-        port.name,
-        style: TextStyle(color: colorScheme.onSurface),
-      ),
+      title: Text(port.name, style: TextStyle(color: colorScheme.onSurface)),
       subtitle: Text(
         port.weatherUrl,
         maxLines: 1,

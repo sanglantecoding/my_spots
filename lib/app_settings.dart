@@ -3,25 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:my_spots/controllers/gps_controller.dart';
 import 'package:my_spots/models/fishing_port.dart';
 import 'package:my_spots/services/port_service.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
-
-/// Clé API Thunderforest — chargée depuis le fichier .env via flutter_dotenv.
-/// NE JAMAIS coder en dur cette clé dans le code source !
-/// Voir main.dart pour le chargement de dotenv avant l'initialisation de l'app.
-///
-/// ⚠️ NOTE DE SÉCURITÉ :
-/// La clé actuelle est valide et fonctionnelle.
-/// Comme toute clé utilisée côté client, elle peut être extraite du binaire :
-/// la sécurité repose sur la rotation régulière de la clé, pas sur son secret.
-/// En cas de compromission avérée, révoquer l'ancienne clé et en générer
-/// une nouvelle sur https://www.thunderforest.com/ → compte → API keys,
-/// puis la définir dans le fichier .env (copié depuis .env.example).
-final String thunderforestApiKey = String.fromEnvironment(
-  'THUNDERFOREST_API_KEY',
-  defaultValue: dotenv.env['THUNDERFOREST_API_KEY'] ?? '',
-);
 
 enum SpeedUnit { knots, kmh }
 
@@ -71,6 +54,27 @@ class AppSettings {
   /// Keys of favorite ports (subset of [favoritePorts]).
   static Set<String> get favoritePortKeys =>
       favoritePorts.map((p) => p.key).toSet();
+
+  // ─── Clé API Thunderforest (Randonnée) ───────────────────────────────
+  // Stockée en SharedPreferences pour ne plus dépendre du .env build-time.
+  // Le getter retourne la clé persistée, ou (en fallback) celle du .env si
+  // l'utilisateur n'a encore rien saisi — compatibilité ascendante.
+  static String _thunderforestApiKey = '';
+  static String get thunderforestApiKey => _thunderforestApiKey;
+
+  static bool get hasThunderforestApiKey => _thunderforestApiKey.isNotEmpty;
+
+  static Future<void> saveThunderforestApiKey(String key) async {
+    final trimmed = key.trim();
+    final prefs = await SharedPreferences.getInstance();
+    if (trimmed.isEmpty) {
+      await prefs.remove('thunderforest_api_key');
+      _thunderforestApiKey = '';
+    } else {
+      await prefs.setString('thunderforest_api_key', trimmed);
+      _thunderforestApiKey = trimmed;
+    }
+  }
 
   /// Add a port to favorites by key.
   static Future<void> addFavorite(String portKey) async {
@@ -179,6 +183,8 @@ class AppSettings {
         (prefs.getDouble('bathymetry_overlay_opacity') ?? 0.7)
             .clamp(0.0, 1.0)
             .toDouble();
+
+    _thunderforestApiKey = prefs.getString('thunderforest_api_key') ?? '';
 
     final favoritesJson = prefs.getString('favorite_ports');
     if (favoritesJson != null) {

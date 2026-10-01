@@ -19,13 +19,6 @@ class Litto3DLayer {
 class Litto3DCatalog {
   Litto3DCatalog._();
 
-  /// Occitanie activée par défaut (comportement historique de l'app).
-  static const List<String> defaultLayerIds = [
-    'occitanie_2009',
-    'occitanie_2011',
-    'occitanie_2014_2015',
-  ];
-
   static List<String> get allLayerIds =>
       allLayers.map((layer) => layer.id).toList();
 
@@ -238,11 +231,6 @@ class Litto3DCatalog {
     return result;
   }
 
-  static List<Litto3DLayer> layersForRegion(String region) {
-    return allLayers.where((l) => l.region == region).toList()
-      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
-  }
-
   static Litto3DLayer? findById(String id) {
     for (final layer in allLayers) {
       if (layer.id == id) return layer;
@@ -268,10 +256,5 @@ class Litto3DCatalog {
       return a.sortOrder.compareTo(b.sortOrder);
     });
     return selected;
-  }
-
-  /// Filtre les IDs obsolètes ou inconnus (ex. anciens identifiants WMTS fictifs).
-  static List<String> sanitizeLayerIds(List<String> ids) {
-    return ids.where((id) => findById(id) != null).toList();
   }
 }

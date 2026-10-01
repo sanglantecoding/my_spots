@@ -25,11 +25,6 @@ class OfflineMapRepository implements MapLayerRepository {
     _instance ??= OfflineMapRepository(store);
   }
 
-  /// Resets the singleton — intended for testing only.
-  static void resetInstance() {
-    _instance = null;
-  }
-
   final Box<OfflineMap> _mapBox;
   final Box<OfflineMapLayer> _layerBox;
 
@@ -130,21 +125,6 @@ class OfflineMapRepository implements MapLayerRepository {
     final result = query.find();
     query.close();
     return result;
-  }
-
-  /// Returns layers for a map by map ID.
-  List<OfflineMapLayer> findLayersByMapId(int mapId) {
-    final query = _layerBox
-        .query(OfflineMapLayer_.offlineMapId.equals(mapId))
-        .build();
-    final layers = query.find();
-    query.close();
-    return layers;
-  }
-
-  /// Deletes a layer by its ID.
-  bool deleteLayer(int layerId) {
-    return _layerBox.remove(layerId);
   }
 
   /// Returns the count of all maps in the store.

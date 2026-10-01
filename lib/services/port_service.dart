@@ -1127,33 +1127,11 @@ class PortService {
     }
   }
 
-  /// Filtrer les ports selon une requête de recherche
-  /// Les ports commençant par la requête sont affichés en premier
-  List<FishingPort> searchPorts(String query) {
-    if (query.isEmpty) return allPorts;
-
-    final lowerQuery = query.toLowerCase();
-    final startsWith = <FishingPort>[];
-    final contains = <FishingPort>[];
-
-    for (final port in _frenchPorts) {
-      final lowerName = port.name.toLowerCase();
-      if (lowerName.startsWith(lowerQuery)) {
-        startsWith.add(port);
-      } else if (lowerName.contains(lowerQuery)) {
-        contains.add(port);
-      }
-    }
-
-    return [...startsWith, ...contains];
-  }
-
   /// Obtenir l'URL météo automatique pour un port donné
   String? getAutoWeatherUrl(String portName) {
     final port = getPortByName(portName);
     return port?.weatherUrl;
   }
-
 
   /// Retourne la cle d'un port a partir de son nom (insensible casse + accents).
   String? getKeyByName(String name) {
@@ -1164,22 +1142,11 @@ class PortService {
     return null;
   }
 
-  /// Retourne la liste des ports correspondants a une liste de cles.
-  /// Les cles inconnues sont ignorees.
-  List<FishingPort> getPortsByKeys(List<String> keys) {
-    final result = <FishingPort>[];
-    for (final key in keys) {
-      final port = getPortByKey(key);
-      if (port != null) result.add(port);
-    }
-    return result;
-  }
-
   /// Normalise une requete de recherche : minuscule + sans accents.
   String normalizeSearchQuery(String query) {
     if (query.isEmpty) return '';
     const from = 'àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ';
-    const to   = 'aaaaaaaceeeeiiiidnoooooouuuuyby';
+    const to = 'aaaaaaaceeeeiiiidnoooooouuuuyby';
     final buf = StringBuffer();
     for (int i = 0; i < query.length; i++) {
       final c = query[i].toLowerCase();
@@ -1198,7 +1165,7 @@ class PortService {
     Set<String> favKeys, {
     String? selectedPortKey,
   }) {
-    final favs    = <FishingPort>[];
+    final favs = <FishingPort>[];
     final nonFavs = <FishingPort>[];
     FishingPort? selectedPort;
 
@@ -1213,7 +1180,9 @@ class PortService {
     }
 
     favs.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    nonFavs.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    nonFavs.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
 
     if (selectedPort != null) {
       return [selectedPort, ...favs, ...nonFavs];
@@ -1225,11 +1194,7 @@ class PortService {
   final Map<String, FishingPort> _portOverrides = {};
 
   /// Applique un override a un port (edition inline).
-  void updatePortInfo({
-    required String key,
-    String? name,
-    String? weatherUrl,
-  }) {
+  void updatePortInfo({required String key, String? name, String? weatherUrl}) {
     final original = getPortByKey(key);
     if (original == null) return;
     _portOverrides[key] = FishingPort(

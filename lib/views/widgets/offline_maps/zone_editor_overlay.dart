@@ -24,9 +24,6 @@ enum ZoneDrawMode { rectangle, polygon }
 /// - Auto-closes the polygon by connecting last to first.
 /// Returns [List<LatLng>] via [onConfirm].
 class ZoneEditorOverlay extends StatefulWidget {
-  /// Center point for the initial rectangle (used only in rectangle mode).
-  final LatLng centerPoint;
-
   /// The current draw mode.
   final ZoneDrawMode drawMode;
 
@@ -50,7 +47,6 @@ class ZoneEditorOverlay extends StatefulWidget {
 
   const ZoneEditorOverlay({
     super.key,
-    required this.centerPoint,
     required this.drawMode,
     required this.onConfirm,
     required this.onCancel,
@@ -67,8 +63,7 @@ class ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
       widget.mapController ?? MapController();
 
   int _cameraGeneration = 0;
-  LatLngBounds? _lastCameraBounds;
-  Timer? _cameraTimer;
+  StreamSubscription<MapEvent>? _cameraSubscription;
 
   // ── Rectangle mode state ──
   double _left = 0;
@@ -101,24 +96,24 @@ class ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
   @override
   void initState() {
     super.initState();
-    _startCameraCheck();
+    if (_isPolygonMode) {
+      _startCameraListener();
+    }
   }
 
-  void _startCameraCheck() {
-    _cameraTimer = Timer.periodic(const Duration(milliseconds: 150), (_) {
-      final currentBounds = _mapController.camera.visibleBounds;
-      if (_lastCameraBounds != null && _lastCameraBounds != currentBounds) {
+  void _startCameraListener() {
+    _cameraSubscription = _mapController.mapEventStream.listen((event) {
+      if (mounted) {
         setState(() {
           _cameraGeneration++;
         });
       }
-      _lastCameraBounds = currentBounds;
     });
   }
 
   @override
   void dispose() {
-    _cameraTimer?.cancel();
+    _cameraSubscription?.cancel();
     super.dispose();
   }
 
@@ -338,11 +333,7 @@ class ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
 
   void _confirmPolygon() {
     if (_polygonLatLngPoints.length < 3) return;
-    debugPrint(
-      '[ZONE-POLYGON] confirm_button points=${_polygonLatLngPoints.length}',
-    );
     widget.onConfirm(List<LatLng>.from(_polygonLatLngPoints));
-    debugPrint('[ZONE-POLYGON] confirm_callback_invoked');
   }
 
   /// Supprime le dernier point placé en mode polygon.
@@ -377,7 +368,6 @@ class ZoneEditorOverlayState extends State<ZoneEditorOverlay> {
                           latLngPoints: _polygonLatLngPoints,
                           provisionalLatLng: _provisionalLatLng,
                           mapController: _mapController,
-                          mapSize: _mapSize,
                           cameraGeneration: _cameraGeneration,
                         )
                       : _SelectionPainter(
@@ -731,14 +721,12 @@ class _PolygonPainter extends CustomPainter {
   final List<LatLng> latLngPoints;
   final LatLng? provisionalLatLng;
   final MapController mapController;
-  final Size mapSize;
   final int cameraGeneration;
 
   _PolygonPainter({
     required this.latLngPoints,
     this.provisionalLatLng,
     required this.mapController,
-    required this.mapSize,
     required this.cameraGeneration,
   });
 
@@ -777,11 +765,6 @@ class _PolygonPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = _lineWidth;
 
-    final provisionalPaint = Paint()
-      ..color = Colors.orange.withValues(alpha: 0.6)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = _lineWidth;
-
     final pointPaint = Paint()
       ..color = const Color(0xFF0D6999)
       ..style = PaintingStyle.fill;
@@ -813,15 +796,6 @@ class _PolygonPainter extends CustomPainter {
     // Preview line from last definitive point to cursor
     if (provisionalScreenPoint != null && screenPoints.isNotEmpty) {
       canvas.drawLine(screenPoints.last, provisionalScreenPoint, previewPaint);
-    }
-
-    // Provisional point and connection line
-    if (provisionalScreenPoint != null && screenPoints.isNotEmpty) {
-      canvas.drawLine(
-        screenPoints.last,
-        provisionalScreenPoint,
-        provisionalPaint,
-      );
     }
 
     // Auto-closure line when 3+ definitive points

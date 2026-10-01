@@ -77,9 +77,6 @@ class MapTileCacheService {
   static TileProvider offlineLidarTileProvider(List<String> zoneUuids) =>
       TileProviderFactory.offlineLidarTileProvider(zoneUuids);
 
-  static TileProvider lidarOmbrageTileProvider() =>
-      TileProviderFactory.lidarOmbrageTileProvider();
-
   /// Returns a tile provider for the standard base map types (standard, relief, hiking).
   /// For marine map type, use [MarineMapService.getActiveMarineTileLayer] instead.
   /// Returns null for standard map types to let flutter_map use the default network provider.

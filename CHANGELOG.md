@@ -4,13 +4,18 @@ Toutes les modifications notables de ce projet seront documentées dans ce fichi
 
 
 
-v1.1.1
+## 🆕 [v1.1.1] - 30 Septembre 2026
 
 Blocage du zoom en téléchargement du lidar entre 12 et 16 pour économiser des data.
 Couche Lidar occitanie était à l'envers 2009 était sur 2011 qui était sur 2014-2015.
+Finalement couche 2009 plus nette que 2011 donc empilement 2014-2015, 2009, 2011
+Retrait du Lidar sur les cartes autre que marine.
+Lidar Occitanie 2009 et 2011 diminué à zoom 16 au lieu de 17 en offline pour gagner en taille de téléchargement.
 Le téléchargement affiche correctement ce qu'il télécharge et son pourcentage ainsi que la taille des fichiers téléchargé.
+Nouvelle méthode de traçage de zone au point par point.
 Il n'est plus possible de tracer des zone hors ligne en étant hors ligne ou sur une autre carte que la carte marine.
-Corrections divers de fuite de mémoires.
+Retrait de la clé api de la carte Randonnée(Thunderforest), il faut désormer créer sa propre clé et la coller dans le programme.
+Corrections et améliorations diverses de fuite de mémoires.
 Retrait de code obsolete/inutile.
 
 ---
@@ -59,31 +64,11 @@ Retrait de code obsolete/inutile.
 - **Statuts** : notStarted, downloading, ready, partial, failed
 - **Relation 1-N** : Une zone peut avoir plusieurs couches
 
-#### 🧪 **Tests unitaires complets**
-- **zone_config_test.dart** : Tests du préflight SHOM (scénarios A-E + fail-open)
-- **instance_id_test.dart** : Tests d'unicité des instanceId FMTC
-- **precancel_test.dart** : Tests d'indépendance des clés preCancel par store
-- **pause_resume_test.dart** : Tests pause/resume FmtcLayerDownloader
-- **assess_result_test.dart** : Tests d'évaluation des téléchargements (seuil 15%)
-- **blank_gray_filter_test.dart** : Tests du filtre de tuiles
-- **marine_layer_stacking_test.dart** : Tests de l'empilement des couches marines
-- **zone_download_service_test.dart** : Tests du service ZoneDownloadService (incluant cancelAndAwaitEnd)
-
 #### 🎯 **Logique métier**
 - **Règle P1** : successful > 0 requis pour succès (pas de succès avec 0 tuiles réelles)
 - **Seuil 15%** : Tolérance d'échecs réseau jusqu'à 15%
 - **Fail-open SHOM** : Comportement actuel si SHOM totalement injoignable
 - **LiDAR indépendant** : Couches LiDAR ajoutées même sans couverture marine
-
-### 📊 Statistiques de la version
-- **+8 fichiers de test** créés pour le téléchargement de zones
-- **+2000 lignes** de code ajoutées (services, modèles, repositories, tests)
-- **1 nouvel écran** : OfflineMapsScreen
-- **3 nouveaux modèles** : OfflineMap, OfflineMapLayer, Litto3DLayer
-- **3 nouveaux repositories** : OfflineMapRepository, TileCacheRepository, FmtcTileCacheRepository
-- **6 nouveaux services** : ZoneDownloadService, FmtcLayerDownloader, ShomCoveragePreflight, LayerDownloadAssessor, PortService, NegativeTileFilter
-- **4 nouveaux widgets** : GpsMarkerWidget, SelectedWaypointPanel, MapControlsWidget, DistanceMeasurementOverlay
-- **Architecture améliorée** : Séparation des responsabilités, repository pattern, tests unitaires
 
 ---
 

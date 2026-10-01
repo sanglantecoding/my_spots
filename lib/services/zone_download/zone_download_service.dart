@@ -64,13 +64,19 @@ class ZoneErrorEvent {
 // ─── Service principal ─────────────────────────────────────────────────────
 class ZoneDownloadService {
   ZoneDownloadService({
-    required MapLayerRepository repository,
+    MapLayerRepository? repository,
     LayerDownloader downloader = const FmtcLayerDownloader(),
-  }) : _repository = repository,
+  }) : _injectedRepository = repository,
        _downloader = downloader;
 
-  final MapLayerRepository _repository;
+  final MapLayerRepository? _injectedRepository;
   final LayerDownloader _downloader;
+  static final MapLayerRepository _noopFallback = _NoopRepo();
+  MapLayerRepository get _repository =>
+      _injectedRepository ?? OfflineMapRepository.instance ?? _noopFallback;
+  bool get hasRealRepository =>
+      _injectedRepository != null || OfflineMapRepository.instance != null;
+
   final Map<String, _ZoneState> _zones = {};
   final Map<String, int> _runCounters = {};
   final Map<String, String> _previousInstanceIds = {};
@@ -92,28 +98,15 @@ class ZoneDownloadService {
   Stream<String> get completionStream => _completionController.stream;
 
   static ZoneDownloadService? _instance;
-  static ZoneDownloadService get instance {
-    return _instance ??= ZoneDownloadService(
-      repository: OfflineMapRepository.instance ?? _NoopRepo(),
-    );
-  }
+  static ZoneDownloadService get instance =>
+      _instance ??= ZoneDownloadService();
 
   @visibleForTesting
   static void overrideInstanceForTest(ZoneDownloadService? service) =>
       _instance = service;
 
-  MapLayerRepository get repository => _repository;
-
   bool isDownloading(String zoneUuid) => _zones.containsKey(zoneUuid);
   int get activeCount => _zones.length;
-  bool hasZone(String zoneUuid) => _zones.containsKey(zoneUuid);
-
-  bool isRunning(String zoneUuid) {
-    final s = _zones[zoneUuid];
-    return s != null && !s.isPaused;
-  }
-
-  bool get hasActiveZones => _zones.isNotEmpty;
 
   Future<void> downloadZone({
     required OfflineMap map,
@@ -122,6 +115,17 @@ class ZoneDownloadService {
     ZoneProgressCallback? onProgress,
     ZoneErrorCallback? onError,
   }) async {
+    if (!hasRealRepository) {
+      const msg = 'Base de donnees indisponible : telechargement impossible';
+      onError?.call(msg);
+      if (!_errorController.isClosed) {
+        _errorController.add(ZoneErrorEvent(zoneUuid: map.uuid, message: msg));
+      }
+      if (!_completionController.isClosed) {
+        _completionController.add(map.uuid);
+      }
+      return;
+    }
     final zoneUuid = map.uuid;
     final runCount = _runCounters[zoneUuid] ?? 0;
     if (_zones.containsKey(zoneUuid)) return;
@@ -167,6 +171,7 @@ class ZoneDownloadService {
         final instanceId = '${map.uuid}#$runCount#$layerKey';
         final preCancelKey = '${map.uuid}|$storeName';
         final preCancelId = _previousInstanceIds[preCancelKey];
+        final polygonPoints = map.polygonPoints;
         _previousInstanceIds[preCancelKey] = instanceId;
         state.activeStore = store;
         state.activeInstanceId = instanceId;
@@ -185,7 +190,7 @@ class ZoneDownloadService {
             minZoom: layer.minZoom,
             maxZoom: layer.maxZoom,
             headers: _layerHeaders(layer.layerType),
-            polygon: map.polygonPoints,
+            polygon: polygonPoints,
             onProgress: (layerProgress) {
               if (sortedLayers.isNotEmpty) {
                 final globalProgress =

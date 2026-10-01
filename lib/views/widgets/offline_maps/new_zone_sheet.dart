@@ -14,11 +14,11 @@ class ZoneConfig {
   final List<LayerType> layers;
   final String zoneType;
 
-  const ZoneConfig({required this.name, required this.layers, required this.zoneType});
-
-  /// Creates a copy with the given [layers] attached.
-  ZoneConfig withLayers(List<LayerType> layers) =>
-      ZoneConfig(name: name, layers: layers, zoneType: zoneType);
+  const ZoneConfig({
+    required this.name,
+    required this.layers,
+    required this.zoneType,
+  });
 
   /// Default layer types for a zone covering [bounds].
   ///
@@ -90,32 +90,43 @@ class ZoneConfig {
       ('RASTER_MARINE_10_WMTS_3857', LayerType.marine10k, 14, 16),
     ];
 
-    final results = <LayerType, bool?>{};
-    for (final (url, type, zmin, zmax) in scales) {
-      results[type] = await pf.covers(bounds, url);
-      if (results[type] == true) {
-        // Force minZoom à au moins 8 pour éviter le téléchargement des zooms 0-7
-        final effectiveMinZoom = zmin.clamp(8, 17).toInt();
-        layers.add(
-          OfflineMapLayer.create(
-            layerType: type,
-            minZoom: effectiveMinZoom,
-            maxZoom: zmax,
-          ),
+    try {
+      // Parallélise les 3 échelles SHOM (50K, 25K, 10K)
+      final results = <LayerType, bool?>{};
+      final futures = scales.map((scale) async {
+        final (url, type, zmin, zmax) = scale;
+        final covered = await pf.covers(bounds, url);
+        results[type] = covered;
+        return (type, covered, zmin, zmax);
+      }).toList();
+
+      final scaleResults = await Future.wait(futures);
+
+      for (final (type, covered, zmin, zmax) in scaleResults) {
+        if (covered == true) {
+          // Force minZoom à au moins 8 pour éviter le téléchargement des zooms 0-7
+          final effectiveMinZoom = zmin.clamp(8, 17).toInt();
+          layers.add(
+            OfflineMapLayer.create(
+              layerType: type,
+              minZoom: effectiveMinZoom,
+              maxZoom: zmax,
+            ),
+          );
+        }
+      }
+
+      // Fail-open : SHOM totalement injoignable → comportement actuel.
+      if (results.values.every((v) => v == null)) {
+        layers.addAll(
+          fallback.where((l) => l.layerType != LayerType.lidarLitto3d),
         );
       }
-    }
-
-    // Fail-open : SHOM totalement injoignable → comportement actuel.
-    if (results.values.every((v) => v == null)) {
-      layers.addAll(
-        fallback.where((l) => l.layerType != LayerType.lidarLitto3d),
-      );
-    }
-
-    // Ferme le client HTTP si on l'a créé nous-mêmes
-    if (shouldClose) {
-      pf.close();
+    } finally {
+      // Ferme le client HTTP si on l'a créé nous-mêmes
+      if (shouldClose) {
+        pf.close();
+      }
     }
 
     // LiDAR : inchangé (déjà filtré par catalogue régional).
@@ -233,7 +244,7 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
     if (value == null || value.trim().isEmpty) {
       return 'Obligatoire';
     }
-    if (widget.checkNameExists(value)) {
+    if (widget.checkNameExists(value.trim().toLowerCase())) {
       _duplicateError =
           'Une zone porte déjà ce nom. Veuillez en choisir un autre.';
       return _duplicateError;
@@ -246,13 +257,13 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
     // Layers are resolved later in the caller using
     // [ZoneConfig.defaultLayersForBounds] once the user has drawn the zone
     // bounds.  Passing an empty list here is intentional.
-    Navigator.of(
-      context,
-    ).pop(ZoneConfig(
-      name: _nameController.text.trim(),
-      layers: const [],
-      zoneType: _selectedZoneType,
-    ));
+    Navigator.of(context).pop(
+      ZoneConfig(
+        name: _nameController.text.trim(),
+        layers: const [],
+        zoneType: _selectedZoneType,
+      ),
+    );
   }
 
   @override

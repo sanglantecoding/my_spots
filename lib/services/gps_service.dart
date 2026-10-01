@@ -52,19 +52,6 @@ class GpsService {
     }
   }
 
-  /// Formate la distance spécifique au type de waypoint
-  static String formatDistanceForWaypoint(double meters, Waypoint waypoint) {
-    // Champignons : toujours en mètres/kilomètres
-    if (waypoint.category == WaypointCategory.mushrooms) {
-      if (meters < 1000) {
-        return '${meters.toStringAsFixed(0)} m';
-      }
-      return '${(meters / 1000).toStringAsFixed(1)} km';
-    }
-    // Pêche et autres : respecte le choix utilisateur
-    return formatDistance(meters);
-  }
-
   /// Détermine le statut GPS selon la précision
   /// Seuils unifiés pour toute l'application :
   /// - 0-8m : Vert (Excellent)

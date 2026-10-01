@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:my_spots/core/app_bootstrap.dart';
 import 'package:my_spots/core/app_initialization_status.dart';
@@ -15,18 +14,6 @@ Future<void> main() async {
   runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
-
-      try {
-        await dotenv.load(fileName: 'assets/.env');
-        developer.log('dotenv loaded', name: _logName);
-      } catch (e, st) {
-        developer.log(
-          'dotenv.load a echoue (non-bloquant)',
-          name: _logName,
-          error: e,
-          stackTrace: st,
-        );
-      }
 
       await _initializeWithTimeout();
       runApp(const MySpotsApp());

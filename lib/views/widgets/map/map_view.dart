@@ -3,7 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
-import 'package:my_spots/controllers/gps_controller.dart'; // 👈 Import ajouté
+import 'package:my_spots/controllers/gps_controller.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/services/marine_map_service.dart';
@@ -22,10 +22,7 @@ class MapView extends StatefulWidget {
   final double zoom;
   final bool offlineMode;
   final List<String> readyZoneUuids;
-  // ✅ Association zone → couches LiDAR (au lieu d'une liste plate) :
-  // permet à MarineMapService de ne consulter que les stores pertinents.
   final Map<String, List<OfflineMapLayer>> readyLidarLayersByZone;
-  // ❌ currentPosition retiré des paramètres
   final LatLng? selectedWaypointPosition;
   final LatLngBounds? visibleBounds;
   final LatLngBounds? zoneCombinedBounds;
@@ -38,7 +35,6 @@ class MapView extends StatefulWidget {
   final void Function(double) onZoomChanged;
   final void Function() onMapCameraChanged;
   final void Function() onPointerDown;
-  final void Function(TileImage, Object, StackTrace?) onErrorTile;
 
   const MapView({
     super.key,
@@ -60,14 +56,12 @@ class MapView extends StatefulWidget {
     required this.onZoomChanged,
     required this.onMapCameraChanged,
     required this.onPointerDown,
-    required this.onErrorTile,
   });
 
   @override
   State<MapView> createState() => _MapViewState();
 }
 
-// ... existing code ...
 class _MapViewState extends State<MapView> {
   bool _tilesReady = false;
 
@@ -215,9 +209,7 @@ class _MapViewState extends State<MapView> {
         },
       ),
       children: [
-        // ⚠️   Les couches doivent être des enfants DIRECTS de FlutterMap
         if (_tilesReady) ..._getTileLayers(),
-        // Dans MapView, remplace le StreamBuilder existant par :
         StreamBuilder<Position>(
           stream: GpsController.instance.positionStream,
           initialData: GpsController.instance.currentPosition,
@@ -354,7 +346,6 @@ class _MapViewState extends State<MapView> {
       tileProvider: MapTileCacheService.getTileProviderForMapType(
         widget.mapType,
       ),
-      errorTileCallback: widget.onErrorTile,
     );
   }
 
@@ -411,13 +402,11 @@ class _MapViewState extends State<MapView> {
       point: LatLng(waypoint.latitude, waypoint.longitude),
       width: circleSize,
       height: circleSize,
-      // 👈 LE CENTRE du rond = le point GPS exact.
       alignment: Alignment.center,
       child: Stack(
-        clipBehavior: Clip.none, // laisse le libellé déborder au-dessus
+        clipBehavior: Clip.none,
         alignment: Alignment.center,
         children: [
-          // Le rond coloré avec l'icône de catégorie au centre.
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => widget.onTap(waypoint),
@@ -443,7 +432,6 @@ class _MapViewState extends State<MapView> {
               ),
             ),
           ),
-          // Libellé (nom / date) flottant AU-DESSUS du rond.
           if (hasLabel)
             Positioned(
               bottom: circleSize + 4,

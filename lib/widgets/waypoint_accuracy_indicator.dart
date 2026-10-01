@@ -24,14 +24,4 @@ class WaypointAccuracyIndicator extends StatelessWidget {
 
     return Icon(icon, size: size, color: color);
   }
-
-  /// Obtient la description textuelle du statut GPS
-  static String getAccuracyDescription(String? status) {
-    return GpsStatusUtils.getGpsStatusDescription(status);
-  }
-
-  /// Obtient la couleur du statut GPS
-  static Color getAccuracyColor(String? status) {
-    return GpsStatusUtils.getGpsStatusColor(status);
-  }
 }

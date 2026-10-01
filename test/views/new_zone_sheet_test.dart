@@ -1,5 +1,5 @@
 // Unit + widget tests for NewZoneSheet — the bottom sheet that collects the
-// zone name before the user draws the rectangle.
+// zone name before the user defines the zone geometry.
 //
 // Verifies:
 // - The sheet no longer exposes manual layer checkboxes (the layer set is
@@ -24,66 +24,56 @@ void main() {
         LatLng(49.0, 2.5), // north
       );
       final layers = ZoneConfig.defaultLayersForBounds(inland);
-      expect(layers.map((l) => l.layerType), containsAll([
-        LayerType.marine50k,
-        LayerType.marine25k,
-        LayerType.marine10k,
-      ]));
+      expect(
+        layers.map((l) => l.layerType),
+        containsAll([
+          LayerType.marine50k,
+          LayerType.marine25k,
+          LayerType.marine10k,
+        ]),
+      );
     });
 
     test('does not include LiDAR when bounds are inland (no region)', () {
       // Auvergne — landlocked, no LiDAR region in the catalog.
-      final landlocked = LatLngBounds(
-        LatLng(45.5, 2.5),
-        LatLng(46.0, 3.2),
-      );
+      final landlocked = LatLngBounds(LatLng(45.5, 2.5), LatLng(46.0, 3.2));
       final layers = ZoneConfig.defaultLayersForBounds(landlocked);
-      expect(layers.map((l) => l.layerType), isNot(contains(LayerType.lidarLitto3d)));
+      expect(
+        layers.map((l) => l.layerType),
+        isNot(contains(LayerType.lidarLitto3d)),
+      );
     });
 
     test('includes LiDAR layers when bounds intersect a LiDAR region', () {
       // South Brittany — covered by the Bretagne LiDAR region.
-      final bretagne = LatLngBounds(
-        LatLng(47.0, -3.5),
-        LatLng(47.8, -2.0),
-      );
+      final bretagne = LatLngBounds(LatLng(47.0, -3.5), LatLng(47.8, -2.0));
       final layers = ZoneConfig.defaultLayersForBounds(bretagne);
       expect(layers.map((l) => l.layerType), contains(LayerType.lidarLitto3d));
     });
 
     test('includes LiDAR layers when bounds intersect Occitanie', () {
-      final occitanie = LatLngBounds(
-        LatLng(43.0, 3.0),
-        LatLng(43.5, 4.0),
-      );
+      final occitanie = LatLngBounds(LatLng(43.0, 3.0), LatLng(43.5, 4.0));
       final layers = ZoneConfig.defaultLayersForBounds(occitanie);
       expect(layers.map((l) => l.layerType), contains(LayerType.lidarLitto3d));
     });
   });
 
-  group('ZoneConfig.withLayers', () {
-    test('replaces the layers list with the given one', () {
-      const initial = ZoneConfig(name: 'Test', layers: [], zoneType: 'Rectangle');
-      final updated = initial.withLayers([LayerType.marine50k]);
-      expect(updated.name, 'Test');
-      expect(updated.layers, [LayerType.marine50k]);
-    });
-  });
-
   group('NewZoneSheet widget', () {
     testWidgets('no longer exposes manual layer checkboxes', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(
-          builder: (ctx) => Scaffold(
-            body: ElevatedButton(
-              onPressed: () async {
-                await showNewZoneSheet(ctx);
-              },
-              child: const Text('open'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (ctx) => Scaffold(
+              body: ElevatedButton(
+                onPressed: () async {
+                  await showNewZoneSheet(ctx);
+                },
+                child: const Text('open'),
+              ),
             ),
           ),
         ),
-      ));
+      );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
@@ -94,49 +84,24 @@ void main() {
       expect(find.textContaining('automatiquement'), findsOneWidget);
     });
 
-    testWidgets('returns a ZoneConfig with empty layers (resolved later)',
-        (tester) async {
+    testWidgets('rejects empty name and shows validation error', (
+      tester,
+    ) async {
       ZoneConfig? captured;
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(
-          builder: (ctx) => Scaffold(
-            body: ElevatedButton(
-              onPressed: () async {
-                captured = await showNewZoneSheet(ctx);
-              },
-              child: const Text('open'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (ctx) => Scaffold(
+              body: ElevatedButton(
+                onPressed: () async {
+                  captured = await showNewZoneSheet(ctx);
+                },
+                child: const Text('open'),
+              ),
             ),
           ),
         ),
-      ));
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
-
-      await tester.enterText(find.byType(TextFormField), 'Ma zone');
-      await tester.tap(find.text('Suivant : Tracer la zone sur la carte'));
-      await tester.pumpAndSettle();
-
-      expect(captured, isNotNull);
-      expect(captured!.name, 'Ma zone');
-      // Empty list — resolved by the caller via defaultLayersForBounds.
-      expect(captured!.layers, isEmpty);
-    });
-
-    testWidgets('rejects empty name and shows validation error',
-        (tester) async {
-      ZoneConfig? captured;
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(
-          builder: (ctx) => Scaffold(
-            body: ElevatedButton(
-              onPressed: () async {
-                captured = await showNewZoneSheet(ctx);
-              },
-              child: const Text('open'),
-            ),
-          ),
-        ),
-      ));
+      );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
