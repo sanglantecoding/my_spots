@@ -23,6 +23,10 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
   LatLng? _currentPosition;
   StreamSubscription<Position>? _positionSubscription;
 
+  LatLng? _pendingPosition;
+  Timer? _sortThrottleTimer;
+  static const Duration _sortThrottleDelay = Duration(milliseconds: 500);
+
   @override
   void initState() {
     super.initState();
@@ -32,18 +36,13 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
   @override
   void dispose() {
     _positionSubscription?.cancel();
+    _sortThrottleTimer?.cancel();
     _editNameController.dispose();
     super.dispose();
   }
 
   /// Démarre le suivi GPS pour le tri par distance.
-  ///
-  /// 🛡️ Idempotent : annule toute souscription précédente avant d'en créer
-  /// une nouvelle. Même si plus rien ne devrait rappeler cette méthode après
-  /// initState, un futur appel (resume, refactor…) ne pourra plus empiler
-  /// deux listeners qui font chacun leur setState.
   Future<void> _startLocationTracking() async {
-    // Annule d'abord l'ancien listener s'il existe.
     await _positionSubscription?.cancel();
     _positionSubscription = null;
 
@@ -57,15 +56,28 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
       _positionSubscription = GpsController.instance.positionStream.listen((
         Position position,
       ) {
-        if (mounted) {
-          setState(() {
-            _currentPosition = LatLng(position.latitude, position.longitude);
-          });
-        }
+        if (!mounted) return;
+        // 🛡️ Stocke la position SANS rebuild. Le Timer déclenchera le setState.
+        _pendingPosition = LatLng(position.latitude, position.longitude);
+        _scheduleThrottledSort();
       });
     } catch (e) {
       // Erreur silencieuse si GPS indisponible
     }
+  }
+
+  /// Programme un rebuild throttlé : un seul setState toutes les 500ms maximum.
+  void _scheduleThrottledSort() {
+    if (_sortThrottleTimer?.isActive ?? false) return;
+    _sortThrottleTimer = Timer(_sortThrottleDelay, () {
+      if (!mounted) return;
+      final pending = _pendingPosition;
+      if (pending == null) return;
+      setState(() {
+        _currentPosition = pending;
+        _pendingPosition = null;
+      });
+    });
   }
 
   String _formatDate(DateTime date) {
@@ -75,7 +87,7 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
   /// Obtient la couleur selon la distance
   Color _getDistanceColor(LatLng? currentPosition, Waypoint waypoint) {
     if (currentPosition == null) return Colors.grey;
-    final distance = GpsService.calculateDistance(currentPosition, waypoint);
+    final distance = GpsService.distanceToWaypoint(currentPosition, waypoint);
     if (distance < 100) return Colors.green;
     if (distance < 500) return Colors.amber;
     if (distance < 1000) return Colors.orange;
@@ -83,19 +95,13 @@ class _WaypointsScreenState extends State<WaypointsScreen> {
   }
 
   /// Rafraîchit manuellement le tri.
-  ///
-  /// 🛡️ CORRECTION : ne recrée AUCUN abonnement GPS. L'unique listener
-  /// (créé dans initState) maintient déjà [_currentPosition] à jour à
-  /// chaque tick. Ici on relit simplement le dernier fix connu en
-  /// SYNCHRONE via le singleton (zéro stream, zéro fuite), puis on
-  /// rebuild : le tri lui-même est recalculé dans build() par
-  /// [WaypointSortService].
   void _refreshSort() {
     final pos = GpsController.instance.currentPosition;
+    if (pos == null) return;
+    _sortThrottleTimer?.cancel();
+    _pendingPosition = null;
     setState(() {
-      if (pos != null) {
-        _currentPosition = LatLng(pos.latitude, pos.longitude);
-      }
+      _currentPosition = LatLng(pos.latitude, pos.longitude);
     });
   }
 

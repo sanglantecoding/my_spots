@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/waypoint.dart';
 import 'gps_service.dart';
@@ -19,8 +18,8 @@ class WaypointSortService {
     // Tri par distance croissante
     final sortedWaypoints = List<Waypoint>.from(waypoints);
     sortedWaypoints.sort((a, b) {
-      final distanceA = GpsService.calculateDistance(currentPosition, a);
-      final distanceB = GpsService.calculateDistance(currentPosition, b);
+      final distanceA = GpsService.distanceToWaypoint(currentPosition, a);
+      final distanceB = GpsService.distanceToWaypoint(currentPosition, b);
       return distanceA.compareTo(distanceB);
     });
 
@@ -36,7 +35,7 @@ class WaypointSortService {
       return 'Distance inconnue';
     }
 
-    final distance = GpsService.calculateDistance(currentPosition, waypoint);
+    final distance = GpsService.distanceToWaypoint(currentPosition, waypoint);
     return 'à ${_formatDistanceForDisplay(distance)}';
   }
 
@@ -47,38 +46,5 @@ class WaypointSortService {
     } else {
       return '${(meters / 1000).toStringAsFixed(1)} km';
     }
-  }
-}
-
-/// Waypoint enrichi avec informations de distance
-class WaypointWithDistance {
-  final Waypoint waypoint;
-  final double? distance;
-  final String formattedDistance;
-
-  WaypointWithDistance({
-    required this.waypoint,
-    this.distance,
-    required this.formattedDistance,
-  });
-
-  /// Obtient la couleur selon la distance
-  Color getDistanceColor() {
-    if (distance == null) return Colors.grey;
-
-    if (distance! < 100) return Colors.green;
-    if (distance! < 500) return Colors.amber;
-    if (distance! < 1000) return Colors.orange;
-    return Colors.red;
-  }
-
-  /// Obtient l'icône selon la distance
-  IconData getDistanceIcon() {
-    if (distance == null) return Icons.help_outline;
-
-    if (distance! < 100) return Icons.near_me;
-    if (distance! < 500) return Icons.directions_walk;
-    if (distance! < 1000) return Icons.directions;
-    return Icons.directions_car;
   }
 }

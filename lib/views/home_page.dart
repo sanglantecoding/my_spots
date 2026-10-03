@@ -22,11 +22,6 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  String gpsStatus = 'INITIALISATION...';
-  Color gpsStatusColor = Colors.orange;
-  StreamSubscription<Position>? _positionSubscription;
-  StreamSubscription<GpsState>? _stateSubscription;
-
   @override
   void initState() {
     super.initState();
@@ -35,70 +30,11 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
-    _positionSubscription?.cancel();
-    _stateSubscription?.cancel();
     super.dispose();
   }
 
   Future<void> _startGpsController() async {
-    _positionSubscription = GpsController.instance.positionStream.listen(
-      (Position position) {
-        if (mounted) {
-          setState(() {
-            final status = GpsService.getGpsStatus(position.accuracy);
-            gpsStatus = GpsService.getGpsStatusText(status);
-            gpsStatusColor = GpsService.getGpsStatusColor(status);
-          });
-        }
-      },
-      onError: (error) {
-        if (mounted) {
-          setState(() {
-            gpsStatus = 'ERREUR GPS';
-            gpsStatusColor = Colors.red;
-          });
-        }
-      },
-    );
-
-    _stateSubscription = GpsController.instance.stateStream.listen((
-      GpsState state,
-    ) {
-      if (mounted) {
-        setState(() {
-          switch (state) {
-            case GpsState.stopped:
-              gpsStatus = 'GPS ARRÊTÉ';
-              gpsStatusColor = Colors.grey;
-              break;
-            case GpsState.initializing:
-              gpsStatus = 'INITIALISATION...';
-              gpsStatusColor = Colors.orange;
-              break;
-            case GpsState.stationary:
-              gpsStatus = 'GPS ACTIF (IMMOBILE)';
-              gpsStatusColor = Colors.green;
-              break;
-            case GpsState.moving:
-              gpsStatus = 'GPS ACTIF (EN MOUVEMENT)';
-              gpsStatusColor = Colors.green;
-              break;
-            case GpsState.error:
-              gpsStatus = 'ERREUR GPS';
-              gpsStatusColor = Colors.red;
-              break;
-          }
-        });
-      }
-    });
-
-    final success = await GpsController.instance.start();
-    if (!success && mounted) {
-      setState(() {
-        gpsStatus = GpsController.instance.errorMessage ?? 'ERREUR GPS';
-        gpsStatusColor = Colors.red;
-      });
-    }
+    await GpsController.instance.start();
   }
 
   Future<void> _openMarineWeather() async {
@@ -201,63 +137,7 @@ class _HomePageState extends State<HomePage> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Flexible(
-                          child: Container(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: isLandscape ? 6 : 8,
-                              vertical: isLandscape ? 4 : 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black26,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: gpsStatusColor.withValues(alpha: 0.5),
-                                width: 2,
-                              ),
-                            ),
-                            child: GestureDetector(
-                              onTap: () {
-                                showModalBottomSheet(
-                                  context: context,
-                                  isScrollControlled: true,
-                                  backgroundColor: Colors.transparent,
-                                  builder: (context) =>
-                                      const SatelliteBottomSheet(),
-                                );
-                              },
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.gps_fixed,
-                                    color: gpsStatusColor,
-                                    size: isLandscape ? 14 : 16,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Flexible(
-                                    child: Text(
-                                      gpsStatus,
-                                      style: TextStyle(
-                                        color: gpsStatusColor,
-                                        fontSize: isLandscape ? 10 : 12,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 2),
-                                  Icon(
-                                    Icons.info_outline,
-                                    color: gpsStatusColor.withValues(
-                                      alpha: 0.7,
-                                    ),
-                                    size: isLandscape ? 10 : 12,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                        const Flexible(child: _GpsStatusBadge()),
                         Expanded(
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
@@ -705,6 +585,147 @@ class _NetworkModeToggleState extends State<_NetworkModeToggle> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Widget feuille GPS : s'abonne lui-même aux streams position + state
+/// et se rebuild UNIQUEMENT quand le statut change. HomePage ne reçoit
+/// plus aucun tick GPS → pas de rebuild de toute la sous-arborescence.
+class _GpsStatusBadge extends StatefulWidget {
+  const _GpsStatusBadge();
+
+  @override
+  State<_GpsStatusBadge> createState() => _GpsStatusBadgeState();
+}
+
+class _GpsStatusBadgeState extends State<_GpsStatusBadge> {
+  String _status = 'INITIALISATION...';
+  Color _color = Colors.orange;
+  StreamSubscription<Position>? _positionSub;
+  StreamSubscription<GpsState>? _stateSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTracking();
+  }
+
+  Future<void> _startTracking() async {
+    // Abonnement position : précision → statut textuel + couleur
+    _positionSub = GpsController.instance.positionStream.listen(
+      (Position position) {
+        if (!mounted) return;
+        final status = GpsService.getGpsStatus(position.accuracy);
+        setState(() {
+          _status = GpsService.getGpsStatusText(status);
+          _color = GpsService.getGpsStatusColor(status);
+        });
+      },
+      onError: (error) {
+        if (!mounted) return;
+        setState(() {
+          _status = 'ERREUR GPS';
+          _color = Colors.red;
+        });
+      },
+    );
+
+    // Abonnement état : démarré / arrêté / erreur
+    _stateSub = GpsController.instance.stateStream.listen((GpsState state) {
+      if (!mounted) return;
+      setState(() {
+        switch (state) {
+          case GpsState.stopped:
+            _status = 'GPS ARRÊTÉ';
+            _color = Colors.grey;
+            break;
+          case GpsState.initializing:
+            _status = 'INITIALISATION...';
+            _color = Colors.orange;
+            break;
+          case GpsState.stationary:
+            _status = 'GPS ACTIF (IMMOBILE)';
+            _color = Colors.green;
+            break;
+          case GpsState.moving:
+            _status = 'GPS ACTIF (EN MOUVEMENT)';
+            _color = Colors.green;
+            break;
+          case GpsState.error:
+            _status = 'ERREUR GPS';
+            _color = Colors.red;
+            break;
+        }
+      });
+    });
+
+    // Démarrage du contrôleur GPS (idempotent)
+    final success = await GpsController.instance.start();
+    if (!success && mounted) {
+      setState(() {
+        _status = GpsController.instance.errorMessage ?? 'ERREUR GPS';
+        _color = Colors.red;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _positionSub?.cancel();
+    _stateSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isLandscape ? 6 : 8,
+        vertical: isLandscape ? 4 : 6,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black26,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _color.withValues(alpha: 0.5), width: 2),
+      ),
+      child: GestureDetector(
+        onTap: () {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => const SatelliteBottomSheet(),
+          );
+        },
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.gps_fixed, color: _color, size: isLandscape ? 14 : 16),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                _status,
+                style: TextStyle(
+                  color: _color,
+                  fontSize: isLandscape ? 10 : 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(
+              Icons.info_outline,
+              color: _color.withValues(alpha: 0.7),
+              size: isLandscape ? 10 : 12,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

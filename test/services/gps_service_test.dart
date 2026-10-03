@@ -93,14 +93,14 @@ void main() {
   group('GPS Service Tests - Calcul de distance (Haversine)', () {
     // Helper pour creer un Waypoint minimal
     Waypoint wp(double lat, double lon) => Waypoint(
-          name: 'Test',
-          latitude: lat,
-          longitude: lon,
-          createdAt: DateTime(2024, 1, 1),
-        );
+      name: 'Test',
+      latitude: lat,
+      longitude: lon,
+      createdAt: DateTime(2024, 1, 1),
+    );
 
     test('Deux coordonnees identiques -> distance 0', () {
-      final d = GpsService.calculateDistance(
+      final d = GpsService.distanceToWaypoint(
         const LatLng(43.5, 3.9),
         wp(43.5, 3.9),
       );
@@ -110,7 +110,7 @@ void main() {
     test('Deplacement de 1 degre en latitude -> ~111 195 m', () {
       // A longitude constante (3.9), 1 degre de latitude = pi * R / 180
       // avec R = 6371000 m -> 111194.927 m (exact).
-      final d = GpsService.calculateDistance(
+      final d = GpsService.distanceToWaypoint(
         const LatLng(43.5, 3.9),
         wp(44.5, 3.9),
       );
@@ -118,7 +118,7 @@ void main() {
     });
 
     test('Deplacement de 1 degre en longitude a l equateur -> ~111 195 m', () {
-      final d = GpsService.calculateDistance(
+      final d = GpsService.distanceToWaypoint(
         const LatLng(0.0, 0.0),
         wp(0.0, 1.0),
       );
@@ -128,31 +128,34 @@ void main() {
     test('Deplacement de 1 degre en longitude a 45 deg -> ~78 626 m', () {
       // Tolerance 2 m : l'ecart vient de la difference entre le calcul
       // Haversine (code) et l'approximation cos(45)*111195 (calcul theorique).
-      final d = GpsService.calculateDistance(
+      final d = GpsService.distanceToWaypoint(
         const LatLng(45.0, 0.0),
         wp(45.0, 1.0),
       );
       expect(d, closeTo(78626.188, 2.0));
     });
 
-    test('Distance Paris -> Lyon -> ~392 287 m (ordre de grandeur realiste)', () {
-      // Paris  : 48.8566 N, 2.3522 E
-      // Lyon   : 45.7640 N, 4.8357 E
-      // Distance a vol d oiseau referencee : ~392 km.
-      // Tolerance 5 km : assez large pour absorber les differences entre
-      // modele spherique de Haversine et valeurs de reference reelles.
-      final d = GpsService.calculateDistance(
-        const LatLng(48.8566, 2.3522),
-        wp(45.7640, 4.8357),
-      );
-      expect(d, closeTo(392287.0, 5000.0));
-    });
+    test(
+      'Distance Paris -> Lyon -> ~392 287 m (ordre de grandeur realiste)',
+      () {
+        // Paris  : 48.8566 N, 2.3522 E
+        // Lyon   : 45.7640 N, 4.8357 E
+        // Distance a vol d oiseau referencee : ~392 km.
+        // Tolerance 5 km : assez large pour absorber les differences entre
+        // modele spherique de Haversine et valeurs de reference reelles.
+        final d = GpsService.distanceToWaypoint(
+          const LatLng(48.8566, 2.3522),
+          wp(45.7640, 4.8357),
+        );
+        expect(d, closeTo(392287.0, 5000.0));
+      },
+    );
 
     test('Symetrie : distance(A, B) == distance(B, A)', () {
       const a = LatLng(43.5, 3.9);
       final b = wp(44.0, 4.0);
 
-      final dAB = GpsService.calculateDistance(a, b);
+      final dAB = GpsService.distanceToWaypoint(a, b);
 
       // Pour la symetrie, on recree un Waypoint equivalent a A.
       final aAsWp = Waypoint(
@@ -161,17 +164,14 @@ void main() {
         longitude: a.longitude,
         createdAt: DateTime(2024, 1, 1),
       );
-      final dBA = GpsService.calculateDistance(
-        const LatLng(44.0, 4.0),
-        aAsWp,
-      );
+      final dBA = GpsService.distanceToWaypoint(const LatLng(44.0, 4.0), aAsWp);
 
       // Haversine est strictement symetrique.
       expect(dAB, closeTo(dBA, 1e-6));
     });
 
     test('Distance nulle entre LatLng et Waypoint equivalents', () {
-      final d = GpsService.calculateDistance(
+      final d = GpsService.distanceToWaypoint(
         const LatLng(48.8566, 2.3522),
         wp(48.8566, 2.3522),
       );

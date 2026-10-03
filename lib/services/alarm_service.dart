@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import '../app_settings.dart';
 import '../models/waypoint.dart';
-import '../controllers/gps_controller.dart';
+import 'package:my_spots/services/gps_service.dart';
 
 /// Logs de debugging alarme. Laisser à false.
 const bool kVerboseAlarm = false;
@@ -296,12 +296,7 @@ class AlarmService {
 
   /// Calcule la distance en mètres entre deux points GPS
   static double _distanceInMeters(LatLng from, Waypoint to) {
-    return GpsController.distanceBetween(
-      from.latitude,
-      from.longitude,
-      to.latitude,
-      to.longitude,
-    );
+    return GpsService.distanceToWaypoint(from, to);
   }
 
   static bool get showSpeakerIcon => _showSpeakerIcon;

@@ -31,11 +31,14 @@ void main() {
       await CacheManager.deleteStoresForZone(zone);
     });
 
-    test('deletes new format lidar stores (lidar_zone_<uuid>_<layerId>)', () async {
-      const zone = 'lidar-new-test-zone';
-      // Verify it doesn't throw when trying to delete new format stores
-      await CacheManager.deleteStoresForZone(zone);
-    });
+    test(
+      'deletes new format lidar stores (lidar_zone_<uuid>_<layerId>)',
+      () async {
+        const zone = 'lidar-new-test-zone';
+        // Verify it doesn't throw when trying to delete new format stores
+        await CacheManager.deleteStoresForZone(zone);
+      },
+    );
 
     test('deletes legacy format lidar store (lidar_zone_<uuid>)', () async {
       const zone = 'lidar-legacy-test-zone';
@@ -68,25 +71,6 @@ void main() {
       final size = await CacheManager.getZoneSizeBytes(zone);
       expect(size, isA<int>());
       expect(size, greaterThanOrEqualTo(0));
-    });
-  });
-
-  group('cleanLegacyLidarStores', () {
-    test('does not throw when no legacy stores exist', () async {
-      // Must not throw even if no legacy stores exist
-      await CacheManager.cleanLegacyLidarStores();
-    });
-
-    test('does not throw when FMTC is not initialised', () async {
-      // Must handle gracefully if FMTC is not initialised
-      await CacheManager.cleanLegacyLidarStores();
-    });
-
-    test('can be called multiple times safely', () async {
-      await CacheManager.cleanLegacyLidarStores();
-      await CacheManager.cleanLegacyLidarStores();
-      await CacheManager.cleanLegacyLidarStores();
-      // If we get here, no exception propagated
     });
   });
 }

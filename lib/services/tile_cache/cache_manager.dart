@@ -1,4 +1,3 @@
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:my_spots/models/litto3d_layer.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
@@ -49,7 +48,6 @@ class CacheManager {
     await const FMTCStore(reliefMapStore).manage.create();
     await const FMTCStore(hikingMapStore).manage.create();
     await _deleteLegacyBathymetryStore();
-    await _deleteLegacy10kStore();
     for (final layerName in bathymetryLayerNames) {
       await FMTCStore(bathymetryStoreForLayer(layerName)).manage.create();
     }
@@ -62,37 +60,6 @@ class CacheManager {
     try {
       await const FMTCStore(_legacyBathymetryStore).manage.delete();
     } catch (_) {}
-  }
-
-  static Future<void> _deleteLegacy10kStore() async {
-    try {
-      await const FMTCStore(
-        'marineBase_RASTER_MARINE_10_WMTS_3857',
-      ).manage.delete();
-    } catch (_) {}
-    try {
-      await const FMTCStore(
-        'marineBase_RASTER_MARINE_10000_WMTS_3857',
-      ).manage.delete();
-    } catch (_) {}
-  }
-
-  static Future<int> purgeTilesInBounds({
-    required String storeName,
-    required LatLngBounds bounds,
-    required int minZoom,
-    required int maxZoom,
-    required String Function(int z, int x, int y) urlForTile,
-    int tileDimension = 256,
-  }) async {
-    return FmtcTileCacheRepository.instance.purgeTilesInBounds(
-      storeName: storeName,
-      bounds: bounds,
-      minZoom: minZoom,
-      maxZoom: maxZoom,
-      urlForTile: urlForTile,
-      tileDimension: tileDimension,
-    );
   }
 
   static FMTCStore marineStoreForZone(String zoneUuid) =>
@@ -180,40 +147,5 @@ class CacheManager {
         ? value.toStringAsFixed(1).replaceAll('.', ',')
         : value.toStringAsFixed(0);
     return '$rounded ${units[unitIdx]}';
-  }
-
-  /// Cleans up legacy LiDAR stores that don't follow the new 3-segment format.
-  ///
-  /// New format: `lidar_zone_<uuid>_<layerId>` (3 segments after prefix)
-  /// Legacy format: `lidar_zone_<uuid>` (2 segments after prefix)
-  ///
-  /// This method identifies and deletes all lidar_zone_* stores that have only
-  /// 2 segments (legacy format), preserving the new 3-segment stores.
-  static Future<void> cleanLegacyLidarStores() async {
-    final repo = FmtcTileCacheRepository.instance;
-    try {
-      final storeNames = await repo.listStores();
-      for (final name in storeNames) {
-        if (name.startsWith('lidar_zone_')) {
-          final segments = name.split('_');
-          // New format: ['lidar', 'zone', '<uuid>', '<layerId>'] (4 segments)
-          // Legacy format: ['lidar', 'zone', '<uuid>'] (3 segments)
-          if (segments.length == 3) {
-            // This is a legacy store, delete it
-            try {
-              final store = FMTCStore(name);
-              await store.manage.delete();
-            } catch (_) {
-              // Ignore errors for individual stores
-            }
-          }
-        }
-      }
-    } catch (_) {
-      // Ignore errors if listing fails
-    }
-
-    // Invalidate the store names cache after cleaning up legacy stores
-    NegativeFilteringImageProvider.clearStoreNamesCache();
   }
 }

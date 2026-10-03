@@ -22,24 +22,6 @@ class MapTileCacheService {
 
   static Future<void> initialise() async => CacheManager.initialise();
 
-  static Future<int> purgeTilesInBounds({
-    required String storeName,
-    required LatLngBounds bounds,
-    required int minZoom,
-    required int maxZoom,
-    required String Function(int z, int x, int y) urlForTile,
-    int tileDimension = 256,
-  }) async {
-    return CacheManager.purgeTilesInBounds(
-      storeName: storeName,
-      bounds: bounds,
-      minZoom: minZoom,
-      maxZoom: maxZoom,
-      urlForTile: urlForTile,
-      tileDimension: tileDimension,
-    );
-  }
-
   static FMTCStore marineStoreForZone(String zoneUuid) =>
       CacheManager.marineStoreForZone(zoneUuid);
   static FMTCStore lidarStoreForZone(String zoneUuid) =>

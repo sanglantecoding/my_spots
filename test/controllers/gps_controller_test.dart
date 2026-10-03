@@ -145,42 +145,6 @@ void main() {
       );
     });
 
-    group('Distance Calculation', () {
-      test('distanceBetween returns non-negative value', () {
-        final distance = GpsController.distanceBetween(43.5, 3.9, 43.5, 3.9);
-
-        expect(distance, greaterThanOrEqualTo(0));
-      });
-
-      test('distanceBetween returns zero for same point', () {
-        final distance = GpsController.distanceBetween(43.5, 3.9, 43.5, 3.9);
-
-        expect(distance, lessThan(0.001));
-      });
-
-      test('distanceBetween returns positive for different points', () {
-        final distance = GpsController.distanceBetween(43.5, 3.9, 43.6, 4.0);
-
-        expect(distance, greaterThan(0));
-      });
-    });
-
-    group('Bearing Calculation', () {
-      test('bearingBetween returns value in range 0-360', () {
-        final bearing = GpsController.bearingBetween(43.5, 3.9, 44.0, 4.0);
-
-        expect(bearing, greaterThanOrEqualTo(0));
-        expect(bearing, lessThan(360));
-      });
-
-      test('bearingBetween returns valid value for same point', () {
-        final bearing = GpsController.bearingBetween(43.5, 3.9, 43.5, 3.9);
-
-        expect(bearing, greaterThanOrEqualTo(-1));
-        expect(bearing, lessThan(360));
-      });
-    });
-
     group('Error Handling', () {
       test('errorMessage is null initially', () {
         expect(controller.errorMessage, isNull);

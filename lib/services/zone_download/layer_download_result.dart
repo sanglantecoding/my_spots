@@ -9,7 +9,7 @@ enum DownloadInterruptReason {
   /// Interrompu par le watchdog (flux gelé > 15 min sans progrès).
   watchdog,
 
-  /// Interrompu car le nombre de tuiles dépasse le plafond (12 000).
+  /// Interrompu car le nombre de tuiles dépasse le plafond (25 000).
   tileCeiling,
 }
 

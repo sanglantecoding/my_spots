@@ -176,15 +176,24 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   }
 
   Future<void> _computeZoneSizes() async {
+    final results = <String, int?>{};
     final futures = <Future<void>>[];
+
     for (final zone in _zones) {
       futures.add(() async {
         final bytes = await MapTileCacheService.getZoneSizeBytes(zone.uuid);
-        if (!mounted) return;
-        setState(() => _zoneSizesBytes[zone.uuid] = bytes);
+        results[zone.uuid] = bytes;
       }());
     }
+
     await Future.wait(futures);
+
+    if (!mounted) return;
+
+    // 🟢 OPTIMISATION : Un seul setState() avec tous les résultats
+    setState(() {
+      _zoneSizesBytes.addAll(results);
+    });
   }
 
   Future<void> _handleDownload(

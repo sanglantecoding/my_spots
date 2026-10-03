@@ -28,8 +28,11 @@ enum GpsState {
 
 /// Contrôleur GPS unifié qui encapsule un seul flux de position
 ///
-/// Ce contrôleur singleton évite les appels multiples à Geolocator.getPositionStream()
-/// qui drainent la batterie et causent des conditions de course.
+/// Ce contrôleur singleton vit toute la durée de l'application.
+/// Utilisez [start] pour démarrer le tracking et [stop] pour l'arrêter.
+///
+/// Pour les tests unitaires uniquement, [shutdown] permet de libérer
+/// complètement les ressources (streams fermés, singleton inutilisable ensuite).
 class GpsController extends ChangeNotifier {
   // Singleton pattern
   GpsController._();
@@ -181,10 +184,7 @@ class GpsController extends ChangeNotifier {
 
     if (newState != _state) {
       _setState(newState);
-    } else {
-      notifyListeners();
     }
-
     _positionController.add(position);
   }
 
@@ -281,7 +281,7 @@ class GpsController extends ChangeNotifier {
         );
   }
 
-  /// Arrête le suivi GPS
+  /// Arrête le suivi GPS (le singleton reste utilisable, peut être redémarré).
   Future<void> stop() async {
     await _positionSubscription?.cancel();
     _positionSubscription = null;
@@ -294,35 +294,16 @@ class GpsController extends ChangeNotifier {
     _currentAccuracy = 0.0;
   }
 
-  /// Libère les ressources de manière asynchrone (fermeture des streams,
-  /// annulation des abonnements, etc.)
+  /// 🔴 TESTS ONLY : Libère complètement les ressources et rend le singleton
+  /// inutilisable. Ne jamais appeler en production.
   ///
-  /// À utiliser si vous avez besoin d'attendre la fermeture complète.
-  /// Pour le cycle de vie Flutter standard, [dispose] est appelé
-  /// automatiquement et gère le nettoyage en fire-and-forget.
-  Future<void> close() async {
+  /// En production, le singleton vit toute la durée de l'application.
+  /// Utilisez [stop] pour arrêter temporairement le tracking.
+  @visibleForTesting
+  Future<void> shutdown() async {
     await stop();
     await _positionController.close();
     await _stateController.close();
-  }
-
-  /// Libère les ressources (cycle de vie Flutter).
-  ///
-  /// [dispose] est synchrone par contrat Flutter. Les opérations
-  /// asynchrones (cancel, close) sont déclenchées en fire-and-forget :
-  /// le runtime Dart garantit leur exécution même sans await.
-  @override
-  void dispose() {
-    // Annule l'abonnement GPS (fire-and-forget)
-    _positionSubscription?.cancel();
-    _positionSubscription = null;
-    _streamUsesEnergySaving = null;
-
-    // Ferme les contrôleurs de flux (fire-and-forget)
-    _positionController.close();
-    _stateController.close();
-
-    super.dispose();
   }
 
   /// Requête ponctuelle de position GPS.
@@ -354,36 +335,6 @@ class GpsController extends ChangeNotifier {
       }
       return null; // ← le caller gère son propre fallback (snackbar, etc.)
     }
-  }
-
-  /// Calcule la distance entre deux points en mètres
-  static double distanceBetween(
-    double startLatitude,
-    double startLongitude,
-    double endLatitude,
-    double endLongitude,
-  ) {
-    return Geolocator.distanceBetween(
-      startLatitude,
-      startLongitude,
-      endLatitude,
-      endLongitude,
-    );
-  }
-
-  /// Calcule le cap entre deux points en degrés
-  static double bearingBetween(
-    double startLatitude,
-    double startLongitude,
-    double endLatitude,
-    double endLongitude,
-  ) {
-    return Geolocator.bearingBetween(
-      startLatitude,
-      startLongitude,
-      endLatitude,
-      endLongitude,
-    );
   }
 
   /// Réinitialise l'état d'erreur

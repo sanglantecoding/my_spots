@@ -5,10 +5,6 @@ import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
 import 'package:my_spots/services/zone_download/shom_coverage_preflight.dart';
 
-/// Returned by [showNewZoneSheet] when the user confirms the zone name.
-///
-/// The [layers] field is empty when returned from the sheet - it is resolved
-/// later in the caller using [ZoneConfig.defaultLayersForBounds].
 class ZoneConfig {
   final String name;
   final List<LayerType> layers;
@@ -20,13 +16,6 @@ class ZoneConfig {
     required this.zoneType,
   });
 
-  /// Default layer types for a zone covering [bounds].
-  ///
-  /// Marine layers (50K + 25K + 10K) are always included.  LiDAR overlays are
-  /// included only when the bounds intersect a known LiDAR region (see
-  /// [LidarRegionCatalog.regionsIntersecting]).
-  /// For LiDAR, creates one [OfflineMapLayer] per available campaign with
-  /// [OfflineMapLayer.lidarLayerId] set to the campaign ID.
   static List<OfflineMapLayer> defaultLayersForBounds(LatLngBounds bounds) {
     final layers = <OfflineMapLayer>[
       OfflineMapLayer.create(
@@ -57,7 +46,7 @@ class ZoneConfig {
         layers.add(
           OfflineMapLayer.create(
             layerType: LayerType.lidarLitto3d,
-            minZoom: isOccitanieFallback ? 11 : 11,
+            minZoom: 11,
             maxZoom: isOccitanieFallback ? 15 : 16,
             lidarLayerId: layerId,
           ),
@@ -310,7 +299,6 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
                 validator: _validateName,
               ),
               const SizedBox(height: 12),
-              // Choix du type de zone
               const Text(
                 'Type de zone',
                 style: TextStyle(
@@ -320,48 +308,28 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
                 ),
               ),
               const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: const Color(0xFF0D6999).withValues(alpha: 0.3),
-                  ),
-                ),
-                child: DropdownButtonFormField<String>(
-                  initialValue: _selectedZoneType,
-                  dropdownColor: const Color(0xFF1A2F42),
-                  style: const TextStyle(color: Colors.white, fontSize: 15),
-                  decoration: InputDecoration(
-                    border: InputBorder.none,
-                    prefixIcon: Icon(
-                      Icons.map,
-                      color: Colors.white38,
-                      size: 20,
-                    ),
-                    suffixIcon: Icon(
-                      Icons.arrow_drop_down,
-                      color: Colors.white38,
-                      size: 20,
+              Row(
+                children: [
+                  Expanded(
+                    child: _ZoneTypeButton(
+                      label: 'Rectangle',
+                      icon: Icons.crop_free,
+                      isSelected: _selectedZoneType == 'Rectangle',
+                      onTap: () =>
+                          setState(() => _selectedZoneType = 'Rectangle'),
                     ),
                   ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'Rectangle',
-                      child: Text('Rectangle'),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _ZoneTypeButton(
+                      label: 'Main levée',
+                      icon: Icons.draw,
+                      isSelected: _selectedZoneType == 'Main levée',
+                      onTap: () =>
+                          setState(() => _selectedZoneType = 'Main levée'),
                     ),
-                    DropdownMenuItem(
-                      value: 'Main levée',
-                      child: Text('Main levée'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() => _selectedZoneType = value);
-                    }
-                  },
-                ),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               Container(
@@ -409,6 +377,72 @@ class _NewZoneSheetState extends State<_NewZoneSheet> {
                     'Suivant : Tracer la zone sur la carte',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Bouton rectangulaire de sélection du mode de tracé.
+/// État sélectionné : fond teinté + bordure épaisse + icône/texte colorés.
+class _ZoneTypeButton extends StatelessWidget {
+  const _ZoneTypeButton({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const selectedColor = Color(0xFF0D6999);
+    return Material(
+      color: isSelected
+          ? selectedColor.withValues(alpha: 0.25)
+          : Colors.white.withValues(alpha: 0.06),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected
+                  ? selectedColor
+                  : const Color(0xFF0D6999).withValues(alpha: 0.3),
+              width: isSelected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: isSelected ? selectedColor : Colors.white38,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : Colors.white70,
+                    fontSize: 15,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],

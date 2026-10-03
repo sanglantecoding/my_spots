@@ -79,7 +79,7 @@ void main() {
       const r = LayerDownloadResult(
         downloadedTileCount: 0,
         estimatedTileCount: 100,
-        successful: false,
+        successful: true,
         negativeTileCount: 100,
       );
       expect(

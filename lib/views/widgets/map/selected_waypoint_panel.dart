@@ -93,7 +93,7 @@ class SelectedWaypointPanel extends StatelessWidget {
               Text(
                 currentPosition != null
                     ? _formatDistanceForWaypoint(
-                        GpsService.calculateDistance(
+                        GpsService.distanceToWaypoint(
                           currentPosition!,
                           waypoint,
                         ),

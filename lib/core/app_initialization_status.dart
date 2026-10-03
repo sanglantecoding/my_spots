@@ -29,12 +29,12 @@ class AppInitializationStatus extends ChangeNotifier {
 
   void markSettingsLoaded() {
     _settingsLoaded = true;
-    notifyListeners();
+    _checkCriticalServices();
   }
 
   void markWaypointsLoaded() {
     _waypointsLoaded = true;
-    notifyListeners();
+    _checkCriticalServices();
   }
 
   void markMapTileCacheReady() {
@@ -49,7 +49,7 @@ class AppInitializationStatus extends ChangeNotifier {
 
   void markObjectBoxReady() {
     _objectBoxReady = true;
-    notifyListeners();
+    _checkCriticalServices();
   }
 
   void reportCriticalFailure(String service, Object error) {
@@ -61,5 +61,23 @@ class AppInitializationStatus extends ChangeNotifier {
   void reportNonCriticalFailure(String service, Object error) {
     _errors[service] = error;
     notifyListeners();
+  }
+
+  /// Vérifie si tous les services critiques ont réussi.
+  /// Si oui, sort du mode dégradé (même après un timeout initial).
+  void _checkCriticalServices() {
+    final allCriticalOk = _settingsLoaded && _waypointsLoaded;
+
+    if (allCriticalOk && !_criticalServicesOk) {
+      // Tous les services critiques ont fini par réussir : on sort du mode dégradé
+      _criticalServicesOk = true;
+      // Supprimer l'erreur de timeout si elle était la seule raison du mode dégradé
+      _errors.remove('AppBootstrap.timeout');
+      notifyListeners();
+    } else if (!allCriticalOk && _criticalServicesOk) {
+      // Un service critique a échoué
+      _criticalServicesOk = false;
+      notifyListeners();
+    }
   }
 }

@@ -65,6 +65,7 @@ class FakeLayerDownloader implements LayerDownloader {
     String? preCancelInstanceId,
     FMTCStore? preCancelStore,
     List<LatLng>? polygon,
+    bool expectPolygon = false,
   }) async {
     onProgress(1.0);
     return const LayerDownloadResult(

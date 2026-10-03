@@ -221,7 +221,7 @@ class MarineMapService {
       minNativeZoom: 6,
       maxNativeZoom: 17,
       maxZoom: 22,
-      errorTileCallback: (tile, error, stackTrace) {},
+      errorTileCallback: errorTileCallback ?? (tile, error, stackTrace) {},
     );
   }
 

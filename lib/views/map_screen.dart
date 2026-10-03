@@ -723,59 +723,6 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  /// Confirmation dialog for a proposed polygon point.
-  ///
-  /// Shows "Ajouter ce point ?" with Ajouter/Annuler buttons.
-  Future<bool?> _onZoneProposedPoint(LatLng point) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF0D1B2A),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.add_location_alt, color: Color(0xFF0D6999)),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Ajouter un point ?',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          'Point à l\'emplacement :\n'
-          'Lat ${point.latitude.toStringAsFixed(5)}  Lon ${point.longitude.toStringAsFixed(5)}',
-          style: const TextStyle(color: Colors.white70, height: 1.4),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text(
-              'Annuler',
-              style: TextStyle(color: Colors.white54),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              'Ajouter',
-              style: TextStyle(
-                color: Colors.greenAccent,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-    return result;
-  }
-
   /// Saves the zone after the user has adjusted the rectangle or polygon.
   Future<void> _onZoneBoundsConfirmed(dynamic bounds) async {
     final config = _pendingZoneConfig;
@@ -1067,7 +1014,6 @@ class _MapScreenState extends State<MapScreen> {
                       onConfirm: _onZoneBoundsConfirmed,
                       onCancel: _exitZoneEditMode,
                       mapController: _mapController,
-                      onPointProposed: _onZoneProposedPoint,
                     ),
                   ),
                 if (_isMeasuringDistance && _measurementPoint1 != null)

@@ -11,6 +11,11 @@ import 'package:my_spots/services/zone_download/layer_download_result.dart';
 /// Logs de debugging downloader FMTC. Laisser à false.
 const bool kVerboseDownloader = false;
 
+/// Audit détaillé des tuiles : affiche un résumé complet à la fin de chaque
+/// téléchargement + log les événements non-réussis (Sea, Existing, Negative, Failed).
+/// TEMPORAIRE : désactiver une fois le diagnostic terminé.
+const bool kVerboseTileAudit = true;
+
 // ─── Callbacks & interface abstraite ────────────────────────────────────────
 
 /// Callback de progression pour une couche en cours de téléchargement.
@@ -21,6 +26,11 @@ typedef LayerProgressCallback = void Function(double progress);
 /// Permet de substituer [FmtcLayerDownloader] par un mock en tests unitaires.
 abstract class LayerDownloader {
   /// Télécharge une couche et retourne le résultat de l'évaluation.
+  ///
+  /// [expectPolygon] : si `true`, la zone a été tracée en mode main levée
+  /// et un polygone valide est attendu. Si `polygon` est absent ou invalide
+  /// (JSON corrompu), le téléchargement est refusé pour éviter de télécharger
+  /// silencieusement tout le rectangle englobant.
   Future<LayerDownloadResult> downloadLayer({
     required String zoneUuid,
     required FMTCStore store,
@@ -34,6 +44,7 @@ abstract class LayerDownloader {
     String? preCancelInstanceId,
     FMTCStore? preCancelStore,
     List<LatLng>? polygon,
+    bool expectPolygon = false,
   });
 
   /// Annule un téléchargement en cours.
@@ -114,11 +125,28 @@ class FmtcLayerDownloader implements LayerDownloader {
     String? preCancelInstanceId,
     FMTCStore? preCancelStore,
     List<LatLng>? polygon,
+    bool expectPolygon = false,
   }) async {
     // Force minZoom à au moins 8 pour éviter le téléchargement des zooms 0-7
     // (trop de tuiles, inutiles pour la navigation hors-ligne)
     final effectiveMinZoom = minZoom.clamp(8, 17).toInt();
     final effectiveMaxZoom = maxZoom.clamp(effectiveMinZoom, 17).toInt();
+
+    // 🛡️ GARDE-FOU POLYGONE : la zone a été tracée en mode main levée
+    // (expectPolygon == true) mais le polygone décodé est absent ou
+    // invalide (JSON corrompu, < 3 sommets). On refuse de télécharger
+    // le rectangle englobant, qui pourrait représenter des Go de tuiles
+    // inutiles. On passe par assessResult pour une sortie cohérente
+    // (successful=false, tous compteurs à 0).
+    if (expectPolygon && (polygon == null || polygon.length < 3)) {
+      if (kVerboseDownloader) {
+        debugPrint(
+          '[FmtcLayerDownloader] ERREUR : zone polygone attendue mais polygon '
+          'invalide (corruption ou <3 sommets). Téléchargement annulé.',
+        );
+      }
+      return assessResult(0, 0, 0, 0, DownloadInterruptReason.none);
+    }
 
     await store.manage.create();
 
@@ -166,12 +194,25 @@ class FmtcLayerDownloader implements LayerDownloader {
     final ctrl = StreamController<DownloadProgress>.broadcast();
     StreamSubscription<DownloadProgress>?
     bridgeSub; // nullable : pas encore posé si startForeground échoue
+    StreamSubscription<TileEvent>? tileEventsSub; // Audit détaillé
     Timer? watchdog;
 
     var maxTiles = 0;
     var successful = 0;
     var negative = 0;
     var failed = 0;
+
+    // Variables pour l'audit détaillé
+    var attempted = 0;
+    var remaining = 0;
+    var failedTiles = 0;
+    var sea = 0;
+    var existing = 0;
+    var skipped = 0;
+    var buffered = 0;
+    var flushed = 0;
+    var eventCount = 0; // Limite à 300 événements loggés
+
     _lastEventAtByInstance[instanceId] = DateTime.now();
     var interruptReason = DownloadInterruptReason.none;
 
@@ -191,6 +232,39 @@ class FmtcLayerDownloader implements LayerDownloader {
         onError: ctrl.addError,
         onDone: ctrl.close,
       );
+
+      // 🟢 AUDIT : S'abonner aux événements détaillés des tuiles
+      // 🟢 AUDIT : S'abonner aux événements détaillés des tuiles
+      // 🟢 AUDIT : S'abonner aux événements détaillés des tuiles
+      if (kVerboseTileAudit) {
+        tileEventsSub = fgReturn.tileEvents.listen((event) {
+          // Limiter à 300 événements pour ne pas saturer logcat
+          if (eventCount >= 300) return;
+
+          // Ignorer SuccessfulTileEvent (trop nombreux)
+          if (event is SuccessfulTileEvent) return;
+
+          eventCount++;
+          // Cette version de FMTC n'expose que [TileEvent.url] :
+          // on extrait z/x/y depuis l'URL elle-même.
+          final url = event.url;
+          final coord = _coordFromUrl(url);
+
+          if (event is SeaTileEvent) {
+            debugPrint('[FMTCTILE-AUDIT] SeaTileEvent $coord url=$url');
+          } else if (event is ExistingTileEvent) {
+            debugPrint('[FMTCTILE-AUDIT] ExistingTileEvent $coord url=$url');
+          } else if (event is NegativeResponseTileEvent) {
+            debugPrint(
+              '[FMTCTILE-AUDIT] NegativeResponseTileEvent $coord url=$url',
+            );
+          } else if (event is FailedRequestTileEvent) {
+            debugPrint(
+              '[FMTCTILE-AUDIT] FailedRequestTileEvent $coord url=$url',
+            );
+          }
+        });
+      }
 
       // 👇 Tracking posé UNIQUEMENT une fois le foreground réellement lancé :
       // un échec de startForeground ne laisse donc aucune entrée périmée.
@@ -218,6 +292,17 @@ class FmtcLayerDownloader implements LayerDownloader {
         successful = p.successfulTilesCount;
         negative = p.negativeResponseTilesCount;
         failed = p.failedRequestTilesCount;
+
+        // Capturer toutes les stats pour l'audit
+        attempted = p.attemptedTilesCount;
+        remaining = p.remainingTilesCount;
+        failedTiles = p.failedTilesCount;
+        sea = p.seaTilesCount;
+        existing = p.existingTilesCount;
+        skipped = p.skippedTilesCount;
+        buffered = p.bufferedTilesCount;
+        flushed = p.flushedTilesCount;
+
         _lastEventAtByInstance[instanceId] = DateTime.now();
         if (maxTiles > 0) {
           final progress = (p.attemptedTilesCount / maxTiles)
@@ -247,6 +332,7 @@ class FmtcLayerDownloader implements LayerDownloader {
       _lastEventAtByInstance.remove(instanceId);
       watchdog?.cancel();
       await bridgeSub?.cancel();
+      await tileEventsSub?.cancel(); // Audit : annuler la subscription
       if (!ctrl.isClosed) {
         await ctrl.close();
       }
@@ -261,6 +347,29 @@ class FmtcLayerDownloader implements LayerDownloader {
       }
     }
 
+    // 🟢 AUDIT : Résumé final détaillé
+    if (kVerboseTileAudit) {
+      final gap = maxTiles - successful;
+      debugPrint(
+        '[FMTCTILE-AUDIT]\n'
+        '  zone=$zoneUuid\n'
+        '  instance=$instanceId\n'
+        '  max=$maxTiles\n'
+        '  successful=$successful\n'
+        '  gap=$gap\n'
+        '  attempted=$attempted\n'
+        '  remaining=$remaining\n'
+        '  negative=$negative\n'
+        '  failedRequest=$failed\n'
+        '  failedTiles=$failedTiles\n'
+        '  sea=$sea\n'
+        '  existing=$existing\n'
+        '  skipped=$skipped\n'
+        '  buffered=$buffered\n'
+        '  flushed=$flushed',
+      );
+    }
+
     return assessResult(
       maxTiles,
       successful,
@@ -268,6 +377,30 @@ class FmtcLayerDownloader implements LayerDownloader {
       negative,
       interruptReason,
     );
+  }
+
+  /// Extrait z/x/y depuis l'URL de la tuile.
+  ///
+  /// Cette version de FMTC n'expose aucun getter de coordonnées sur
+  /// [TileEvent] (ni `tile`, ni `coords`) : seule l'URL est disponible.
+  /// Deux formats supportés :
+  ///   - XYZ path : `.../z/x/y.png`
+  ///   - WMTS KVP (SHOM / INSPIRE) : `TILEMATRIX=z&TILECOL=x&TILEROW=y`
+  static String _coordFromUrl(String url) {
+    // Format XYZ path
+    final path = RegExp(r'/(\d+)/(\d+)/(\d+)(?:\.\w+)?').firstMatch(url);
+    if (path != null) {
+      return '${path.group(1)}/${path.group(2)}/${path.group(3)}';
+    }
+    // Format WMTS KVP
+    final q = Uri.tryParse(url)?.queryParameters;
+    if (q != null) {
+      final z = q['TILEMATRIX'] ?? q['tilematrix'];
+      final x = q['TILECOL'] ?? q['tilecol'];
+      final y = q['TILEROW'] ?? q['tilerow'];
+      if (z != null && x != null && y != null) return '$z/$x/$y';
+    }
+    return '-';
   }
 
   /// Évalue le résultat d'une couche.
@@ -292,6 +425,8 @@ class FmtcLayerDownloader implements LayerDownloader {
         downloadedTileCount: 0,
         estimatedTileCount: 0,
         successful: false,
+        negativeTileCount: 0,
+        failedTileCount: 0,
         interruptReason: interruptReason,
       );
     }

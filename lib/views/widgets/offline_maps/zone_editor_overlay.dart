@@ -732,10 +732,37 @@ class _PolygonPainter extends CustomPainter {
 
   static const double _pointRadius = 8.0;
   static const double _lineWidth = 3.0;
+  static const double _dotSpacing = 12.0;
+  static const double _haloRadius = 3.5;
+  static const double _coreRadius = 2.0;
 
   /// Convert LatLng to screen offset using FlutterMap camera
   Offset _latLngToScreen(LatLng latLng) {
     return mapController.camera.latLngToScreenOffset(latLng);
+  }
+
+  /// Dessine une ligne pointillée (halo blanc + cœur bleu) entre deux points.
+  /// Utilisée pour prévisualiser la fermeture du polygone.
+  void _drawDottedLine(Canvas canvas, Offset from, Offset to) {
+    final delta = to - from;
+    final distance = delta.distance;
+    if (distance < 2) return;
+
+    final haloPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.9)
+      ..style = PaintingStyle.fill;
+    final corePaint = Paint()
+      ..color = const Color(0xFF0D6999)
+      ..style = PaintingStyle.fill;
+
+    for (double t = 0; t <= distance; t += _dotSpacing) {
+      final p = from + delta * (t / distance);
+      canvas.drawCircle(p, _haloRadius, haloPaint);
+      canvas.drawCircle(p, _coreRadius, corePaint);
+    }
+    // Point final pour "souder" visuellement
+    canvas.drawCircle(to, _haloRadius, haloPaint);
+    canvas.drawCircle(to, _coreRadius, corePaint);
   }
 
   @override
@@ -750,13 +777,9 @@ class _PolygonPainter extends CustomPainter {
         ? _latLngToScreen(provisionalLatLng!)
         : null;
 
+    // ── Paints ──
     final linePaint = Paint()
       ..color = const Color(0xFF0D6999)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = _lineWidth;
-
-    final closurePaint = Paint()
-      ..color = const Color(0xFF0D6999).withValues(alpha: 0.2)
       ..style = PaintingStyle.stroke
       ..strokeWidth = _lineWidth;
 
@@ -788,44 +811,54 @@ class _PolygonPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0;
 
-    // Lines between definitive points
+    // ── Drawing ──
+
+    // 1. Lignes entre points confirmés (bleu plein)
     for (int i = 0; i < screenPoints.length - 1; i++) {
       canvas.drawLine(screenPoints[i], screenPoints[i + 1], linePaint);
     }
 
-    // Preview line from last definitive point to cursor
+    // 2. Ligne provisoire vers le point en attente de confirmation (bleu transparent)
     if (provisionalScreenPoint != null && screenPoints.isNotEmpty) {
       canvas.drawLine(screenPoints.last, provisionalScreenPoint, previewPaint);
     }
 
-    // Auto-closure line when 3+ definitive points
+    // 3. Prévisualisation de la fermeture du polygone (pointillé visible)
     if (screenPoints.length >= 3) {
-      canvas.drawLine(screenPoints.last, screenPoints.first, closurePaint);
+      _drawDottedLine(canvas, screenPoints.last, screenPoints.first);
     }
 
-    // Definitive points
+    // 4. Points confirmés (bleu avec contour blanc)
     for (int i = 0; i < screenPoints.length; i++) {
       final offset = screenPoints[i];
+      // Halo bleu transparent
       canvas.drawCircle(
         offset,
         _pointRadius + 3,
         pointPaint..color = const Color(0xFF0D6999).withValues(alpha: 0.2),
       );
+      // Contour blanc
       canvas.drawCircle(offset, _pointRadius + 1, whiteStrokePaint);
+      // Cœur bleu
       canvas.drawCircle(offset, _pointRadius, pointPaint);
+      // Contour bleu foncé
       canvas.drawCircle(offset, _pointRadius, pointStrokePaint);
     }
 
-    // Provisional point (orange)
+    // 5. Point provisoire (orange avec contour blanc)
     if (provisionalScreenPoint != null) {
       final po = provisionalScreenPoint;
+      // Halo orange transparent
       canvas.drawCircle(
         po,
         _pointRadius + 3,
         provisionalPointPaint..color = Colors.orange.withValues(alpha: 0.2),
       );
+      // Contour blanc
       canvas.drawCircle(po, _pointRadius + 1, provisionalStrokePaint);
+      // Cœur orange
       canvas.drawCircle(po, _pointRadius, provisionalPointPaint);
+      // Contour blanc
       canvas.drawCircle(po, _pointRadius, provisionalStrokePaint);
     }
   }

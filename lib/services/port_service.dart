@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:my_spots/models/fishing_port.dart';
 
 /// Service singleton pour la gestion des ports de pêche et météo marine
@@ -15,7 +18,6 @@ class PortService {
       latitude: 48.5639,
       longitude: -4.6047,
     ),
-
     FishingPort(
       key: 'ajaccio',
       name: 'Ajaccio',
@@ -23,7 +25,6 @@ class PortService {
       latitude: 41.9192,
       longitude: 8.7386,
     ),
-
     FishingPort(
       key: 'anse_de_primel',
       name: 'Anse De Primel',
@@ -31,7 +32,6 @@ class PortService {
       latitude: 48.7183,
       longitude: -3.8194,
     ),
-
     FishingPort(
       key: 'antibes',
       name: 'Antibes',
@@ -39,7 +39,6 @@ class PortService {
       latitude: 43.5808,
       longitude: 7.1239,
     ),
-
     FishingPort(
       key: 'arcachon_eyrac',
       name: 'Arcachon Eyrac',
@@ -47,7 +46,6 @@ class PortService {
       latitude: 44.6626,
       longitude: -1.1708,
     ),
-
     FishingPort(
       key: 'arradon',
       name: 'Arradon',
@@ -55,7 +53,6 @@ class PortService {
       latitude: 47.6214,
       longitude: -2.8228,
     ),
-
     FishingPort(
       key: 'arromanches_les_bains',
       name: 'Arromanches Les Bains',
@@ -64,7 +61,6 @@ class PortService {
       latitude: 49.3403,
       longitude: -0.6222,
     ),
-
     FishingPort(
       key: 'audierne',
       name: 'Audierne',
@@ -72,7 +68,6 @@ class PortService {
       latitude: 48.0211,
       longitude: -4.5422,
     ),
-
     FishingPort(
       key: 'auray',
       name: 'Auray',
@@ -80,7 +75,6 @@ class PortService {
       latitude: 47.6667,
       longitude: -2.9833,
     ),
-
     FishingPort(
       key: 'barfleur',
       name: 'Barfleur',
@@ -88,7 +82,6 @@ class PortService {
       latitude: 49.6711,
       longitude: -1.2636,
     ),
-
     FishingPort(
       key: 'bastia',
       name: 'Bastia',
@@ -96,7 +89,6 @@ class PortService {
       latitude: 42.6973,
       longitude: 9.4509,
     ),
-
     FishingPort(
       key: 'binic',
       name: 'Binic',
@@ -104,7 +96,6 @@ class PortService {
       latitude: 48.6017,
       longitude: -2.8253,
     ),
-
     FishingPort(
       key: 'biscarrosse',
       name: 'Biscarrosse',
@@ -112,7 +103,6 @@ class PortService {
       latitude: 44.4464,
       longitude: -1.2514,
     ),
-
     FishingPort(
       key: 'bonifacio',
       name: 'Bonifacio',
@@ -120,7 +110,6 @@ class PortService {
       latitude: 41.3879,
       longitude: 9.1598,
     ),
-
     FishingPort(
       key: 'bordeaux',
       name: 'Bordeaux',
@@ -128,7 +117,6 @@ class PortService {
       latitude: 44.8378,
       longitude: -0.5792,
     ),
-
     FishingPort(
       key: 'boucau_bayonne',
       name: 'Boucau Bayonne',
@@ -136,7 +124,6 @@ class PortService {
       latitude: 43.5286,
       longitude: -1.4883,
     ),
-
     FishingPort(
       key: 'boulogne_sur_mer',
       name: 'Boulogne Sur Mer',
@@ -145,7 +132,6 @@ class PortService {
       latitude: 50.7258,
       longitude: 1.5956,
     ),
-
     FishingPort(
       key: 'brest',
       name: 'Brest',
@@ -153,7 +139,6 @@ class PortService {
       latitude: 48.3904,
       longitude: -4.4861,
     ),
-
     FishingPort(
       key: 'brignogan_plage',
       name: 'Brignogan Plage',
@@ -161,7 +146,6 @@ class PortService {
       latitude: 48.6653,
       longitude: -4.3253,
     ),
-
     FishingPort(
       key: 'calais',
       name: 'Calais',
@@ -169,7 +153,6 @@ class PortService {
       latitude: 50.9631,
       longitude: 1.8547,
     ),
-
     FishingPort(
       key: 'calvi_et_ile_rousse',
       name: 'Calvi Et Ile Rousse',
@@ -178,7 +161,6 @@ class PortService {
       latitude: 42.5686,
       longitude: 8.7569,
     ),
-
     FishingPort(
       key: 'camaret_sur_mer',
       name: 'Camaret Sur Mer',
@@ -186,7 +168,6 @@ class PortService {
       latitude: 48.2756,
       longitude: -4.5961,
     ),
-
     FishingPort(
       key: 'cancale',
       name: 'Cancale',
@@ -194,7 +175,6 @@ class PortService {
       latitude: 48.6719,
       longitude: -1.8519,
     ),
-
     FishingPort(
       key: 'cannes',
       name: 'Cannes',
@@ -202,7 +182,6 @@ class PortService {
       latitude: 43.5500,
       longitude: 7.0128,
     ),
-
     FishingPort(
       key: 'cap_d_agde',
       name: 'Cap D Agde',
@@ -210,7 +189,6 @@ class PortService {
       latitude: 43.2800,
       longitude: 3.5042,
     ),
-
     FishingPort(
       key: 'cap_ferret',
       name: 'Cap Ferret',
@@ -218,7 +196,6 @@ class PortService {
       latitude: 44.6247,
       longitude: -1.2483,
     ),
-
     FishingPort(
       key: 'carteret',
       name: 'Carteret',
@@ -226,7 +203,6 @@ class PortService {
       latitude: 49.3769,
       longitude: -1.7850,
     ),
-
     FishingPort(
       key: 'cayeux_sur_mer',
       name: 'Cayeux Sur Mer',
@@ -234,7 +210,6 @@ class PortService {
       latitude: 50.1814,
       longitude: 1.4889,
     ),
-
     FishingPort(
       key: 'chateau_du_taureau',
       name: 'Chateau Du Taureau',
@@ -243,7 +218,6 @@ class PortService {
       latitude: 48.6742,
       longitude: -3.8833,
     ),
-
     FishingPort(
       key: 'cherbourg',
       name: 'Cherbourg',
@@ -251,7 +225,6 @@ class PortService {
       latitude: 49.6337,
       longitude: -1.6221,
     ),
-
     FishingPort(
       key: 'concarneau',
       name: 'Concarneau',
@@ -259,7 +232,6 @@ class PortService {
       latitude: 47.8750,
       longitude: -3.9183,
     ),
-
     FishingPort(
       key: 'cordouan',
       name: 'Cordouan',
@@ -267,7 +239,6 @@ class PortService {
       latitude: 45.5864,
       longitude: -1.1739,
     ),
-
     FishingPort(
       key: 'courseulles_sur_mer',
       name: 'Courseulles Sur Mer',
@@ -276,7 +247,6 @@ class PortService {
       latitude: 49.3375,
       longitude: -0.4578,
     ),
-
     FishingPort(
       key: 'dahouet',
       name: 'Dahouet',
@@ -284,7 +254,6 @@ class PortService {
       latitude: 48.5639,
       longitude: -2.5636,
     ),
-
     FishingPort(
       key: 'deauville',
       name: 'Deauville',
@@ -292,7 +261,6 @@ class PortService {
       latitude: 49.3625,
       longitude: 0.0753,
     ),
-
     FishingPort(
       key: 'dielette',
       name: 'Dielette',
@@ -300,7 +268,6 @@ class PortService {
       latitude: 49.5539,
       longitude: -1.8603,
     ),
-
     FishingPort(
       key: 'dieppe',
       name: 'Dieppe',
@@ -308,7 +275,6 @@ class PortService {
       latitude: 49.9220,
       longitude: 1.0770,
     ),
-
     FishingPort(
       key: 'dives_sur_mer',
       name: 'Dives Sur Mer',
@@ -316,7 +282,6 @@ class PortService {
       latitude: 49.2906,
       longitude: -0.0983,
     ),
-
     FishingPort(
       key: 'douarnenez',
       name: 'Douarnenez',
@@ -324,7 +289,6 @@ class PortService {
       latitude: 48.0928,
       longitude: -4.3297,
     ),
-
     FishingPort(
       key: 'dunkerque',
       name: 'Dunkerque',
@@ -332,7 +296,6 @@ class PortService {
       latitude: 51.0344,
       longitude: 2.3770,
     ),
-
     FishingPort(
       key: 'entree_baie_de_somme',
       name: 'Entree Baie De Somme',
@@ -341,7 +304,6 @@ class PortService {
       latitude: 50.2100,
       longitude: 1.5400,
     ),
-
     FishingPort(
       key: 'erquy',
       name: 'Erquy',
@@ -349,7 +311,6 @@ class PortService {
       latitude: 48.6347,
       longitude: -2.4678,
     ),
-
     FishingPort(
       key: 'etel',
       name: 'Etel',
@@ -357,7 +318,6 @@ class PortService {
       latitude: 47.6539,
       longitude: -3.2031,
     ),
-
     FishingPort(
       key: 'etretat',
       name: 'Etretat',
@@ -365,7 +325,6 @@ class PortService {
       latitude: 49.7072,
       longitude: 0.2056,
     ),
-
     FishingPort(
       key: 'fecamp',
       name: 'Fecamp',
@@ -373,7 +332,6 @@ class PortService {
       latitude: 49.7594,
       longitude: 0.3703,
     ),
-
     FishingPort(
       key: 'fort_mahon_berck_plage',
       name: 'Fort Mahon Berck Plage',
@@ -382,7 +340,6 @@ class PortService {
       latitude: 50.3425,
       longitude: 1.5561,
     ),
-
     FishingPort(
       key: 'fos_sur_mer',
       name: 'Fos Sur Mer',
@@ -390,7 +347,6 @@ class PortService {
       latitude: 43.4378,
       longitude: 4.9458,
     ),
-
     FishingPort(
       key: 'fromentine_embarcadere',
       name: 'Fromentine Embarcadere',
@@ -399,7 +355,6 @@ class PortService {
       latitude: 46.8872,
       longitude: -2.1472,
     ),
-
     FishingPort(
       key: 'grandcamp',
       name: 'Grandcamp',
@@ -407,7 +362,6 @@ class PortService {
       latitude: 49.3889,
       longitude: -1.0422,
     ),
-
     FishingPort(
       key: 'granville',
       name: 'Granville',
@@ -415,7 +369,6 @@ class PortService {
       latitude: 48.8370,
       longitude: -1.5970,
     ),
-
     FishingPort(
       key: 'gravelines',
       name: 'Gravelines',
@@ -423,7 +376,6 @@ class PortService {
       latitude: 51.0003,
       longitude: 2.1247,
     ),
-
     FishingPort(
       key: 'gruissan',
       name: 'Gruissan',
@@ -431,7 +383,6 @@ class PortService {
       latitude: 43.1056,
       longitude: 3.1025,
     ),
-
     FishingPort(
       key: 'hennebont',
       name: 'Hennebont',
@@ -439,7 +390,6 @@ class PortService {
       latitude: 47.8053,
       longitude: -3.2783,
     ),
-
     FishingPort(
       key: 'hyeres',
       name: 'Hyeres',
@@ -447,7 +397,6 @@ class PortService {
       latitude: 43.0903,
       longitude: 6.1558,
     ),
-
     FishingPort(
       key: 'ile_d_aix',
       name: 'Ile D Aix',
@@ -455,7 +404,6 @@ class PortService {
       latitude: 46.0125,
       longitude: -1.1739,
     ),
-
     FishingPort(
       key: 'ile_de_brehat',
       name: 'Ile De Brehat',
@@ -463,7 +411,6 @@ class PortService {
       latitude: 48.8458,
       longitude: -3.0019,
     ),
-
     FishingPort(
       key: 'ile_de_hoedic',
       name: 'Ile De Hoedic',
@@ -471,7 +418,6 @@ class PortService {
       latitude: 47.3403,
       longitude: -2.8778,
     ),
-
     FishingPort(
       key: 'iles_des_ebihens',
       name: 'Iles Des Ebihens',
@@ -480,7 +426,6 @@ class PortService {
       latitude: 48.6258,
       longitude: -2.1953,
     ),
-
     FishingPort(
       key: 'iles_levant',
       name: 'Iles Levant',
@@ -488,7 +433,6 @@ class PortService {
       latitude: 43.0242,
       longitude: 6.4639,
     ),
-
     FishingPort(
       key: 'iles_porquerolles',
       name: 'Iles Porquerolles',
@@ -497,7 +441,6 @@ class PortService {
       latitude: 43.0017,
       longitude: 6.2056,
     ),
-
     FishingPort(
       key: 'l_herbaudiere',
       name: 'L Herbaudiere',
@@ -505,7 +448,6 @@ class PortService {
       latitude: 47.0256,
       longitude: -2.2981,
     ),
-
     FishingPort(
       key: 'la_ciotat',
       name: 'La Ciotat',
@@ -513,7 +455,6 @@ class PortService {
       latitude: 43.1742,
       longitude: 5.6075,
     ),
-
     FishingPort(
       key: 'la_cotiniere',
       name: 'La Cotiniere',
@@ -521,7 +462,6 @@ class PortService {
       latitude: 45.9147,
       longitude: -1.3283,
     ),
-
     FishingPort(
       key: 'la_rochelle_pallice',
       name: 'La Rochelle Pallice',
@@ -530,7 +470,6 @@ class PortService {
       latitude: 46.1583,
       longitude: -1.2189,
     ),
-
     FishingPort(
       key: 'la_trinite_sur_mer',
       name: 'La Trinite Sur Mer',
@@ -539,7 +478,6 @@ class PortService {
       latitude: 47.5853,
       longitude: -3.0294,
     ),
-
     FishingPort(
       key: 'lacanau',
       name: 'Lacanau',
@@ -547,7 +485,6 @@ class PortService {
       latitude: 45.0008,
       longitude: -1.2014,
     ),
-
     FishingPort(
       key: 'le_conquet',
       name: 'Le Conquet',
@@ -555,7 +492,6 @@ class PortService {
       latitude: 48.3586,
       longitude: -4.7731,
     ),
-
     FishingPort(
       key: 'le_croisic',
       name: 'Le Croisic',
@@ -563,7 +499,6 @@ class PortService {
       latitude: 47.2936,
       longitude: -2.5117,
     ),
-
     FishingPort(
       key: 'le_grau_du_roi',
       name: 'Le Grau Du Roi',
@@ -571,7 +506,6 @@ class PortService {
       latitude: 43.5369,
       longitude: 4.1350,
     ),
-
     FishingPort(
       key: 'le_guilvinec',
       name: 'Le Guilvinec',
@@ -579,7 +513,6 @@ class PortService {
       latitude: 47.7958,
       longitude: -4.2831,
     ),
-
     FishingPort(
       key: 'le_havre',
       name: 'Le Havre',
@@ -587,7 +520,6 @@ class PortService {
       latitude: 49.4944,
       longitude: 0.1079,
     ),
-
     FishingPort(
       key: 'le_legue',
       name: 'Le Legue',
@@ -595,7 +527,6 @@ class PortService {
       latitude: 48.5283,
       longitude: -2.7383,
     ),
-
     FishingPort(
       key: 'le_legue_port',
       name: 'Le Legue Port',
@@ -603,7 +534,6 @@ class PortService {
       latitude: 48.5283,
       longitude: -2.7383,
     ),
-
     FishingPort(
       key: 'le_palais',
       name: 'Le Palais',
@@ -611,7 +541,6 @@ class PortService {
       latitude: 47.3464,
       longitude: -3.1539,
     ),
-
     FishingPort(
       key: 'le_pouldu',
       name: 'Le Pouldu',
@@ -619,7 +548,6 @@ class PortService {
       latitude: 47.7675,
       longitude: -3.5369,
     ),
-
     FishingPort(
       key: 'le_pouliguen',
       name: 'Le Pouliguen',
@@ -627,7 +555,6 @@ class PortService {
       latitude: 47.2764,
       longitude: -2.4283,
     ),
-
     FishingPort(
       key: 'le_senequet',
       name: 'Le Senequet',
@@ -635,7 +562,6 @@ class PortService {
       latitude: 49.0928,
       longitude: -1.6644,
     ),
-
     FishingPort(
       key: 'le_touquet',
       name: 'Le Touquet',
@@ -643,7 +569,6 @@ class PortService {
       latitude: 50.5219,
       longitude: 1.5889,
     ),
-
     FishingPort(
       key: 'le_treport',
       name: 'Le Treport',
@@ -651,7 +576,6 @@ class PortService {
       latitude: 50.0606,
       longitude: 1.3719,
     ),
-
     FishingPort(
       key: 'les_heaux_de_brehat',
       name: 'Les Heaux De Brehat',
@@ -660,7 +584,6 @@ class PortService {
       latitude: 48.9083,
       longitude: -3.0867,
     ),
-
     FishingPort(
       key: 'les_sables_d_olonne',
       name: 'Les Sables D Olonne',
@@ -669,7 +592,6 @@ class PortService {
       latitude: 46.4967,
       longitude: -1.7833,
     ),
-
     FishingPort(
       key: 'lesconil',
       name: 'Lesconil',
@@ -677,7 +599,6 @@ class PortService {
       latitude: 47.7978,
       longitude: -4.2178,
     ),
-
     FishingPort(
       key: 'lezardrieux',
       name: 'Lezardrieux',
@@ -685,7 +606,6 @@ class PortService {
       latitude: 48.7864,
       longitude: -3.1039,
     ),
-
     FishingPort(
       key: 'locmariaquer',
       name: 'Locmariaquer',
@@ -693,7 +613,6 @@ class PortService {
       latitude: 47.5686,
       longitude: -2.9439,
     ),
-
     FishingPort(
       key: 'locquirec',
       name: 'Locquirec',
@@ -701,7 +620,6 @@ class PortService {
       latitude: 48.6917,
       longitude: -3.6469,
     ),
-
     FishingPort(
       key: 'loctudy',
       name: 'Loctudy',
@@ -709,7 +627,6 @@ class PortService {
       latitude: 47.8333,
       longitude: -4.1681,
     ),
-
     FishingPort(
       key: 'lorient',
       name: 'Lorient',
@@ -717,7 +634,6 @@ class PortService {
       latitude: 47.7486,
       longitude: -3.3600,
     ),
-
     FishingPort(
       key: 'marseille_vieux_port',
       name: 'Marseille Vieux Port',
@@ -726,7 +642,6 @@ class PortService {
       latitude: 43.2951,
       longitude: 5.3748,
     ),
-
     FishingPort(
       key: 'menton',
       name: 'Menton',
@@ -734,7 +649,6 @@ class PortService {
       latitude: 43.7747,
       longitude: 7.4975,
     ),
-
     FishingPort(
       key: 'mimizan',
       name: 'Mimizan',
@@ -742,7 +656,6 @@ class PortService {
       latitude: 44.2139,
       longitude: -1.2958,
     ),
-
     FishingPort(
       key: 'morgat',
       name: 'Morgat',
@@ -750,7 +663,6 @@ class PortService {
       latitude: 48.2289,
       longitude: -4.5028,
     ),
-
     FishingPort(
       key: 'nice',
       name: 'Nice',
@@ -758,7 +670,6 @@ class PortService {
       latitude: 43.6959,
       longitude: 7.2861,
     ),
-
     FishingPort(
       key: 'omonville_la_rogue',
       name: 'Omonville La Rogue',
@@ -767,7 +678,6 @@ class PortService {
       latitude: 49.7022,
       longitude: -1.8906,
     ),
-
     FishingPort(
       key: 'ouistreham',
       name: 'Ouistreham',
@@ -775,7 +685,6 @@ class PortService {
       latitude: 49.2819,
       longitude: -0.2525,
     ),
-
     FishingPort(
       key: 'paimpol',
       name: 'Paimpol',
@@ -783,7 +692,6 @@ class PortService {
       latitude: 48.7797,
       longitude: -3.0464,
     ),
-
     FishingPort(
       key: 'palavas_les_flots',
       name: 'Palavas Les Flots',
@@ -792,7 +700,6 @@ class PortService {
       latitude: 43.5253,
       longitude: 3.9317,
     ),
-
     FishingPort(
       key: 'penerf',
       name: 'Penerf',
@@ -800,7 +707,6 @@ class PortService {
       latitude: 47.5028,
       longitude: -2.6319,
     ),
-
     FishingPort(
       key: 'pointe_d_agon',
       name: 'Pointe D Agon',
@@ -808,7 +714,6 @@ class PortService {
       latitude: 49.0039,
       longitude: -1.5833,
     ),
-
     FishingPort(
       key: 'pointe_de_gatseau',
       name: 'Pointe De Gatseau',
@@ -817,7 +722,6 @@ class PortService {
       latitude: 45.7958,
       longitude: -1.2339,
     ),
-
     FishingPort(
       key: 'pointe_de_grave',
       name: 'Pointe De Grave',
@@ -825,7 +729,6 @@ class PortService {
       latitude: 45.5664,
       longitude: -1.0664,
     ),
-
     FishingPort(
       key: 'pornic',
       name: 'Pornic',
@@ -833,7 +736,6 @@ class PortService {
       latitude: 47.1147,
       longitude: -2.1039,
     ),
-
     FishingPort(
       key: 'pornichet',
       name: 'Pornichet',
@@ -841,7 +743,6 @@ class PortService {
       latitude: 47.2653,
       longitude: -2.3414,
     ),
-
     FishingPort(
       key: 'port_beni',
       name: 'Port Beni',
@@ -849,7 +750,6 @@ class PortService {
       latitude: 48.8358,
       longitude: -3.1783,
     ),
-
     FishingPort(
       key: 'port_de_bouc',
       name: 'Port De Bouc',
@@ -857,7 +757,6 @@ class PortService {
       latitude: 43.4044,
       longitude: 4.9856,
     ),
-
     FishingPort(
       key: 'port_en_bessin',
       name: 'Port En Bessin',
@@ -865,7 +764,6 @@ class PortService {
       latitude: 49.3486,
       longitude: -0.7589,
     ),
-
     FishingPort(
       key: 'port_haliguen',
       name: 'Port Haliguen',
@@ -873,7 +771,6 @@ class PortService {
       latitude: 47.4850,
       longitude: -3.1008,
     ),
-
     FishingPort(
       key: 'port_la_nouvelle',
       name: 'Port La Nouvelle',
@@ -882,7 +779,6 @@ class PortService {
       latitude: 43.0169,
       longitude: 3.0456,
     ),
-
     FishingPort(
       key: 'port_manec_h',
       name: 'Port Manec H',
@@ -890,7 +786,6 @@ class PortService {
       latitude: 47.8039,
       longitude: -3.7408,
     ),
-
     FishingPort(
       key: 'port_maria',
       name: 'Port Maria',
@@ -898,7 +793,6 @@ class PortService {
       latitude: 47.4789,
       longitude: -3.1239,
     ),
-
     FishingPort(
       key: 'port_navalo',
       name: 'Port Navalo',
@@ -906,7 +800,6 @@ class PortService {
       latitude: 47.5486,
       longitude: -2.9142,
     ),
-
     FishingPort(
       key: 'port_saint_louis_du_rhone',
       name: 'Port Saint Louis Du Rhone',
@@ -915,7 +808,6 @@ class PortService {
       latitude: 43.3858,
       longitude: 4.8058,
     ),
-
     FishingPort(
       key: 'port_vendres',
       name: 'Port Vendres',
@@ -923,7 +815,6 @@ class PortService {
       latitude: 42.5206,
       longitude: 3.1086,
     ),
-
     FishingPort(
       key: 'portbail',
       name: 'Portbail',
@@ -931,7 +822,6 @@ class PortService {
       latitude: 49.3339,
       longitude: -1.7056,
     ),
-
     FishingPort(
       key: 'porto_vecchio',
       name: 'Porto Vecchio',
@@ -939,7 +829,6 @@ class PortService {
       latitude: 41.5911,
       longitude: 9.2831,
     ),
-
     FishingPort(
       key: 'portsall',
       name: 'Portsall',
@@ -947,7 +836,6 @@ class PortService {
       latitude: 48.5606,
       longitude: -4.6986,
     ),
-
     FishingPort(
       key: 'royan',
       name: 'Royan',
@@ -955,7 +843,6 @@ class PortService {
       latitude: 45.6217,
       longitude: -1.0294,
     ),
-
     FishingPort(
       key: 'saint_cast',
       name: 'Saint Cast',
@@ -963,7 +850,6 @@ class PortService {
       latitude: 48.6322,
       longitude: -2.2539,
     ),
-
     FishingPort(
       key: 'saint_denis_d_oleron',
       name: 'Saint Denis D Oleron',
@@ -972,7 +858,6 @@ class PortService {
       latitude: 46.0350,
       longitude: -1.3789,
     ),
-
     FishingPort(
       key: 'saint_germain_sur_ay',
       name: 'Saint Germain Sur Ay',
@@ -981,7 +866,6 @@ class PortService {
       latitude: 49.2319,
       longitude: -1.6019,
     ),
-
     FishingPort(
       key: 'saint_gildas',
       name: 'Saint Gildas',
@@ -989,7 +873,6 @@ class PortService {
       latitude: 47.4989,
       longitude: -2.8369,
     ),
-
     FishingPort(
       key: 'saint_gilles_croix_de_vie',
       name: 'Saint Gilles Croix De Vie',
@@ -998,7 +881,6 @@ class PortService {
       latitude: 46.6978,
       longitude: -1.9422,
     ),
-
     FishingPort(
       key: 'saint_jean_de_luz',
       name: 'Saint Jean De Luz',
@@ -1007,7 +889,6 @@ class PortService {
       latitude: 43.3883,
       longitude: -1.6631,
     ),
-
     FishingPort(
       key: 'saint_martin_de_re',
       name: 'Saint Martin De Re',
@@ -1016,7 +897,6 @@ class PortService {
       latitude: 46.2047,
       longitude: -1.3686,
     ),
-
     FishingPort(
       key: 'saint_quay_portrieux',
       name: 'Saint Quay Portrieux',
@@ -1025,7 +905,6 @@ class PortService {
       latitude: 48.6472,
       longitude: -2.8258,
     ),
-
     FishingPort(
       key: 'saint_tropez',
       name: 'Saint Tropez',
@@ -1033,7 +912,6 @@ class PortService {
       latitude: 43.2725,
       longitude: 6.6389,
     ),
-
     FishingPort(
       key: 'saint_vaast_la_hougue',
       name: 'Saint Vaast La Hougue',
@@ -1042,7 +920,6 @@ class PortService {
       latitude: 49.5878,
       longitude: -1.2661,
     ),
-
     FishingPort(
       key: 'saint_valery_en_caux',
       name: 'Saint Valery En Caux',
@@ -1051,7 +928,6 @@ class PortService {
       latitude: 49.8711,
       longitude: 0.7094,
     ),
-
     FishingPort(
       key: 'sete',
       name: 'Sete',
@@ -1059,7 +935,6 @@ class PortService {
       latitude: 43.4000,
       longitude: 3.6972,
     ),
-
     FishingPort(
       key: 'toulon',
       name: 'Toulon',
@@ -1067,7 +942,6 @@ class PortService {
       latitude: 43.1242,
       longitude: 5.9280,
     ),
-
     FishingPort(
       key: 'trebeurden',
       name: 'Trebeurden',
@@ -1075,7 +949,6 @@ class PortService {
       latitude: 48.7708,
       longitude: -3.5806,
     ),
-
     FishingPort(
       key: 'treguier',
       name: 'Treguier',
@@ -1083,7 +956,6 @@ class PortService {
       latitude: 48.7889,
       longitude: -3.2292,
     ),
-
     FishingPort(
       key: 'trehiguier',
       name: 'Trehiguier',
@@ -1091,7 +963,6 @@ class PortService {
       latitude: 47.4939,
       longitude: -2.4414,
     ),
-
     FishingPort(
       key: 'vannes',
       name: 'Vannes',
@@ -1099,7 +970,6 @@ class PortService {
       latitude: 47.6558,
       longitude: -2.7603,
     ),
-
     FishingPort(
       key: 'vieux_boucau',
       name: 'Vieux Boucau',
@@ -1109,8 +979,44 @@ class PortService {
     ),
   ];
 
-  /// Obtenir un port par sa clé
+  /// Map des overrides utilisateur (édition inline). key = portKey.
+  final Map<String, FishingPort> _portOverrides = {};
+
+  /// Charge les overrides depuis SharedPreferences au démarrage.
+  /// Appelé par AppSettings.loadSettings().
+  Future<void> loadOverrides() async {
+    final prefs = await SharedPreferences.getInstance();
+    final overridesJson = prefs.getString('port_overrides');
+    if (overridesJson == null) return;
+
+    try {
+      final decoded = jsonDecode(overridesJson) as Map<String, dynamic>;
+      _portOverrides.clear();
+      for (final entry in decoded.entries) {
+        _portOverrides[entry.key] = FishingPort.fromMap(
+          Map<String, dynamic>.from(entry.value as Map),
+        );
+      }
+    } catch (e) {
+      debugPrint('Erreur chargement overrides ports: $e');
+      _portOverrides.clear();
+    }
+  }
+
+  /// Sauvegarde les overrides dans SharedPreferences.
+  Future<void> _saveOverrides() async {
+    final prefs = await SharedPreferences.getInstance();
+    final map = _portOverrides.map((key, port) => MapEntry(key, port.toMap()));
+    await prefs.setString('port_overrides', jsonEncode(map));
+  }
+
+  /// 🛡️ CORRECTION : Obtenir un port par sa clé (override prioritaire sur le catalogue).
   FishingPort? getPortByKey(String key) {
+    // 1. Vérifier d'abord les overrides utilisateur
+    final override = _portOverrides[key];
+    if (override != null) return override;
+
+    // 2. Sinon, chercher dans le catalogue par défaut
     try {
       return _frenchPorts.firstWhere((port) => port.key == key);
     } catch (e) {
@@ -1118,8 +1024,14 @@ class PortService {
     }
   }
 
-  /// Obtenir un port par son nom
+  /// 🛡️ CORRECTION : Obtenir un port par son nom (override prioritaire sur le catalogue).
   FishingPort? getPortByName(String name) {
+    // 1. Vérifier d'abord les overrides utilisateur
+    for (final port in _portOverrides.values) {
+      if (port.name == name) return port;
+    }
+
+    // 2. Sinon, chercher dans le catalogue par défaut
     try {
       return _frenchPorts.firstWhere((port) => port.name == name);
     } catch (e) {
@@ -1127,22 +1039,24 @@ class PortService {
     }
   }
 
-  /// Obtenir l'URL météo automatique pour un port donné
-  String? getAutoWeatherUrl(String portName) {
-    final port = getPortByName(portName);
-    return port?.weatherUrl;
-  }
-
-  /// Retourne la cle d'un port a partir de son nom (insensible casse + accents).
+  /// 🛡️ CORRECTION : Retourne la clé d'un port à partir de son nom (insensible casse + accents).
+  /// Vérifie d'abord les overrides.
   String? getKeyByName(String name) {
     final lower = name.toLowerCase().trim();
+
+    // 1. Vérifier d'abord les overrides utilisateur
+    for (final p in _portOverrides.values) {
+      if (p.name.toLowerCase() == lower) return p.key;
+    }
+
+    // 2. Sinon, chercher dans le catalogue par défaut
     for (final p in _frenchPorts) {
       if (p.name.toLowerCase() == lower) return p.key;
     }
     return null;
   }
 
-  /// Normalise une requete de recherche : minuscule + sans accents.
+  /// Normalise une requête de recherche : minuscule + sans accents.
   String normalizeSearchQuery(String query) {
     if (query.isEmpty) return '';
     const from = 'àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ';
@@ -1157,9 +1071,9 @@ class PortService {
   }
 
   /// Trie les ports selon :
-  /// 1. selectedPortKey (si connu) — en premiere position, exclu des autres sections
-  /// 2. favoris restants (alphabetique)
-  /// 3. autres ports (alphabetique)
+  /// 1. selectedPortKey (si connu) — en première position, exclu des autres sections
+  /// 2. favoris restants (alphabétique)
+  /// 3. autres ports (alphabétique)
   List<FishingPort> orderByFavoritesFirst(
     List<FishingPort> ports,
     Set<String> favKeys, {
@@ -1190,13 +1104,15 @@ class PortService {
     return [...favs, ...nonFavs];
   }
 
-  /// Map des overrides utilisateur (edition inline). key = portKey.
-  final Map<String, FishingPort> _portOverrides = {};
-
-  /// Applique un override a un port (edition inline).
-  void updatePortInfo({required String key, String? name, String? weatherUrl}) {
+  /// 🛡️ CORRECTION : Applique un override à un port (édition inline) et persiste.
+  Future<void> updatePortInfo({
+    required String key,
+    String? name,
+    String? weatherUrl,
+  }) async {
     final original = getPortByKey(key);
     if (original == null) return;
+
     _portOverrides[key] = FishingPort(
       key: key,
       name: name ?? original.name,
@@ -1204,9 +1120,17 @@ class PortService {
       latitude: original.latitude,
       longitude: original.longitude,
     );
+
+    await _saveOverrides();
   }
 
-  /// Liste de tous les ports avec overrides appliques.
+  /// Supprime un override (restaure les valeurs par défaut) et persiste.
+  Future<void> clearPortOverride(String key) async {
+    _portOverrides.remove(key);
+    await _saveOverrides();
+  }
+
+  /// Liste de tous les ports avec overrides appliqués.
   List<FishingPort> get allPorts {
     final result = <String, FishingPort>{};
     for (final port in _frenchPorts) {

@@ -44,7 +44,8 @@ Future<void> _initializeWithTimeout() async {
     // Le timeout est une failure critique globale
     status.reportCriticalFailure('AppBootstrap.timeout', e);
     developer.log(
-      'AppBootstrap.initialize a dépassé ${_bootstrapTimeout.inSeconds}s (timeout, mode dégradé forcé)',
+      'AppBootstrap.initialize a dépassé ${_bootstrapTimeout.inSeconds}s '
+      '(timeout, mode dégradé temporaire - certains services continuent)',
       name: _logName,
       error: e,
       stackTrace: st,

@@ -37,8 +37,6 @@ class _ZoneState {
   bool isCancelled = false;
   bool isPaused = false;
   DownloadCancelReason cancelReason = DownloadCancelReason.none;
-  int completedLayers = 0;
-  int failedLayers = 0;
   Completer<void>? allDone;
   FMTCStore? activeStore;
   String? activeInstanceId;
@@ -155,6 +153,8 @@ class ZoneDownloadService {
           );
       final routingBounds = zoneBounds;
 
+      final polygonPoints = map.polygonPoints;
+
       final layerResults = <String, LayerDownloadResult>{};
       for (var i = 0; i < sortedLayers.length; i++) {
         if (state.isCancelled) break;
@@ -171,7 +171,6 @@ class ZoneDownloadService {
         final instanceId = '${map.uuid}#$runCount#$layerKey';
         final preCancelKey = '${map.uuid}|$storeName';
         final preCancelId = _previousInstanceIds[preCancelKey];
-        final polygonPoints = map.polygonPoints;
         _previousInstanceIds[preCancelKey] = instanceId;
         state.activeStore = store;
         state.activeInstanceId = instanceId;
@@ -191,6 +190,7 @@ class ZoneDownloadService {
             maxZoom: layer.maxZoom,
             headers: _layerHeaders(layer.layerType),
             polygon: polygonPoints,
+            expectPolygon: map.hasPolygonData,
             onProgress: (layerProgress) {
               if (sortedLayers.isNotEmpty) {
                 final globalProgress =
@@ -214,7 +214,6 @@ class ZoneDownloadService {
             preCancelStore: store,
           );
         } catch (e) {
-          state.failedLayers++;
           layer.downloadStatus = LayerDownloadStatus.failed;
           layer.estimatedTileCount = 0;
           layer.downloadedTileCount = 0;
@@ -250,12 +249,6 @@ class ZoneDownloadService {
         switch (outcome) {
           case LayerOutcome.ok:
           case LayerOutcome.partial:
-            // 🛡️ SÉMANTIQUE : Une couche "partial" (ex: 98% de tuiles réussies,
-            // quelques échecs réseau tolérés) est marquée comme `completed` au
-            // niveau de la couche, car elle reste exploitable. La granularité
-            // fine (ok vs partial) est gérée au niveau de la zone (OfflineMapStatus.partial)
-            // et via les compteurs downloadedTileCount / estimatedTileCount.
-            state.completedLayers++;
             layer.downloadStatus = LayerDownloadStatus.completed;
             break;
           case LayerOutcome.noCoverage:
@@ -263,7 +256,6 @@ class ZoneDownloadService {
             break;
           case LayerOutcome.networkFailure:
           case LayerOutcome.interrupted:
-            state.failedLayers++;
             layer.downloadStatus = LayerDownloadStatus.failed;
             break;
         }
@@ -304,7 +296,10 @@ class ZoneDownloadService {
           : LayerOutcome.interrupted;
     }
     if (r.downloadedTileCount == 0) {
-      if (r.failedTileCount == 0) return LayerOutcome.noCoverage;
+      if (r.failedTileCount == 0) {
+        if (!r.successful) return LayerOutcome.networkFailure;
+        return LayerOutcome.noCoverage;
+      }
       return LayerOutcome.networkFailure;
     }
     if (!r.successful) {
@@ -353,13 +348,26 @@ class ZoneDownloadService {
     }
     if (outcomes.contains(LayerOutcome.networkFailure)) {
       final n = outcomes.where((o) => o == LayerOutcome.networkFailure).length;
-      map.lastError = 'Échecs réseau sur $n couche(s)';
+      if (map.hasPolygonData && map.polygonPoints == null) {
+        map.lastError =
+            'Données polygone corrompues : téléchargement impossible';
+      } else {
+        map.lastError = 'Échecs réseau sur $n couche(s)';
+      }
       return hasOkOrPartial
           ? OfflineMapStatus.partial
           : OfflineMapStatus.failed;
     }
     final noCov = outcomes.where((o) => o == LayerOutcome.noCoverage).length;
     if (noCov > 0) {
+      // Si aucune couche n'a pu être téléchargée (que des noCoverage, ou mixte avec des échecs/interruptions)
+      if (!hasOkOrPartial) {
+        map.lastError = noCov == outcomes.length
+            ? 'Aucune couverture SHOM/LiDAR sur cette zone'
+            : '$noCov couche(s) sans couverture, aucune donnée utilisable';
+        return OfflineMapStatus.failed;
+      }
+      // Mélange de couches réussies et de couches sans couverture
       map.lastError = '$noCov couche(s) sans couverture sur cette zone';
       return OfflineMapStatus.partial;
     }
@@ -425,7 +433,7 @@ class ZoneDownloadService {
 
   Future<void> cancelAndAwaitEnd(
     String zoneUuid, {
-    Duration timeout = const Duration(seconds: 5),
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     await cancelDownload(zoneUuid);
     await waitForCompletion(zoneUuid, timeout: timeout);
@@ -479,16 +487,37 @@ class ZoneDownloadService {
 
   Future<void> waitForCompletion(
     String zoneUuid, {
-    Duration timeout = const Duration(seconds: 5),
+    Duration timeout = const Duration(seconds: 30), // 👈 Augmenté de 5s à 30s
+    int maxRetries = 3,
   }) async {
-    final state = _zones[zoneUuid];
-    final allDone = state?.allDone;
-    if (allDone == null) return;
-    try {
-      await allDone.future.timeout(timeout);
-    } on TimeoutException {
-      if (kVerboseZoneDownload) {
-        debugPrint('[ZoneDownload] waitForCompletion: timeout pour $zoneUuid');
+    for (var attempt = 0; attempt < maxRetries; attempt++) {
+      final state = _zones[zoneUuid];
+      final allDone = state?.allDone;
+
+      // Zone déjà terminée ou jamais existé
+      if (allDone == null) return;
+
+      try {
+        await allDone.future.timeout(timeout);
+        // Succès : le téléchargement est terminé
+        return;
+      } on TimeoutException {
+        if (kVerboseZoneDownload) {
+          debugPrint(
+            '[ZoneDownload] waitForCompletion: timeout attempt ${attempt + 1}/$maxRetries pour $zoneUuid',
+          );
+        }
+
+        // Si c'est le dernier attempt, on log un warning mais on retourne quand même
+        // pour ne pas bloquer indéfiniment
+        if (attempt == maxRetries - 1) {
+          debugPrint(
+            '[ZoneDownload] WARNING: waitForCompletion a expiré après $maxRetries tentatives '
+            'pour $zoneUuid. La suppression des stores peut être prématurée.',
+          );
+        }
+        // Sinon, on attend un peu avant de réessayer (backoff)
+        await Future.delayed(const Duration(seconds: 2));
       }
     }
   }

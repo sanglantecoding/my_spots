@@ -98,7 +98,7 @@ class _NavigationOverlayState extends State<NavigationOverlay> {
     if (_currentPosition == null) return;
 
     // Calculer la distance vers le waypoint
-    _distanceToTarget = GpsController.distanceBetween(
+    _distanceToTarget = GpsService.distanceBetweenCoords(
       _currentPosition!.latitude,
       _currentPosition!.longitude,
       widget.targetWaypoint.latitude,
@@ -106,7 +106,7 @@ class _NavigationOverlayState extends State<NavigationOverlay> {
     );
 
     // Calculer le cap vers le waypoint et normaliser entre 0-360°
-    _bearingToTarget = GpsController.bearingBetween(
+    _bearingToTarget = GpsService.bearingBetween(
       _currentPosition!.latitude,
       _currentPosition!.longitude,
       widget.targetWaypoint.latitude,

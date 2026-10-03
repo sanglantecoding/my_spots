@@ -91,31 +91,27 @@ class OfflineMap {
     if (polygonJson == null) return null;
 
     try {
-      final dynamic decoded = jsonDecode(polygonJson!);
-      if (decoded is! List) return null;
-
+      final dynamic decoded = jsonDecode(polygonJson!) as List<dynamic>;
+      if (decoded.isEmpty) return null;
       final points = <LatLng>[];
       for (final item in decoded) {
-        if (item is! Map<String, dynamic>) return null;
-        final lat = item['lat'];
-        final lng = item['lng'];
-        if (lat is! num || lng is! num) return null;
-        points.add(LatLng(lat.toDouble(), lng.toDouble()));
+        if (item is Map<String, dynamic>) {
+          final lat = item['lat'];
+          final lng = item['lng'];
+          if (lat is num && lng is num) {
+            points.add(LatLng(lat.toDouble(), lng.toDouble()));
+          }
+        }
       }
-
       // Require at least 3 points for a valid polygon
       if (points.length < 3) return null;
-
       return points;
     } catch (e) {
       return null;
     }
   }
 
-  void markCompleted() {
-    completedAt = DateTime.now();
-    status = OfflineMapStatus.ready;
-  }
+  bool get hasPolygonData => polygonJson != null;
 
   @override
   String toString() =>

@@ -16,25 +16,16 @@ class AppSettings {
   static final ValueNotifier<bool> offlineModeNotifier = ValueNotifier<bool>(
     false,
   );
-  static SpeedUnit speedUnit = SpeedUnit.kmh; // km/h par défaut
+  static SpeedUnit speedUnit = SpeedUnit.kmh;
   static String? selectedPortKey;
   static bool waypointsVisible = true;
   static bool showWaypointNamesOnMap = true;
   static bool showWaypointDateOnMap = false;
   static DistanceUnit distanceUnit = DistanceUnit.metric;
-  static double waypointLabelFontSize = 15.0; // 15 par défaut
+  static double waypointLabelFontSize = 15.0;
   static MapType mapType = MapType.marine;
-  static bool showSpeedOnMap = false; // false par défaut
+  static bool showSpeedOnMap = false;
   static bool offlineModeEnabled = false;
-
-  /// Valeur écrite dans SharedPreferences quand l'utilisateur choisit
-  /// explicitement « Aucun (météo générale) ».
-  ///
-  /// 🛡️ CORRECTION : permet à [loadSettings] de distinguer
-  /// « premier lancement » (clé absente → défaut Palavas) de
-  /// « choix explicite aucun » (clé présente avec cette sentinelle → null).
-  /// Sans elle, saveSelectedPort(null) faisait remove() et le défaut
-  /// revenait à chaque redémarrage.
   static const String _noPortStoredValue = '__none__';
   static const String _offlineModeKey = 'offline_mode_enabled';
 
@@ -55,10 +46,6 @@ class AppSettings {
   static Set<String> get favoritePortKeys =>
       favoritePorts.map((p) => p.key).toSet();
 
-  // ─── Clé API Thunderforest (Randonnée) ───────────────────────────────
-  // Stockée en SharedPreferences pour ne plus dépendre du .env build-time.
-  // Le getter retourne la clé persistée, ou (en fallback) celle du .env si
-  // l'utilisateur n'a encore rien saisi — compatibilité ascendante.
   static String _thunderforestApiKey = '';
   static String get thunderforestApiKey => _thunderforestApiKey;
 
@@ -95,25 +82,12 @@ class AppSettings {
   static bool bathymetryOverlayEnabled = false;
   static double bathymetryOverlayOpacity = 0.7;
 
-  /// Alias pour [bathymetryOverlayEnabled].
-  static bool get showBathymetry => bathymetryOverlayEnabled;
-
-  static set showBathymetry(bool value) => bathymetryOverlayEnabled = value;
-
-  /// Alias pour [bathymetryOverlayOpacity].
-  static double get bathymetryOpacity => bathymetryOverlayOpacity;
-
-  static set bathymetryOpacity(double value) =>
-      bathymetryOverlayOpacity = value;
-
   static const String defaultWeatherUrl =
       'https://meteofrance.com/meteo-marine';
 
   static Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 🛡️ CORRECTION : on ne confond plus « clé absente » (premier lancement)
-    // et « clé présente valant la sentinelle » (choix explicite "Aucun").
     if (prefs.containsKey('selected_port')) {
       final stored = prefs.getString('selected_port');
       selectedPortKey = (stored == null || stored == _noPortStoredValue)
@@ -158,8 +132,7 @@ class AppSettings {
             .clamp(10.0, 20.0)
             .toDouble();
 
-    showSpeedOnMap =
-        prefs.getBool('show_speed_on_map') ?? false; // false par défaut
+    showSpeedOnMap = prefs.getBool('show_speed_on_map') ?? false;
 
     proximityAlarmEnabled = prefs.getBool('proximity_alarm_enabled') ?? false;
     _applyProximityDistances(
@@ -222,10 +195,6 @@ class AppSettings {
   }
 
   /// Persiste le port sélectionné, ou le choix explicite « Aucun » ([portKey] null).
-  ///
-  /// 🛡️ CORRECTION : n'efface PLUS la clé SharedPreferences. Un `null` écrit
-  /// la sentinelle [_noPortStoredValue], sinon le prochain boot interprétait
-  /// l'absence de clé comme un premier lancement et réimposait Palavas.
   static Future<void> saveSelectedPort(String? portKey) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('selected_port', portKey ?? _noPortStoredValue);
@@ -464,7 +433,4 @@ class AppSettings {
         return 22.0; // natif Thunderforest
     }
   }
-
-  /// La carte marine utilise le WMTS SHOM clevisu empilé par échelle.
-  static bool get marineMapUsesShomWmts => mapType == MapType.marine;
 }

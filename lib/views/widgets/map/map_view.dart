@@ -12,10 +12,9 @@ import 'package:my_spots/views/widgets/map/gps_marker_widget.dart';
 
 /// Widget isolé contenant FlutterMap et ses couches.
 ///
-/// Ce widget ne se rebuild QUE quand [mapType], [zoom], [offlineMode],
-/// [readyZoneUuids], [visibleBounds] ou [bathymetryEnabled] changent.
-/// Les changements de position GPS sont gérés par un StreamBuilder interne
-/// et ne reconstruisent PAS la carte (TileLayers).
+/// Les TileLayers sont mises en cache et invalidées uniquement lorsque
+/// leurs paramètres critiques changent. Les ticks GPS ne reconstruisent
+/// pas les TileLayers.
 class MapView extends StatefulWidget {
   final MapController mapController;
   final MapType mapType;

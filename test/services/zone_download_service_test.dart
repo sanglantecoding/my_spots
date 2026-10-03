@@ -72,6 +72,7 @@ class FakeLayerDownloader implements LayerDownloader {
     String? preCancelInstanceId,
     FMTCStore? preCancelStore,
     List<LatLng>? polygon,
+    bool expectPolygon = false,
   }) async {
     // Record pre-cancel so tests can verify the service forwards it.
     if (preCancelInstanceId != null && preCancelStore != null) {
@@ -90,6 +91,8 @@ class FakeLayerDownloader implements LayerDownloader {
         zmin: minZoom,
         zmax: maxZoom,
         iid: instanceId,
+        expectPolygon: expectPolygon,
+        polygonCount: polygon?.length,
       ),
     );
     count++;
@@ -127,9 +130,13 @@ class _Call {
     required this.zmin,
     required this.zmax,
     required this.iid,
+    required this.expectPolygon,
+    this.polygonCount,
   });
   final String z, sn, u, iid;
   final int zmin, zmax;
+  final bool expectPolygon;
+  final int? polygonCount;
 }
 
 /// Records a pre-cancel request forwarded by the service.

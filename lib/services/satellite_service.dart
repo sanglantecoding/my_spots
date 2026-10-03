@@ -189,10 +189,6 @@ class SatelliteService {
   /// Type GNSS affiché
   static String get gnssType => _gnssType;
 
-  /// [OBSOLÈTE] Utiliser [signalQuality] à la place.
-  /// Rétrocompatibilité : mappe sur [signalQuality].
-  static double get signalAccuracy => signalQuality;
-
   /// Estimation du nombre de satellites selon la précision
   static int _estimatedSatelliteCount(double accuracy) {
     if (accuracy < 5) return 12;

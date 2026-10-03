@@ -31,9 +31,33 @@ class GpsService {
     return R * 2 * atan2(sqrt(aVal), sqrt(1 - aVal));
   }
 
-  /// Distance entre une position et un waypoint (délègue à [distanceBetween]).
-  static double calculateDistance(LatLng from, Waypoint to) =>
-      distanceBetween(from, LatLng(to.latitude, to.longitude));
+  static double distanceBetweenCoords(
+    double lat1,
+    double lng1,
+    double lat2,
+    double lng2,
+  ) {
+    return distanceBetween(LatLng(lat1, lng1), LatLng(lat2, lng2));
+  }
+
+  /// Surcharge : distance entre une position et un waypoint
+  static double distanceToWaypoint(LatLng from, Waypoint to) {
+    return distanceBetween(from, LatLng(to.latitude, to.longitude));
+  }
+
+  static double bearingBetween(
+    double startLatitude,
+    double startLongitude,
+    double endLatitude,
+    double endLongitude,
+  ) {
+    final lat1 = _toRad(startLatitude);
+    final lat2 = _toRad(endLatitude);
+    final dLon = _toRad(endLongitude - startLongitude);
+    final y = sin(dLon) * cos(lat2);
+    final x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
+    return (atan2(y, x) * 180 / pi + 360) % 360;
+  }
 
   /// Convertit les degrés en radians
   static double _toRad(double deg) => deg * pi / 180;
