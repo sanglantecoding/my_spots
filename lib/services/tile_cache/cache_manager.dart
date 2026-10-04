@@ -1,6 +1,5 @@
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:my_spots/models/litto3d_layer.dart';
-import 'package:my_spots/models/marine_layer.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/repositories/fmtc_tile_cache_repository.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
@@ -15,10 +14,19 @@ class CacheManager {
   static List<String> get bathymetryLayerNames =>
       Litto3DCatalog.allLayers.map((l) => l.wmtsLayerName).toList();
 
-  static List<String> get marineLayerNames => MarineLayerCatalog.allWmtsNames;
+  static const List<String> marineLayerNames = [
+    'RASTER_MARINE_3857_WMTS',
+    'RASTER_MARINE_1M_3857_WMTS',
+    'RASTER_MARINE_350_WMTS_3857',
+    'RASTER_MARINE_100_WMTS_3857',
+    'RASTER_MARINE_50_WMTS_3857',
+    'RASTER_MARINE_25_WMTS_3857',
+    'RASTER_MARINE_10_WMTS_3857',
+  ];
 
   static String bathymetryStoreForLayer(String layerName) =>
       'bathymetryOverlay_$layerName';
+
   static String marineStoreForLayer(String layerName) =>
       'marineBase_$layerName';
 
@@ -51,6 +59,7 @@ class CacheManager {
 
   static FMTCStore marineStoreForZone(String zoneUuid) =>
       FMTCStore('marine_zone_$zoneUuid');
+
   static FMTCStore lidarStoreForZone(String zoneUuid) =>
       FMTCStore('lidar_zone_$zoneUuid');
 
@@ -92,7 +101,6 @@ class CacheManager {
   static Future<int> getZoneSizeBytes(String zoneUuid) async {
     final cached = _zoneSizeCache[zoneUuid];
     if (cached != null) return cached;
-
     final repo = FmtcTileCacheRepository.instance;
     // 1) Taille déclarée par FMTC (marine + tous les stores LiDAR de la zone).
     final marineBytes = await repo.getStoreSizeBytes(

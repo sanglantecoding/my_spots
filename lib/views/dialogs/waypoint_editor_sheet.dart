@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/waypoint.dart';
@@ -304,16 +305,6 @@ class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
     );
   }
 
-  /// Obtient la couleur de précision GPS (utilise la logique unifiée)
-  Color _getAccuracyColor() {
-    return GpsService.getAccuracyColor(_currentAccuracy);
-  }
-
-  /// Obtient le texte de précision GPS (utilise la logique unifiée)
-  String _getAccuracyText() {
-    return GpsService.getAccuracyDetailedText(_currentAccuracy);
-  }
-
   void _createWaypoint(String name) {
     final waypoint = Waypoint(
       name: name,
@@ -333,6 +324,17 @@ class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final maxHeight = MediaQuery.of(context).size.height * 0.88;
+
+    // ✅ Conversion explicite précision → statut → couleur/texte
+    final gpsStatus = _currentAccuracy != null
+        ? GpsService.getGpsStatus(_currentAccuracy!)
+        : null;
+    final accuracyColor = gpsStatus != null
+        ? GpsService.getGpsStatusColor(gpsStatus)
+        : Colors.grey;
+    final accuracyText = gpsStatus != null
+        ? GpsService.getGpsDetailedStatusText(gpsStatus)
+        : 'GPS: --';
 
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
@@ -544,13 +546,13 @@ class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
                                                 Icon(
                                                   Icons.gps_fixed,
                                                   size: 16,
-                                                  color: _getAccuracyColor(),
+                                                  color: accuracyColor,
                                                 ),
                                                 const SizedBox(width: 12),
                                                 Text(
-                                                  _getAccuracyText(),
+                                                  accuracyText,
                                                   style: TextStyle(
-                                                    color: _getAccuracyColor(),
+                                                    color: accuracyColor,
                                                     fontSize: 12,
                                                     fontWeight: FontWeight.w500,
                                                   ),
@@ -559,7 +561,7 @@ class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
                                                 Icon(
                                                   Icons.info_outline,
                                                   size: 12,
-                                                  color: _getAccuracyColor()
+                                                  color: accuracyColor
                                                       .withValues(alpha: 0.7),
                                                 ),
                                               ],

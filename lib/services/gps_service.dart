@@ -7,23 +7,9 @@ import '../app_settings.dart';
 import '../models/waypoint.dart';
 
 /// Service utilitaire pour les calculs GPS et le formatage
-///
-/// Ce service ne contient que des fonctions pures pour:
-/// - Calculs de distance
-/// - Formatage d'affichage
-/// - Détermination du statut GPS
-/// - Gestion du vocabulaire persisté (Waypoint.gpsStatus, GPX)
-///
-/// Le suivi GPS actif est géré par GpsController
 class GpsService {
-  // ─── Calculs de distance ─────────────────────────────────────────────────
-
-  /// Distance en mètres entre deux coordonnées (grande-circle, Haversine).
-  ///
-  /// Source UNIQUE de vérité pour tous les calculs de distance de l'app :
-  /// panneau waypoint, tri par distance, mesure entre deux points.
   static double distanceBetween(LatLng a, LatLng b) {
-    const R = 6371000.0; // Rayon de la Terre en mètres
+    const R = 6371000.0;
     final dLat = _toRad(b.latitude - a.latitude);
     final dLon = _toRad(b.longitude - a.longitude);
     final halfDLat = sin(dLat / 2);
@@ -67,8 +53,6 @@ class GpsService {
   /// Convertit les degrés en radians
   static double _toRad(double deg) => deg * pi / 180;
 
-  // ─── Formatage ───────────────────────────────────────────────────────────
-
   /// Formate la distance selon les préférences utilisateur
   static String formatDistance(double meters) {
     if (AppSettings.distanceUnit == DistanceUnit.nautical) {
@@ -83,7 +67,7 @@ class GpsService {
     }
   }
 
-  // ─── Statut GPS (depuis précision) ───────────────────────────────────────
+  // ─── Statut GPS (source unique de vérité) ────────────────────────────────
 
   /// Détermine le statut GPS selon la précision
   /// Seuils unifiés pour toute l'application :
@@ -103,7 +87,7 @@ class GpsService {
     }
   }
 
-  /// Obtient la couleur correspondant au statut GPS
+  /// Couleur correspondant au statut GPS
   static Color getGpsStatusColor(GpsStatus status) {
     switch (status) {
       case GpsStatus.excellent:
@@ -117,7 +101,7 @@ class GpsService {
     }
   }
 
-  /// Obtient le texte du statut GPS pour l'affichage principal
+  /// Texte du statut GPS pour l'affichage principal
   static String getGpsStatusText(GpsStatus status) {
     switch (status) {
       case GpsStatus.excellent:
@@ -131,7 +115,7 @@ class GpsService {
     }
   }
 
-  /// Obtient le texte du statut GPS détaillé (pour les indicateurs techniques)
+  /// Texte du statut GPS détaillé (pour les indicateurs techniques)
   static String getGpsDetailedStatusText(GpsStatus status) {
     switch (status) {
       case GpsStatus.excellent:
@@ -145,37 +129,6 @@ class GpsService {
     }
   }
 
-  /// Fonction unifiée pour obtenir la couleur directement depuis la précision
-  static Color getAccuracyColor(double? accuracy) {
-    if (accuracy == null) {
-      return Colors.grey;
-    }
-    final status = getGpsStatus(accuracy);
-    return getGpsStatusColor(status);
-  }
-
-  /// Fonction unifiée pour obtenir le texte directement depuis la précision
-  static String getAccuracyStatusText(double? accuracy) {
-    if (accuracy == null) {
-      return 'GPS: --';
-    }
-    final status = getGpsStatus(accuracy);
-    return getGpsStatusText(status);
-  }
-
-  /// Fonction unifiée pour obtenir le texte technique depuis la précision
-  static String getAccuracyDetailedText(double? accuracy) {
-    if (accuracy == null) {
-      return 'GPS: --';
-    }
-    final status = getGpsStatus(accuracy);
-    return getGpsDetailedStatusText(status);
-  }
-
-  // ─── Vocabulaire persisté (Waypoint.gpsStatus, GPX <gps-status>) ─────────
-  // Ces libellés sont une DONNÉE : ne jamais les renommer sans migration.
-
-  /// Libellé persisté correspondant à un statut.
   static String statusToLabel(GpsStatus status) => switch (status) {
     GpsStatus.excellent => 'Vert',
     GpsStatus.good => 'Jaune',
@@ -183,12 +136,9 @@ class GpsService {
     GpsStatus.poor => 'Rouge',
   };
 
-  /// Libellé persisté depuis une précision nullable.
-  /// `null` (import sans métadonnées) → 'Inconnu'.
   static String getGpsStatusLabel(double? accuracy) =>
       accuracy == null ? 'Inconnu' : statusToLabel(getGpsStatus(accuracy));
 
-  /// Relit un libellé persisté vers le statut enum (`null` si 'Inconnu'/invalide).
   static GpsStatus? statusFromLabel(String? label) => switch (label) {
     'Vert' => GpsStatus.excellent,
     'Jaune' => GpsStatus.good,
@@ -196,8 +146,6 @@ class GpsService {
     'Rouge' => GpsStatus.poor,
     _ => null,
   };
-
-  // ─── Présentation depuis un libellé persisté ────────────────────────────
 
   /// Couleur depuis un libellé persisté ('Inconnu' → gris clair).
   static Color getColorForStatusLabel(String? label) {

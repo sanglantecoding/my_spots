@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../controllers/gps_controller.dart';
+import 'gps_service.dart';
 import 'dart:async';
 
 /// Informations estimées sur un satellite (basées sur la précision)
@@ -10,9 +11,9 @@ import 'dart:async';
 /// matérielles (NMEA), car Geolocator n'expose pas cette information.
 class SatelliteInfo {
   final int id;
-  final double signalStrength; // 0.0 à 1.0 (estimation basée sur la précision)
-  final String type; // Constellation estimée
-  final bool used; // Estimation d'utilisation
+  final double signalStrength;
+  final String type;
+  final bool used;
 
   SatelliteInfo({
     required this.id,
@@ -22,14 +23,10 @@ class SatelliteInfo {
   });
 }
 
-/// Niveau de qualité du fix GPS
+/// Niveau de qualité du fix GPS affiché par la vue satellites.
 enum FixQuality { excellent, good, medium, poor, unknown }
 
 /// Service pour la gestion des informations GPS et de précision
-///
-/// Ce service utilise GpsController.currentAccuracy comme métrique primaire.
-/// Les données "satellites" affichées sont des estimations visuelles basées
-/// sur la précision horizontale, et non de véritables données NMEA/GNSS.
 class SatelliteService {
   static StreamSubscription<Position>? _positionSubscription;
   static final List<SatelliteInfo> _satellites = [];
@@ -49,12 +46,7 @@ class SatelliteService {
   static bool get isListening => _positionSubscription != null;
 
   /// Initialise le service (appelé au démarrage de l'app).
-  ///
-  /// Réinitialise automatiquement l'état si la souscription a été annulée
-  /// (ex. après un appel à [stopSatelliteTracking]), afin de garantir une
-  /// réécoute transparente lors de la réouverture des écrans satellites.
   static Future<void> initialize() async {
-    // Si la souscription a été annulée, forcer la réinitialisation complète
     if (_positionSubscription == null) {
       _isInitialized = false;
     }
@@ -80,7 +72,6 @@ class SatelliteService {
   ///
   /// Garantit qu'une souscription existe même après un précédent [stopSatelliteTracking].
   static Future<void> startSatelliteTracking() async {
-    // Si la souscription est absente (stop() a été appelé), permettre la réinit
     if (_positionSubscription == null) {
       _isInitialized = false;
     }
@@ -151,25 +142,40 @@ class SatelliteService {
     return _currentAccuracy ?? GpsController.instance.currentAccuracy;
   }
 
-  /// Qualité du fix GPS basée sur la précision horizontale
+  /// Qualité du fix GPS, DÉRIVÉE des seuils uniques de [GpsService].
+  ///
+  /// Plus aucun seuil local : à précision égale, cette vue affiche
+  /// strictement le même verdict que le reste de l'application.
   static FixQuality get fixQuality {
     final acc = currentAccuracy;
     if (acc == null || acc <= 0) return FixQuality.unknown;
-    if (acc < 5) return FixQuality.excellent;
-    if (acc < 15) return FixQuality.good;
-    if (acc < 30) return FixQuality.medium;
-    return FixQuality.poor;
+    return switch (GpsService.getGpsStatus(acc)) {
+      GpsStatus.excellent => FixQuality.excellent,
+      GpsStatus.good => FixQuality.good,
+      GpsStatus.medium => FixQuality.medium,
+      GpsStatus.poor => FixQuality.poor,
+    };
   }
 
-  /// Qualité du signal estimée (0.0 - 1.0) basée sur la précision horizontale
+  /// Convertit un [FixQuality] vers son [GpsStatus] d'origine (`null` si unknown).
+  static GpsStatus? _toGpsStatus(FixQuality quality) => switch (quality) {
+    FixQuality.excellent => GpsStatus.excellent,
+    FixQuality.good => GpsStatus.good,
+    FixQuality.medium => GpsStatus.medium,
+    FixQuality.poor => GpsStatus.poor,
+    FixQuality.unknown => null,
+  };
+
+  /// Qualité du signal estimée (0.0 - 1.0), dérivée du statut unifié.
   static double get signalQuality {
     final acc = currentAccuracy;
     if (acc == null || acc <= 0) return 0.0;
-    if (acc < 5) return 0.95;
-    if (acc < 15) return 0.75;
-    if (acc < 30) return 0.55;
-    if (acc < 50) return 0.35;
-    return 0.15;
+    return switch (GpsService.getGpsStatus(acc)) {
+      GpsStatus.excellent => 0.95,
+      GpsStatus.good => 0.75,
+      GpsStatus.medium => 0.55,
+      GpsStatus.poor => acc < 50 ? 0.35 : 0.15,
+    };
   }
 
   /// Nombre estimé de satellites visibles (basé sur la précision)
@@ -189,13 +195,15 @@ class SatelliteService {
   /// Type GNSS affiché
   static String get gnssType => _gnssType;
 
-  /// Estimation du nombre de satellites selon la précision
-  static int _estimatedSatelliteCount(double accuracy) {
-    if (accuracy < 5) return 12;
-    if (accuracy < 10) return 10;
-    if (accuracy < 20) return 8;
-    return 6;
-  }
+  /// Nombre de satellites affichés, dérivé du statut unifié
+  /// (ancien barème local 5/10/20 m supprimé).
+  static int _estimatedSatelliteCount(double accuracy) =>
+      switch (GpsService.getGpsStatus(accuracy)) {
+        GpsStatus.excellent => 12,
+        GpsStatus.good => 10,
+        GpsStatus.medium => 8,
+        GpsStatus.poor => 6,
+      };
 
   /// Type de satellite par index (estimation)
   static String _getSatelliteType(int index) {
@@ -227,7 +235,8 @@ class SatelliteService {
   /// Liste des satellites (vue estimée, pas des données réelles)
   static List<SatelliteInfo> get satellites => List.unmodifiable(_satellites);
 
-  /// Description textuelle de la qualité du fix (basée sur la précision)
+  /// Description textuelle de la qualité du fix.
+  /// Vocabulaire propre à la vue satellites ; le classement vient de fixQuality.
   static String getGpsStatusDescription() {
     switch (fixQuality) {
       case FixQuality.excellent:
@@ -243,7 +252,7 @@ class SatelliteService {
     }
   }
 
-  /// Libellé court de la qualité
+  /// Libellé court de la qualité (vocabulaire de la vue satellites).
   static String getFixQualityLabel() {
     switch (fixQuality) {
       case FixQuality.excellent:
@@ -259,19 +268,10 @@ class SatelliteService {
     }
   }
 
-  /// Couleur correspondant à la qualité du fix
+  /// Couleur correspondant à la qualité du fix.
   static Color getGpsStatusColor() {
-    switch (fixQuality) {
-      case FixQuality.excellent:
-        return Colors.green;
-      case FixQuality.good:
-        return Colors.amber;
-      case FixQuality.medium:
-        return Colors.orange;
-      case FixQuality.poor:
-        return Colors.red;
-      case FixQuality.unknown:
-        return Colors.grey;
-    }
+    final status = _toGpsStatus(fixQuality);
+    if (status == null) return Colors.grey;
+    return GpsService.getGpsStatusColor(status);
   }
 }

@@ -12,7 +12,8 @@ class MapTileCacheService {
 
   static List<String> get bathymetryLayerNames =>
       CacheManager.bathymetryLayerNames;
-  static List<String> marineLayerNames = CacheManager.marineLayerNames;
+
+  static const List<String> marineLayerNames = CacheManager.marineLayerNames;
 
   static Uint8List get transparentTilePng =>
       TileProviderFactory.transparentTilePng;
@@ -21,18 +22,19 @@ class MapTileCacheService {
 
   static FMTCStore marineStoreForZone(String zoneUuid) =>
       CacheManager.marineStoreForZone(zoneUuid);
+
   static FMTCStore lidarStoreForZone(String zoneUuid) =>
       CacheManager.lidarStoreForZone(zoneUuid);
 
   static Future<void> deleteStoresForZone(String zoneUuid) async =>
       CacheManager.deleteStoresForZone(zoneUuid);
+
   static Future<int> getZoneSizeBytes(String zoneUuid) async =>
       CacheManager.getZoneSizeBytes(zoneUuid);
 
   /// Invalide le cache mémoire de taille pour une zone.
   static void invalidateZoneSizeCache(String zoneUuid) =>
       CacheManager.invalidateZoneSizeCache(zoneUuid);
-  static String formatBytes(int bytes) => CacheManager.formatBytes(bytes);
 
   static TileProvider marineTileProviderFor(
     String layerName, {
