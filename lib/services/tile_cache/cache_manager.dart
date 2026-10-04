@@ -128,19 +128,4 @@ class CacheManager {
   static void invalidateZoneSizeCache(String zoneUuid) {
     _zoneSizeCache.remove(zoneUuid);
   }
-
-  static String formatBytes(int bytes) {
-    if (bytes <= 0) return '0 o';
-    const units = ['o', 'Ko', 'Mo', 'Go', 'To'];
-    var value = bytes.toDouble();
-    var unitIdx = 0;
-    while (value >= 1024 && unitIdx < units.length - 1) {
-      value /= 1024;
-      unitIdx++;
-    }
-    final rounded = value < 10
-        ? value.toStringAsFixed(1).replaceAll('.', ',')
-        : value.toStringAsFixed(0);
-    return '$rounded ${units[unitIdx]}';
-  }
 }

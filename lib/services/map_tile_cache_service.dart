@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
-import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/services/tile_cache/cache_manager.dart';
 import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 
@@ -57,24 +56,4 @@ class MapTileCacheService {
 
   static TileProvider offlineLidarTileProvider(List<String> zoneUuids) =>
       TileProviderFactory.offlineLidarTileProvider(zoneUuids);
-
-  /// Returns a tile provider for the standard base map types (standard, relief, hiking).
-  /// For marine map type, use [MarineMapService.getActiveMarineTileLayer] instead.
-  /// Returns null for standard map types to let flutter_map use the default network provider.
-  static TileProvider? getTileProviderForMapType(MapType mapType) {
-    switch (mapType) {
-      case MapType.standard:
-      case MapType.relief:
-      case MapType.hiking:
-        // These map types use standard URL template, no custom provider needed.
-        // Return null to let flutter_map use the default network tile provider.
-        return null;
-      case MapType.marine:
-        // Marine uses MarineMapService, not a single tile provider.
-        throw StateError(
-          'Marine map type uses MarineMapService.getLayers(), '
-          'not getTileProviderForMapType().',
-        );
-    }
-  }
 }

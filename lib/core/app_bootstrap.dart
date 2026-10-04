@@ -5,7 +5,6 @@ import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/objectbox.g.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
-// ❌ SUPPRIMÉ : import 'package:my_spots/services/satellite_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 
@@ -17,7 +16,6 @@ class AppBootstrap {
       AppInitializationStatus.instance;
 
   static Future<void> initialize() async {
-    // 1) Paramètres de l'application (pré-requis séquentiel).
     try {
       await AppSettings.loadSettings();
       _status.markSettingsLoaded();
@@ -33,9 +31,6 @@ class AppBootstrap {
       rethrow;
     }
 
-    // 2) Services indépendants en parallèle.
-    // ❌ _initialiseSatellite() SUPPRIMÉ : SatelliteService n'existe plus.
-    // Le GPS sera démarré par HomePage._startGpsController() à l'ouverture.
     await Future.wait<void>(<Future<void>>[
       _loadWaypoints(),
       _initialiseMapTileCache(),
@@ -75,8 +70,6 @@ class AppBootstrap {
       );
     }
   }
-
-  // ❌ _initialiseSatellite() SUPPRIMÉ en entier
 
   static Future<void> _initialiseObjectBox() async {
     try {

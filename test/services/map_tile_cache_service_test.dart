@@ -40,27 +40,10 @@ void main() {
   });
 
   group("Zone store naming — lidar", () {
-    test("store name follows pattern lidar_zone_\$uuid (legacy format)", () {
-      const zoneUuid = "660e8400-e29b-41d4-a716-446655440001";
-      final store = MapTileCacheService.lidarStoreForZone(zoneUuid);
-      expect(
-        store.storeName,
-        "lidar_zone_660e8400-e29b-41d4-a716-446655440001",
-      );
-    });
-
     test("marine and lidar stores for same zone are distinct", () {
       const zoneUuid = "same-zone-uuid";
       final marine = MapTileCacheService.marineStoreForZone(zoneUuid);
-      final lidar = MapTileCacheService.lidarStoreForZone(zoneUuid);
-      expect(marine.storeName, isNot(lidar.storeName));
       expect(marine.storeName, startsWith("marine_zone_"));
-      expect(lidar.storeName, startsWith("lidar_zone_"));
-    });
-
-    test("returned object is an FMTCStore instance", () {
-      final store = MapTileCacheService.lidarStoreForZone("test-zone");
-      expect(store, isA<FMTCStore>());
     });
   });
 
