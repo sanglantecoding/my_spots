@@ -292,17 +292,22 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
 
       // Tentative d'arrêt forcé si le timeout initial n'a pas suffi
       final stopped = await _zoneService.forceStopDownload(map.uuid);
+
       if (!stopped) {
         debugPrint(
           '[OfflineMapsScreen] CRITICAL: Impossible d\'arrêter le téléchargement '
-          '${map.uuid} après arrêt forcé. Risque de corruption FMTC.',
+          '${map.uuid} après arrêt forcé. Suppression annulée.',
         );
+
         if (mounted) {
           _snack(
-            'Attention : suppression potentiellement incomplète',
+            'Suppression impossible : le téléchargement est toujours actif',
             isError: true,
           );
         }
+
+        // IMPORTANT : ne surtout pas supprimer FMTC/ObjectBox
+        return;
       }
     }
 

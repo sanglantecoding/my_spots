@@ -487,12 +487,12 @@ class ZoneDownloadService {
     }
   }
 
-  Future<void> cancelAndAwaitEnd(
+  Future<bool> cancelAndAwaitEnd(
     String zoneUuid, {
     Duration timeout = const Duration(seconds: 30),
   }) async {
     await cancelDownload(zoneUuid);
-    await waitForCompletion(zoneUuid, timeout: timeout);
+    return await waitForCompletion(zoneUuid, timeout: timeout);
   }
 
   Future<bool> forceStopDownload(
@@ -561,7 +561,7 @@ class ZoneDownloadService {
 
   bool isPaused(String zoneUuid) => _zones[zoneUuid]?.isPaused ?? false;
 
-  Future<void> waitForCompletion(
+  Future<bool> waitForCompletion(
     String zoneUuid, {
     Duration timeout = const Duration(seconds: 30),
     int maxRetries = 3,
@@ -571,12 +571,12 @@ class ZoneDownloadService {
       final allDone = state?.allDone;
 
       // Zone déjà terminée ou jamais existé
-      if (allDone == null) return;
+      if (allDone == null) return true;
 
       try {
         await allDone.future.timeout(timeout);
         // Succès : le téléchargement est terminé
-        return;
+        return true;
       } on TimeoutException {
         if (kVerboseZoneDownload) {
           debugPrint(
@@ -587,15 +587,19 @@ class ZoneDownloadService {
         // Si c'est le dernier attempt, on log un warning mais on retourne quand même
         // pour ne pas bloquer indéfiniment
         if (attempt == maxRetries - 1) {
-          debugPrint(
-            '[ZoneDownload] WARNING: waitForCompletion a expiré après $maxRetries tentatives '
-            'pour $zoneUuid. La suppression des stores peut être prématurée.',
-          );
+          if (kVerboseZoneDownload) {
+            debugPrint(
+              '[ZoneDownload] WARNING: waitForCompletion a expiré après '
+              '$maxRetries tentatives pour $zoneUuid.',
+            );
+          }
+          return false;
         }
-        // Sinon, on attend un peu avant de réessayer (backoff)
+
         await Future.delayed(const Duration(seconds: 2));
       }
     }
+    return false;
   }
 
   void clearZoneHistory(String zoneUuid) {
