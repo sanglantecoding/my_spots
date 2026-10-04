@@ -4,7 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/settings_page.dart';
 import 'package:my_spots/services/gps_service.dart';
-import 'package:my_spots/widgets/satellite_bottom_sheet.dart';
+import 'package:my_spots/widgets/gps_accuracy_dialog.dart';
 import 'package:my_spots/controllers/gps_controller.dart';
 import 'package:my_spots/help_page.dart';
 import 'package:my_spots/views/map_screen.dart';
@@ -698,7 +698,7 @@ class _GpsStatusBadgeState extends State<_GpsStatusBadge> {
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
-            builder: (context) => const SatelliteBottomSheet(),
+            builder: (context) => const GpsAccuracyDialog(),
           );
         },
         child: Row(

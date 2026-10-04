@@ -16,9 +16,6 @@ class AppInitializationStatus extends ChangeNotifier {
   bool _mapTileCacheReady = false;
   bool get mapTileCacheReady => _mapTileCacheReady;
 
-  bool _satelliteReady = false;
-  bool get satelliteReady => _satelliteReady;
-
   bool _objectBoxReady = false;
   bool get objectBoxReady => _objectBoxReady;
 
@@ -39,11 +36,6 @@ class AppInitializationStatus extends ChangeNotifier {
 
   void markMapTileCacheReady() {
     _mapTileCacheReady = true;
-    notifyListeners();
-  }
-
-  void markSatelliteReady() {
-    _satelliteReady = true;
     notifyListeners();
   }
 

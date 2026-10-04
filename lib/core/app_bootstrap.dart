@@ -5,11 +5,10 @@ import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/objectbox.g.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
-import 'package:my_spots/services/satellite_service.dart';
+// ❌ SUPPRIMÉ : import 'package:my_spots/services/satellite_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 
-/// Orchestrateur du démarrage de l'application.
 class AppBootstrap {
   AppBootstrap._();
 
@@ -17,7 +16,6 @@ class AppBootstrap {
   static final AppInitializationStatus _status =
       AppInitializationStatus.instance;
 
-  /// Initialise les services applicatifs dans l'ordre optimal.
   static Future<void> initialize() async {
     // 1) Paramètres de l'application (pré-requis séquentiel).
     try {
@@ -36,10 +34,11 @@ class AppBootstrap {
     }
 
     // 2) Services indépendants en parallèle.
+    // ❌ _initialiseSatellite() SUPPRIMÉ : SatelliteService n'existe plus.
+    // Le GPS sera démarré par HomePage._startGpsController() à l'ouverture.
     await Future.wait<void>(<Future<void>>[
       _loadWaypoints(),
       _initialiseMapTileCache(),
-      _initialiseSatellite(),
       _initialiseObjectBox(),
       _initialisePackageInfo(),
     ]);
@@ -77,21 +76,7 @@ class AppBootstrap {
     }
   }
 
-  static Future<void> _initialiseSatellite() async {
-    try {
-      await SatelliteService.initialize();
-      _status.markSatelliteReady();
-      developer.log('SatelliteService.initialize OK', name: _logName);
-    } catch (e, st) {
-      _status.reportNonCriticalFailure('SatelliteService', e);
-      developer.log(
-        'SatelliteService.initialize a échoué (GNSS visuel désactivé)',
-        name: _logName,
-        error: e,
-        stackTrace: st,
-      );
-    }
-  }
+  // ❌ _initialiseSatellite() SUPPRIMÉ en entier
 
   static Future<void> _initialiseObjectBox() async {
     try {

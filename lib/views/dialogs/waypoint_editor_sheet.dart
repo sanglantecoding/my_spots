@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/services/gps_service.dart';
-import 'package:my_spots/widgets/satellite_status_dialog.dart';
+import 'package:my_spots/widgets/gps_accuracy_dialog.dart';
 import 'package:my_spots/controllers/gps_controller.dart';
 
 /// Logs de debugging waypoint editor. Laisser à false.
@@ -537,7 +537,7 @@ class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
                                               showDialog(
                                                 context: context,
                                                 builder: (context) =>
-                                                    const SatelliteStatusDialog(),
+                                                    const GpsAccuracyDialog(),
                                               );
                                             },
                                             child: Row(

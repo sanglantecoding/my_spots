@@ -10,11 +10,7 @@ import 'package:my_spots/services/zone_download/layer_download_result.dart';
 
 /// Logs de debugging downloader FMTC. Laisser à false.
 const bool kVerboseDownloader = false;
-
-/// Audit détaillé des tuiles : affiche un résumé complet à la fin de chaque
-/// téléchargement + log les événements non-réussis (Sea, Existing, Negative, Failed).
-/// TEMPORAIRE : désactiver une fois le diagnostic terminé.
-const bool kVerboseTileAudit = true;
+const bool kVerboseTileAudit = false;
 
 // ─── Callbacks & interface abstraite ────────────────────────────────────────
 
@@ -192,9 +188,8 @@ class FmtcLayerDownloader implements LayerDownloader {
     }
 
     final ctrl = StreamController<DownloadProgress>.broadcast();
-    StreamSubscription<DownloadProgress>?
-    bridgeSub; // nullable : pas encore posé si startForeground échoue
-    StreamSubscription<TileEvent>? tileEventsSub; // Audit détaillé
+    StreamSubscription<DownloadProgress>? bridgeSub;
+    StreamSubscription<TileEvent>? tileEventsSub;
     Timer? watchdog;
 
     var maxTiles = 0;
@@ -234,8 +229,6 @@ class FmtcLayerDownloader implements LayerDownloader {
       );
 
       // 🟢 AUDIT : S'abonner aux événements détaillés des tuiles
-      // 🟢 AUDIT : S'abonner aux événements détaillés des tuiles
-      // 🟢 AUDIT : S'abonner aux événements détaillés des tuiles
       if (kVerboseTileAudit) {
         tileEventsSub = fgReturn.tileEvents.listen((event) {
           // Limiter à 300 événements pour ne pas saturer logcat
@@ -266,8 +259,6 @@ class FmtcLayerDownloader implements LayerDownloader {
         });
       }
 
-      // 👇 Tracking posé UNIQUEMENT une fois le foreground réellement lancé :
-      // un échec de startForeground ne laisse donc aucune entrée périmée.
       _activeInstances.add(instanceId);
 
       watchdog = Timer.periodic(const Duration(seconds: 30), (t) {
@@ -332,7 +323,7 @@ class FmtcLayerDownloader implements LayerDownloader {
       _lastEventAtByInstance.remove(instanceId);
       watchdog?.cancel();
       await bridgeSub?.cancel();
-      await tileEventsSub?.cancel(); // Audit : annuler la subscription
+      await tileEventsSub?.cancel();
       if (!ctrl.isClosed) {
         await ctrl.close();
       }
@@ -347,7 +338,6 @@ class FmtcLayerDownloader implements LayerDownloader {
       }
     }
 
-    // 🟢 AUDIT : Résumé final détaillé
     if (kVerboseTileAudit) {
       final gap = maxTiles - successful;
       debugPrint(

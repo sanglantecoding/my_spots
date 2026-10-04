@@ -23,7 +23,7 @@ import 'package:my_spots/views/widgets/map/selected_waypoint_panel.dart';
 import 'package:my_spots/views/widgets/offline_maps/new_zone_sheet.dart';
 import 'package:my_spots/views/widgets/offline_maps/zone_editor_overlay.dart';
 import 'package:my_spots/widgets/navigation_overlay.dart';
-import 'package:my_spots/widgets/satellite_bottom_sheet.dart';
+import 'package:my_spots/widgets/gps_accuracy_dialog.dart';
 
 class MapScreen extends StatefulWidget {
   final Waypoint? centerOn;
@@ -924,7 +924,7 @@ class _MapScreenState extends State<MapScreen> {
                     context: context,
                     isScrollControlled: true,
                     backgroundColor: Colors.transparent,
-                    builder: (context) => const SatelliteBottomSheet(),
+                    builder: (context) => const GpsAccuracyDialog(),
                   );
                 },
                 // 🛡️ Widget feuille : se rebuild seul sur stateStream.
