@@ -115,7 +115,7 @@ flutter run
 
 ```
 
-Permissions
+### Permissions
 Android :
 Localisation précise
 Internet (pour cartes en ligne)
@@ -123,7 +123,7 @@ Stockage (pour cache hors-ligne)
 iOS :
 Localisation quand l'app est active
 
-📱 Utilisation
+### 📱 Utilisation
 Créer un waypoint
 Maintenir appuyé sur la carte
 Sélectionner "Ajouter un waypoint ici"
@@ -147,7 +147,7 @@ Placer le premier point
 Placer le second point
 La distance s'affiche (mètres + milles nautiques)
 
-📦 Dépendances principales
+### 📦 Dépendances principales
 flutter_map : rendu cartographique
 flutter_map_tile_caching : cache et téléchargement de tuiles
 geolocator : accès GPS
@@ -156,7 +156,7 @@ audioplayers : alarmes sonores
 latlong2 : calculs géographiques
 url_launcher : ouverture météo dans navigateur
 
-📄 Licence
+### 📄 Licence
 Projet privé - Tous droits réservés
 
 **Développé avec ❤️ en Flutter et vibe coding pour les amateurs de plein air**
