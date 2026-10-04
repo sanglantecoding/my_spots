@@ -22,9 +22,6 @@ class MapTileCacheService {
   static FMTCStore marineStoreForZone(String zoneUuid) =>
       CacheManager.marineStoreForZone(zoneUuid);
 
-  static FMTCStore lidarStoreForZone(String zoneUuid) =>
-      CacheManager.lidarStoreForZone(zoneUuid);
-
   static Future<void> deleteStoresForZone(String zoneUuid) async =>
       CacheManager.deleteStoresForZone(zoneUuid);
 

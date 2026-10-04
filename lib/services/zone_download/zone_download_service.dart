@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -89,12 +90,9 @@ class ZoneDownloadService {
       StreamController<ZoneErrorEvent>.broadcast();
   Stream<ZoneErrorEvent> get errorStream => _errorController.stream;
 
-  // 🟢 NOUVEAU : Flux de complétion pour notifier la fin d'un téléchargement
   final StreamController<String> _completionController =
       StreamController<String>.broadcast();
 
-  /// Émet l'UUID d'une zone dont le téléchargement vient de se terminer
-  /// (succès, échec, annulation, ou erreur d'initialisation).
   Stream<String> get completionStream => _completionController.stream;
 
   static ZoneDownloadService? _instance;
@@ -220,13 +218,24 @@ class ZoneDownloadService {
           layer.estimatedTileCount = 0;
           layer.downloadedTileCount = 0;
           _repository.saveLayer(map, layer);
-          final msg = 'Erreur reseau couche $layerLabel: $e';
+
+          // ✅ Classification intelligente de l'erreur
+          final msg = _classifyError(e, layerLabel);
+
           onError?.call(msg);
           if (!_errorController.isClosed) {
             _errorController.add(
               ZoneErrorEvent(zoneUuid: map.uuid, message: msg),
             );
           }
+
+          if (kVerboseZoneDownload) {
+            debugPrint(
+              '[ZoneDownload] ${map.uuid} couche $layerLabel: '
+              'type=${e.runtimeType}, msg=$msg',
+            );
+          }
+
           continue;
         }
 
@@ -281,11 +290,51 @@ class ZoneDownloadService {
     }
     state.allDone?.complete();
 
-    // 🟢 Nettoyage et notification de fin (succès, échec, ou annulation)
     _zones.remove(map.uuid);
     if (!_completionController.isClosed) {
       _completionController.add(map.uuid);
     }
+  }
+
+  /// Classifie une exception et retourne un message utilisateur approprié.
+  String _classifyError(Object error, String layerLabel) {
+    final errorType = error.runtimeType.toString();
+
+    // Erreurs réseau
+    if (error is SocketException ||
+        error is TimeoutException ||
+        error is HttpException ||
+        errorType.contains('SocketException') ||
+        errorType.contains('TimeoutException') ||
+        errorType.contains('HttpException') ||
+        errorType.contains('ClientException')) {
+      return 'Erreur réseau couche $layerLabel: ${error.toString()}';
+    }
+
+    // Erreurs de stockage / système de fichiers
+    if (error is FileSystemException ||
+        errorType.contains('FileSystemException') ||
+        errorType.contains('PathAccessException')) {
+      return 'Erreur stockage couche $layerLabel: espace disque ou permissions';
+    }
+
+    // Erreurs de programmation / configuration
+    if (error is StateError ||
+        error is ArgumentError ||
+        errorType.contains('StateError') ||
+        errorType.contains('ArgumentError')) {
+      return 'Erreur interne couche $layerLabel: ${error.toString()}';
+    }
+
+    // Erreurs FMTC spécifiques
+    if (errorType.contains('FMTC') ||
+        errorType.contains('StoreException') ||
+        errorType.contains('IsolateException')) {
+      return 'Erreur cache couche $layerLabel: ${error.toString()}';
+    }
+
+    // Erreur générique
+    return 'Erreur inattendue couche $layerLabel: ${error.toString()}';
   }
 
   LayerOutcome assessLayerResult(
@@ -367,7 +416,7 @@ class ZoneDownloadService {
         map.lastError = noCov == outcomes.length
             ? 'Aucune couverture SHOM/LiDAR sur cette zone'
             : '$noCov couche(s) sans couverture, aucune donnée utilisable';
-        return OfflineMapStatus.partial;
+        return OfflineMapStatus.failed;
       }
       // Mélange de couches réussies et de couches sans couverture
       map.lastError = '$noCov couche(s) sans couverture sur cette zone';
@@ -417,7 +466,6 @@ class ZoneDownloadService {
       );
     }
     NegativeFilteringImageProvider.clearStoreNamesCache();
-    // 🟢 Invalidation du cache de taille : les compteurs de tuiles ont changé.
     MapTileCacheService.invalidateZoneSizeCache(map.uuid);
   }
 
@@ -425,7 +473,9 @@ class ZoneDownloadService {
     final state = _zones[zoneUuid];
     if (state == null) return;
     state.isCancelled = true;
-    state.cancelReason = DownloadCancelReason.user;
+    if (state.cancelReason == DownloadCancelReason.none) {
+      state.cancelReason = DownloadCancelReason.user;
+    }
     final store = state.activeStore;
     final instanceId = state.activeInstanceId;
     if (store != null && instanceId != null) {
@@ -489,7 +539,7 @@ class ZoneDownloadService {
 
   Future<void> waitForCompletion(
     String zoneUuid, {
-    Duration timeout = const Duration(seconds: 30), // 👈 Augmenté de 5s à 30s
+    Duration timeout = const Duration(seconds: 30),
     int maxRetries = 3,
   }) async {
     for (var attempt = 0; attempt < maxRetries; attempt++) {
@@ -558,7 +608,6 @@ class ZoneDownloadService {
     String? lidarLayerId,
   ]) {
     switch (type) {
-      // ✅ Lecture depuis le catalogue centralisé
       case LayerType.marine50k:
       case LayerType.marine25k:
       case LayerType.marine10k:

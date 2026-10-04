@@ -14,9 +14,14 @@ import 'package:my_spots/repositories/offline_map_repository.dart';
 import 'package:my_spots/services/alarm_service.dart';
 import 'package:my_spots/services/zone_download/zone_download.dart';
 import 'package:my_spots/settings_page.dart';
+import 'package:my_spots/views/dialogs/distance_result_dialog.dart';
+import 'package:my_spots/views/dialogs/offline_mode_blocking_dialog.dart';
 import 'package:my_spots/views/dialogs/waypoint_editor_sheet.dart';
+import 'package:my_spots/views/helpers/offline_zones_loader.dart';
 import 'package:my_spots/views/offline_maps_screen.dart';
+import 'package:my_spots/views/widgets/map/bathymetry_controls_widget.dart';
 import 'package:my_spots/views/widgets/map/distance_measurement_overlay.dart';
+import 'package:my_spots/views/widgets/map/map_context_menu.dart';
 import 'package:my_spots/views/widgets/map/map_controls_widget.dart';
 import 'package:my_spots/views/widgets/map/map_view.dart';
 import 'package:my_spots/views/widgets/map/selected_waypoint_panel.dart';
@@ -52,6 +57,7 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   double _currentZoom = 15.0;
+  int? _lastMarineLayerThreshold; // 🛡️ Track le dernier seuil de couche
   bool _isLoading = true;
   bool _isFollowingUser = false;
   bool _isMeasuringDistance = false;
@@ -64,7 +70,8 @@ class _MapScreenState extends State<MapScreen> {
   StreamSubscription? _positionSubscription;
   StreamSubscription<AlarmEvent>? _alarmSubscription;
   List<String> _readyZoneUuids = const [];
-  final Map<String, List<OfflineMapLayer>> _readyLidarLayersByZone = {};
+  final Map<String, List<OfflineMapLayer>> _readyLidarLayersByZone =
+      <String, List<OfflineMapLayer>>{};
 
   /// Cached combined bounds of all downloaded zones, computed from
   /// the OfflineMapRepository so that LiDAR layers can still be
@@ -112,151 +119,11 @@ class _MapScreenState extends State<MapScreen> {
       _measurementPoint1 = point1;
     });
     // Afficher le popup avec le résultat
-    _showDistanceResultPopup(point1, point2, distanceMeters);
-  }
-
-  /// Affiche le popup avec le résultat de la mesure
-  void _showDistanceResultPopup(
-    LatLng point1,
-    LatLng point2,
-    double distanceMeters,
-  ) {
-    final distanceNauticalMiles = distanceMeters / 1852.0;
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xFF0D1B2A),
-        title: const Row(
-          children: [
-            Icon(Icons.straighten, color: Color(0xFF0D6999)),
-            SizedBox(width: 8),
-            Text('Distance mesurée', style: TextStyle(color: Colors.white)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 12,
-                        height: 12,
-                        decoration: const BoxDecoration(
-                          color: Colors.blue,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Point 1: ${point1.latitude.toStringAsFixed(5)}, ${point1.longitude.toStringAsFixed(5)}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Container(
-                        width: 12,
-                        height: 12,
-                        decoration: const BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Point 2: ${point2.latitude.toStringAsFixed(5)}, ${point2.longitude.toStringAsFixed(5)}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0D6999).withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Distance:',
-                        style: TextStyle(color: Colors.white, fontSize: 14),
-                      ),
-                      Text(
-                        '${distanceMeters.toStringAsFixed(1)} m',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Distance:',
-                        style: TextStyle(color: Colors.white, fontSize: 14),
-                      ),
-                      Text(
-                        '${distanceNauticalMiles.toStringAsFixed(3)} nm',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(dialogContext);
-              setState(() {
-                _measurementPoint1 = null;
-              });
-            },
-            child: const Text('Fermer', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
+    showDistanceResultDialog(context, point1, point2, distanceMeters, () {
+      setState(() {
+        _measurementPoint1 = null;
+      });
+    });
   }
 
   void _onMapCameraChanged() {
@@ -273,23 +140,15 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  /// Indicateur de diagnostic TEMPORAIRE : affiche le niveau de zoom courant.
-  Widget _buildZoomIndicator() {
-    return Material(
-      color: Colors.black.withValues(alpha: 0.72),
-      borderRadius: BorderRadius.circular(10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Text(
-          'ZOOM : ${_currentZoom.toStringAsFixed(2)}',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
+  /// Détermine le seuil de couche marine actuel.
+  /// Retourne un entier représentant le seuil franchi.
+  int _getMarineLayerThreshold(double zoom) {
+    if (zoom >= 14.0) return 14;
+    if (zoom >= 12.0) return 12;
+    if (zoom >= 11.0) return 11;
+    if (zoom >= 9.0) return 9;
+    if (zoom >= 7.0) return 7;
+    return 0;
   }
 
   bool _boundsNearlyEqual(LatLngBounds a, LatLngBounds b) {
@@ -298,86 +157,6 @@ class _MapScreenState extends State<MapScreen> {
         (a.south - b.south).abs() < epsilon &&
         (a.east - b.east).abs() < epsilon &&
         (a.west - b.west).abs() < epsilon;
-  }
-
-  Widget _buildBathymetryOverlayControls() {
-    return Material(
-      color: Colors.black.withValues(alpha: 0.72),
-      borderRadius: BorderRadius.circular(10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            InkWell(
-              onTap: () async {
-                final enabled = !AppSettings.bathymetryOverlayEnabled;
-                await AppSettings.saveBathymetryOverlayEnabled(enabled);
-                if (!mounted) return;
-                setState(() {});
-              },
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: Checkbox(
-                      value: AppSettings.bathymetryOverlayEnabled,
-                      onChanged: (value) async {
-                        if (value == null) return;
-                        await AppSettings.saveBathymetryOverlayEnabled(value);
-                        if (!mounted) return;
-                        setState(() {});
-                      },
-                      activeColor: Colors.blueAccent,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  const Icon(Icons.terrain, color: Colors.white70, size: 16),
-                  const SizedBox(width: 4),
-                  const Text(
-                    'LiDAR / Bathy',
-                    style: TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            if (AppSettings.bathymetryOverlayEnabled) ...[
-              const SizedBox(height: 4),
-              SizedBox(
-                width: 150,
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 2,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 6,
-                    ),
-                    overlayShape: SliderComponentShape.noOverlay,
-                  ),
-                  child: Slider(
-                    value: AppSettings.bathymetryOverlayOpacity,
-                    min: 0,
-                    max: 1,
-                    divisions: 20,
-                    label:
-                        '${(AppSettings.bathymetryOverlayOpacity * 100).round()}%',
-                    onChanged: (value) async {
-                      await AppSettings.saveBathymetryOverlayOpacity(value);
-                      if (!mounted) return;
-                      setState(() {});
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
   }
 
   @override
@@ -467,145 +246,26 @@ class _MapScreenState extends State<MapScreen> {
   /// combined bounds of all downloaded zones so that LiDAR layers can be
   /// determined even before the map camera has fired its first event.
   void _loadOfflineZones() {
-    final repo = OfflineMapRepository.instance;
-    if (repo == null) return;
-    final maps = repo.findReadyOrPartialMaps();
-    final lidarByZone = <String, List<OfflineMapLayer>>{};
-    for (final map in maps) {
-      final layers = repo.findLayersForMap(map);
-      final lidar = layers
-          .where((l) => l.layerType == LayerType.lidarLitto3d)
-          .toList();
-      if (lidar.isNotEmpty) lidarByZone[map.uuid] = lidar;
-    }
+    final data = OfflineZonesLoader.loadOfflineZones();
     setState(() {
-      _readyZoneUuids = maps.map((m) => m.uuid).toList();
+      _readyZoneUuids = data.readyZoneUuids;
       _readyLidarLayersByZone
         ..clear()
-        ..addAll(lidarByZone);
-      if (maps.isEmpty) {
-        _zoneCombinedBounds = null;
-      } else {
-        _zoneCombinedBounds = LatLngBounds(
-          LatLng(
-            maps.map((m) => m.southLat).reduce((a, b) => a < b ? a : b),
-            maps.map((m) => m.westLng).reduce((a, b) => a < b ? a : b),
-          ),
-          LatLng(
-            maps.map((m) => m.northLat).reduce((a, b) => a > b ? a : b),
-            maps.map((m) => m.eastLng).reduce((a, b) => a > b ? a : b),
-          ),
-        );
-      }
+        ..addAll(data.readyLidarLayersByZone);
+      _zoneCombinedBounds = data.zoneCombinedBounds;
     });
   }
 
   /// Shows the context menu (BottomSheet) at the long-pressed map point.
   void _showMapContextMenu(LatLng point) {
-    final isOffline = AppSettings.offlineModeEnabled;
-    final isMarine = AppSettings.mapType == MapType.marine;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF0D1B2A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(
-                Icons.add_location_alt,
-                color: Color(0xFF0D6999),
-              ),
-              title: const Text(
-                "Ajouter un waypoint ici",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              subtitle: Text(
-                "Lat ${point.latitude.toStringAsFixed(5)}  Lon ${point.longitude.toStringAsFixed(5)}",
-                style: const TextStyle(color: Colors.white38, fontSize: 12),
-              ),
-              onTap: () {
-                Navigator.pop(ctx);
-                unawaited(_addWaypointAt(point));
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.crop_free,
-                color: isMarine ? const Color(0xFF0D6999) : Colors.white24,
-              ),
-              title: Text(
-                "Tracer une zone hors-ligne",
-                style: TextStyle(
-                  color: isMarine ? Colors.white : Colors.white38,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              subtitle: Text(
-                !isMarine
-                    ? "Disponible uniquement avec la carte marine (SHOM)"
-                    : isOffline
-                    ? "Passez en ligne pour tracer une zone"
-                    : "Definir une zone de telechargement",
-                style: TextStyle(
-                  color: !isMarine
-                      ? Colors.white38
-                      : isOffline
-                      ? Colors.orangeAccent
-                      : Colors.white38,
-                  fontSize: 12,
-                ),
-              ),
-              onTap: !isMarine
-                  ? null
-                  : () {
-                      Navigator.pop(ctx);
-                      if (isOffline) {
-                        unawaited(_showOfflineModeBlockingDialog(point));
-                      } else {
-                        unawaited(_openNewOfflineZone(point));
-                      }
-                    },
-            ),
-            ListTile(
-              leading: const Icon(Icons.straighten, color: Color(0xFF0D6999)),
-              title: const Text(
-                "Mesurer une distance",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              subtitle: const Text(
-                "Placer deux points pour mesurer",
-                style: TextStyle(color: Colors.white38, fontSize: 12),
-              ),
-              onTap: () {
-                Navigator.pop(ctx);
-                _startDistanceMeasurement(point);
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
+    showMapContextMenu(
+      context,
+      point,
+      MapContextMenuCallbacks(
+        onAddWaypoint: _addWaypointAt,
+        onOpenOfflineZone: _openNewOfflineZone,
+        onShowOfflineModeBlockingDialog: _showOfflineModeBlockingDialog,
+        onStartDistanceMeasurement: _startDistanceMeasurement,
       ),
     );
   }
@@ -613,50 +273,7 @@ class _MapScreenState extends State<MapScreen> {
   /// Boîte de dialogue affichée quand l'utilisateur tente de tracer une
   /// zone hors-ligne alors que le mode hors-ligne est actif.
   Future<void> _showOfflineModeBlockingDialog(LatLng point) async {
-    final switchOnline = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xFF1A2F42),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.cloud_off, color: Colors.orangeAccent, size: 28),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Mode hors-ligne actif',
-                style: TextStyle(color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-        content: const Text(
-          'Le tracé d\'une zone hors-ligne nécessite une connexion internet '
-          '(téléchargement des tuiles SHOM). Passez en mode en ligne pour '
-          'continuer.',
-          style: TextStyle(color: Colors.white70, height: 1.4),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text(
-              'Annuler',
-              style: TextStyle(color: Colors.white54),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text(
-              'Passer en ligne',
-              style: TextStyle(
-                color: Colors.greenAccent,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+    final switchOnline = await showOfflineModeBlockingDialog(context, point);
 
     if (switchOnline != true) return;
     await AppSettings.saveOfflineMode(false);
@@ -995,7 +612,19 @@ class _MapScreenState extends State<MapScreen> {
                     _showMapContextMenu(latLng);
                   },
                   onTap: (wp) => setState(() => _selectedWaypoint = wp),
-                  onZoomChanged: (z) => setState(() => _currentZoom = z),
+                  onZoomChanged: (z) {
+                    // Toujours mettre à jour le zoom pour l'indicateur
+                    _currentZoom = z;
+
+                    // 🛡️ P1 PERF : Ne rebuild MapView que si on franchit un seuil de couche
+                    if (AppSettings.mapType == MapType.marine) {
+                      final newThreshold = _getMarineLayerThreshold(z);
+                      if (newThreshold != _lastMarineLayerThreshold) {
+                        _lastMarineLayerThreshold = newThreshold;
+                        setState(() {}); // Rebuild pour changer les couches
+                      }
+                    }
+                  },
                   onMapCameraChanged: _onMapCameraChanged,
                   onPointerDown: () {
                     if (_isFollowingUser) {
@@ -1037,7 +666,7 @@ class _MapScreenState extends State<MapScreen> {
                     Positioned(
                       left: 6,
                       top: 10,
-                      child: _buildBathymetryOverlayControls(),
+                      child: const BathymetryControlsWidget(),
                     ),
                   // Boutons : recentrage GPS, toggle waypoints, + waypoint.
                   Positioned(
@@ -1150,8 +779,12 @@ class _MapScreenState extends State<MapScreen> {
                       },
                     ),
                   ),
-                // Indicateur de diagnostic TEMPORAIRE - zoom courant (bas-droit)
-                Positioned(right: 16, bottom: 16, child: _buildZoomIndicator()),
+                // 🛡️ Indicateur de zoom : widget feuille auto-abonné
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: _ZoomIndicator(mapController: _mapController),
+                ),
               ],
             ),
     );
@@ -1163,6 +796,60 @@ class _MapScreenState extends State<MapScreen> {
 // rebuild QUE sa propre sous-arborescence. MapScreen / MapView / TileLayers
 // ne sont plus jamais reconstruits par un tick GPS.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Indicateur de zoom : se met à jour indépendamment sans rebuild MapScreen.
+class _ZoomIndicator extends StatefulWidget {
+  const _ZoomIndicator({required this.mapController});
+
+  final MapController mapController;
+
+  @override
+  State<_ZoomIndicator> createState() => _ZoomIndicatorState();
+}
+
+class _ZoomIndicatorState extends State<_ZoomIndicator> {
+  double _zoom = 15.0;
+  StreamSubscription<MapEvent>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _zoom = widget.mapController.camera.zoom;
+    // Écouter les changements de caméra pour mettre à jour le zoom
+    _sub = widget.mapController.mapEventStream.listen((event) {
+      if (mounted) {
+        setState(() {
+          _zoom = widget.mapController.camera.zoom;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.72),
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Text(
+          'ZOOM : ${_zoom.toStringAsFixed(2)}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// Icône d'état GPS de l'AppBar : rebuild uniquement sur stateStream.
 class _GpsStateIcon extends StatefulWidget {

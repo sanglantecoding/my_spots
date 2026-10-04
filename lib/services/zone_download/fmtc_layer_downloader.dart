@@ -211,6 +211,9 @@ class FmtcLayerDownloader implements LayerDownloader {
     _lastEventAtByInstance[instanceId] = DateTime.now();
     var interruptReason = DownloadInterruptReason.none;
 
+    // 🛡️ Flag pour éviter les appels multiples à cancel()
+    var cancellationRequested = false;
+
     try {
       final fgReturn = store.download.startForeground(
         region: region,
@@ -261,7 +264,7 @@ class FmtcLayerDownloader implements LayerDownloader {
 
       _activeInstances.add(instanceId);
 
-      watchdog = Timer.periodic(const Duration(seconds: 30), (t) {
+      watchdog = Timer.periodic(const Duration(seconds: 30), (t) async {
         if (_pausedInstances.contains(instanceId)) {
           return;
         }
@@ -274,7 +277,18 @@ class FmtcLayerDownloader implements LayerDownloader {
             );
           }
           interruptReason = DownloadInterruptReason.watchdog;
-          store.download.cancel(instanceId: instanceId);
+
+          // ✅ Attendre le cancel pour garantir que FMTC honore l'annulation
+          if (!cancellationRequested) {
+            cancellationRequested = true;
+            try {
+              await store.download.cancel(instanceId: instanceId);
+            } catch (e) {
+              if (kVerboseDownloader) {
+                debugPrint('[FmtcLayerDownloader] Watchdog cancel error: $e');
+              }
+            }
+          }
         }
       });
 
@@ -301,14 +315,26 @@ class FmtcLayerDownloader implements LayerDownloader {
               .toDouble();
           onProgress(progress);
         }
-        if (maxTiles > _maxTileCountCeiling) {
+
+        // ✅ Vérification plafond avec attente du cancel
+        if (maxTiles > _maxTileCountCeiling && !cancellationRequested) {
           if (kVerboseDownloader) {
             debugPrint(
               '[FmtcLayerDownloader] Tile count $maxTiles > ceiling - aborting.',
             );
           }
           interruptReason = DownloadInterruptReason.tileCeiling;
-          store.download.cancel(instanceId: instanceId);
+          cancellationRequested = true;
+
+          try {
+            await store.download.cancel(instanceId: instanceId);
+          } catch (e) {
+            if (kVerboseDownloader) {
+              debugPrint('[FmtcLayerDownloader] Ceiling cancel error: $e');
+            }
+          }
+          // Sortir de la boucle après avoir demandé l'annulation
+          break;
         }
       }
     } catch (e, st) {
@@ -327,13 +353,19 @@ class FmtcLayerDownloader implements LayerDownloader {
       if (!ctrl.isClosed) {
         await ctrl.close();
       }
-      try {
-        await store.download
-            .cancel(instanceId: instanceId)
-            .timeout(const Duration(seconds: 5));
-      } catch (e) {
-        if (kVerboseDownloader) {
-          debugPrint('[FmtcLayerDownloader] cancel error (timeout?): $e');
+
+      // ✅ Cancel final uniquement si pas déjà demandé
+      if (!cancellationRequested) {
+        try {
+          await store.download
+              .cancel(instanceId: instanceId)
+              .timeout(const Duration(seconds: 5));
+        } catch (e) {
+          if (kVerboseDownloader) {
+            debugPrint(
+              '[FmtcLayerDownloader] Final cancel error (timeout?): $e',
+            );
+          }
         }
       }
     }
