@@ -1,371 +1,162 @@
-# 🎣 My Spots
+# My Spots 🎣
 
-*Application mobile de navigation et gestion de waypoints pour la pêche, la chasse aux champignons et autres activités de plein air.*
+Application mobile de navigation et repérage côtier pour pêcheurs, plaisanciers et randonneurs. Permet de marquer des spots, télécharger des cartes marines hors-ligne, naviguer vers vos waypoints favoris, et consulter la météo marine.
 
----
+## ✨ Fonctionnalités
 
-## 🌟 Fonctionnalités principales
+### 🗺️ Cartes multiples
 
-### 🧭 Navigation active
-- **Bandeau de navigation** avec informations en temps réel
-- **Distance vers le waypoint** (m/nm/km selon préférences)
-- **Cap compas** normalisé (0-360°) pour suivre la direction
-- **Vitesse actuelle** en temps réel (nœuds pour pêche, km/h pour terrestre)
-- **ETA (Estimated Time of Arrival)** calculé dynamiquement
-- **Bouton "Y aller"** pour activer la navigation vers un waypoint
-- **Bouton d'arrêt** intégré dans le bandeau
-- **Contrôle audio** : Bouton Mute pour couper/réactiver les bips
+**Cartes marines SHOM** (officielles françaises)
+- Raster marine du SHOM avec 6 échelles : 1M, 350K, 100K, 50K, 25K, 10K
+- Empilement intelligent selon le zoom : plus on zoome, plus la carte devient détaillée
+- Couverture de toutes les côtes françaises (métropole + outre-mer)
 
-### 🗺️ Cartes marines hors-ligne (SHOM)
-- **Téléchargement de zones marines** pour navigation sans connexion
-- **3 échelles SHOM** : 50K (large), 25K (moyenne), 10K (détail)
-- **Couches LiDAR Litto3D** pour bathymétrie haute résolution
-- **Préflight SHOM** : Vérification de couverture avant téléchargement
-- **Cache intelligent FMTC** : Flutter Map Tile Caching optimisé
-- **Filtre de tuiles vides** : Pixels blancs/gris rendus transparents
-- **Empilement dynamique** : Couches adaptées selon le zoom
-- **Pause/Resume** : Gestion des téléchargements en cours
-- **Synchronisation suppression** : Annulation propre avant suppression de stores
+**Cartes terrestres**
+- **Standard** : OpenStreetMap classique
+- **Relief** : OpenTopoMap avec courbes de niveau
+- **Randonnée** : Thunderforest Outdoors (sentiers, chemins)
 
-### 🗺️ Navigation GPS en temps réel
-- **Suivi GPS continu** avec indicateur de précision coloré
-- **4 niveaux de précision** : Excellent (<8m), Correct (8-15m), Moyen (15-30m), Faible (>30m)
-- **Mode économie d'énergie** pour prolonger l'autonomie
-- **Affichage de la vitesse** et du cap en temps réel
-- **Vue détaillée des satellites** : nombre, type GNSS, signal, altitude
+### 📥 Cartes hors-ligne
 
-### 📍 Gestion multi-catégories de waypoints
-- **🎣 Pêche** : Points de pêche favoris avec marées et météo
-- **🍄 Champignons** : Zones de cueillette avec distances en km/mètres
-- **🚗 Voiture/Autre** : Points de stationnement et repères divers
-- **Personnalisation** : Couleurs et noms pour chaque waypoint
-- **Précision historique** : Chaque waypoint enregistre la précision GPS lors de sa création
+- Téléchargement de zones personnalisées (rectangle ou tracé main levée)
+- Pré-analyse automatique de couverture SHOM avant téléchargement
+- Gestion des téléchargements : pause, reprise, annulation
+- Affichage de la progression et taille de chaque zone
+- Mode 100% hors-ligne une fois les zones téléchargées
 
-### 📊 Import/Export GPX complet
-- **Exportation GPX** standard pour compatibilité avec tous les GPS
-- **Importation GPX** depuis fichiers externes
-- **Sélection multiple** pour export ciblé
-- **Métadonnées enrichies** : nom, position, couleur, catégorie, statut GPS
-- **Historique de fiabilité** : Chaque waypoint conserve son statut de précision
-- **Compatibilité descendante** : Points anciens affichés avec statut "Inconnu"
+### 🌊 Bathymétrie LiDAR
 
-### 💾 Sauvegarde complète haute fidélité
-- **Export complet** : Waypoints + réglages + métadonnées de précision
-- **Historique préservé** : Précision GPS et statut de chaque waypoint conservés
-- **Import robuste** : Gestion gracieuse des données manquantes avec valeurs par défaut
-- **Migration sans perte** : Transfert parfait entre appareils ou réinstallations
-- **Fichier JSON structuré** : Format lisible et versionné pour compatibilité
+- Overlay des campagnes Litto3D (bathymétrie haute résolution)
+- 20+ campagnes couvrant les côtes françaises
+- Opacité réglable de 0 à 100%
+- Affichage conditionnel selon la zone visible
 
-### 🛰️ Informations satellites avancées
-- **Accès direct** : Clic sur le signal GPS (accueil et carte)
-- **Détails complets** : Satellites utilisés/visibles, type GNSS
-- **Signal en temps réel** : Barre de progression et pourcentage
-- **Altitude live** : Affichage et mise à jour automatique
-- **Liste individuelle** : Chaque satellite avec force du signal
+### 📍 Waypoints
 
----
+- **3 catégories** : Pêche 🎣, Champignons 🍄, Autre 📌
+- Couleur personnalisable par waypoint
+- Enregistrement automatique de la précision GPS au moment du marquage
+- Statut GPS persistant (Excellent/Bon/Moyen/Faible/Inconnu)
+- Visibilité configurable par catégorie sur la carte
+- Affichage des noms sur la carte (activable/désactivable)
 
-## ⚠️ Système d'alarme de proximité
+### 🧭 Navigation
 
-### 🎯 3 zones d'alarme configurables
-- **Zone X** (100m par défaut) : Bip lent toutes les 4 secondes
-- **Zone Y** (20m par défaut) : Bip-bip toutes les 2 secondes  
-- **Zone Z** (5m par défaut) : Bip continu toutes les 500ms
+- Navigation active vers un waypoint sélectionné
+- Bandeau en temps réel : distance, cap, vitesse, ETA
+- Recentrage automatique sur position utilisateur
+- Calcul de distance entre 2 points (mesure manuelle)
 
-### 🔊 Caractéristiques avancées
-- **Audio uniquement** : Bips sonores sans retour tactile
-- **Activation explicite** : Alarmes déclenchées uniquement en mode navigation actif
-- **Indicateur visuel** : Icône d'alarme affichée dans les zones actives
-- **Arrêt automatique** : Désactivation hors de la zone X
-- **Contrôle Mute** : Bouton intégré dans le bandeau de navigation
+### 🔔 Alarmes de proximité
+
+3 zones concentriques paramétrables :
+- **Zone X** (loin) : première alerte
+- **Zone Y** (intermédiaire) : alerte rapprochée
+- **Zone Z** (proche) : alerte critique
+- Alertes sonores avec haut-parleur activable/désactivable
+- Surveillance automatique pendant la navigation
+
+### 🌤️ Météo marine
+
+- Catalogue de 180+ ports de pêche français
+- URL météo personnalisable par port
+- Ports favoris pour accès rapide
+- Recherche par nom de port
+- Ouverture directe dans le navigateur
+
+### 🛰️ GPS
+
+- Suivi continu avec indicateur de précision coloré
+- 4 niveaux : Excellent (<8m), Bon (8-15m), Moyen (15-30m), Faible (>30m)
+- Affichage vitesse (km/h ou nœuds) et cap
+- Altitude et nombre de satellites
+- Mode économie d'énergie (réduit la fréquence des mises à jour)
+
+### 💾 Sauvegarde et export
+
+**Export GPX**
+- Export standard compatible tous GPS (Garmin, TomTom, Wahoo)
+- Sélection multiple de waypoints
+- Métadonnées enrichies : nom, catégorie, couleur, statut GPS
+
+**Import GPX**
+- Import depuis fichiers externes
+- Choix : fusion (ajoute aux existants) ou remplacement complet
+- Détection automatique des doublons
+
+**Sauvegarde complète JSON**
+- Export de tous les waypoints + réglages + préférences
+- Restauration sur un autre appareil
+- Partage via email, cloud, Bluetooth
 
 ### ⚙️ Personnalisation
-- Distances ajustables (X: 10-1000m, Y: 5-500m, Z: 1-100m)
-- Activation/désactivation de l'alarme
-- Contrôle du son (Mute/Unmute) pendant la navigation
 
----
-
-## 🎯 Gestion des waypoints
-
-### 📝 Création et édition
-- **Interface glissante** pour création rapide
-- **Vérification de précision GPS** avant enregistrement
-- **Alerte de sécurité** si précision > seuil configuré
-- **Édition** : nom, catégorie, couleur, position
-- **Métadonnées précision** : Enregistrement automatique de la précision GPS
-
-### 🎨 Personnalisation
-- **8 couleurs prédéfinies** pour identification visuelle
-- **3 catégories** avec icônes distinctes
-- **Affichage optionnel** : noms, dates sur la carte
-- **Taille de police** ajustable (10-20pt)
-- **Indicateurs de précision** : Icônes colorées dans la liste
-- **Historique visuel** : Points anciens avec icône grise claire ("Inconnu")
-- **Signal inconnu** : Gestion dédiée pour les imports sans métadonnées
-
-### 🔍 Filtrage et affichage
-- **Filtres par catégorie** : Pêche, Champignons, Autre
-- **Visibilité contrôlée** de chaque type de waypoint
-- **Affichage sélectif** des noms et dates
-- **Recherche rapide** par nom
-- **Tri intelligent** : Par distance depuis position actuelle
-- **Affichage distances** : "à 450 m" ou "à 1.2 km"
-
----
-
-## 🎨 Interface utilisateur
-
-### 📱 Design moderne et intuitif
-- **Interface sombre** : Optimisée pour usage extérieur
-- **Navigation fluide** : Transitions et animations naturelles
-- **Icônes thématiques** : Pêche (ancre), Champignons (forêt), Voiture (GPS)
-- **Code couleur** : Vert (excellent), Jaune (correct), Orange (moyen), Rouge (faible)
-
-### 🗺️ Cartographie interactive
-- **3 types de fonds** : Standard, Relief, Randonnée
-- **Cartes marines SHOM** : Téléchargement hors-ligne pour navigation maritime
-- **3 échelles marines** : 50K, 25K, 10K selon le niveau de détail
-- **Bathymétrie LiDAR** : Couches haute résolution pour profondeurs
-- **Zoom fluide** : Du niveau local au niveau régional
-- **Marqueurs dynamiques** : Adaptation selon le niveau de zoom
-- **Mode plein écran** : Navigation sans distraction
-
----
-
-## ⚡ Performance et optimisation
-
-### 🔋 Économie d'énergie
-- **Mode éco** : Réduction de la fréquence GPS
-- **Gestion intelligente** : Arrêt automatique en arrière-plan
-- **Optimisation mémoire** : Nettoyage automatique des ressources
-- **Batterie prolongée** : Jusqu'à 12h d'utilisation continue
-
-### 📊 Métriques de performance
-- **Démarrage** : <2 secondes
-- **Consommation batterie** : Optimisée avec mode éco
-- **Mémoire** : Gestion centralisée des ressources
-- **Précision GPS** : Jusqu'à 5 mètres en conditions idéales
-
----
-
-## 📖 Guide d'utilisation
-
-### 🎨 Interpréter les couleurs du signal GPS
-
-#### 🟢 **Vert - Signal Excellent (< 8m)**
-- **Précision optimale** pour navigation précise
-- **Idéal pour** : marquage de points exacts, navigation fine
-- **Confiance** : Très élevée
-
-#### 🟡 **Jaune - Signal Correct (8-15m)**
-- **Précision bonne** pour usage général
-- **Idéal pour** : repérage de zones, navigation approximative
-- **Confiance** : Élevée
-
-#### 🟠 **Orange - Signal Moyen (15-30m)**
-- **Précision acceptable** avec marge d'erreur
-- **Idéal pour** : repérage grossier, zones larges
-- **Confiance** : Modérée
-
-#### 🔴 **Rouge - Signal Faible (> 30m)**
-- **Précision limitée** pour informations générales
-- **Idéal pour** : localisation approximative seulement
-- **Confiance** : Faible
-
-### 📤 Exporter ses données
-
-#### **Export GPX (Standard)**
-1. **Accéder** à l'écran des waypoints
-2. **Appuyer** sur le bouton 📤 en haut à droite
-3. **Sélectionner** les waypoints à exporter (cases à cocher)
-4. **Choisir** "EXPORTER (X)" pour le fichier GPX
-5. **Partager** : Email, Cloud, Bluetooth, etc.
-
-#### **Sauvegarde complète (JSON)**
-1. **Aller** dans les paramètres
-2. **Appuyer** sur "Exporter tout"
-3. **Partager** le fichier de sauvegarde
-4. **Contient** : Waypoints + réglages + métadonnées
-
-#### **Compatibilité**
-- **Garmin**, **TomTom**, **Wahoo**, et tous les GPS compatibles GPX
-- **Logiciels** : Google Earth, QGIS, OziExplorer
-- **Applications** : OsmAnd, Gaia GPS, AllTrails
-
-### 🛰️ Accéder aux détails satellites
-
-#### **Depuis l'écran d'accueil**
-- **Cliquer** sur le statut GPS coloré (ex: "GPS OK")
-- **Informations** : Satellites, type GNSS, signal, altitude
-
-#### **Depuis la vue carte**
-- **Cliquer** sur l'icône GPS dans la barre d'outils
-- **Mêmes informations** que depuis l'accueil
-
-### 🧭 Utiliser la navigation active
-
-#### **Activer la navigation**
-1. **Sélectionner** un waypoint sur la carte (tap sur le marqueur)
-2. **Cliquer** sur le bouton "Y aller" (icône navigation bleue) dans le panneau d'information
-3. **Le bandeau de navigation** apparaît en haut de l'écran avec :
-   - Distance vers le waypoint
-   - Cap à suivre
-   - Vitesse actuelle
-   - ETA (temps d'arrivée estimé)
-4. **Les alarmes de proximité** s'activent automatiquement
-
-#### **Contrôler le son**
-- **Cliquer** sur l'icône volume_up (bleue) pour couper le son
-- **Cliquer** sur l'icône volume_off (grise) pour réactiver le son
-- **Le mode Mute** désactive uniquement les bips, pas la navigation
-
-#### **Arrêter la navigation**
-- **Cliquer** sur la croix rouge** dans le bandeau de navigation
-- **Le bandeau disparaît** et les alarmes s'arrêtent
-
-### 📊 Paramètres conservés
-
-#### **Configuration sauvegardée**
-- **Unités** : Métrique (km/h) ou Nautique (nœuds)
-- **Police** : Taille des textes (10-20pt)
-- **Carte** : Type de fond préféré
-- **Alarmes** : Distances des 3 zones
-- **Affichage** : Visibilité des catégories
-- **Bathymétrie** : Opacité des couches LiDAR
-
-#### **Exportation des préférences**
-- **Toutes les configurations** sont automatiquement sauvegardées
-- **Restauration** automatique au redémarrage
-- **Compatibilité** multi-appareils via synchronisation
-
-### 🌊 Utiliser les cartes marines hors-ligne
-
-#### **Télécharger une zone marine**
-1. **Aller** dans l'écran des cartes hors-ligne
-2. **Créer une nouvelle zone** en dessinant sur la carte
-3. **Sélectionner les couches** : 50K, 25K, 10K selon vos besoins
-4. **Ajouter des couches LiDAR** si disponibles dans la région
-5. **Lancer le téléchargement**
-6. **Surveiller la progression** avec les indicateurs de téléchargement
-
-#### **Gérer les téléchargements**
-- **Pause** : Mettre en pause un téléchargement en cours
-- **Resume** : Reprendre un téléchargement interrompu
-- **Cancel** : Annuler un téléchargement (avec synchronisation propre)
-- **Delete** : Supprimer une zone et ses stores FMTC
-
-#### **Utiliser les cartes hors-ligne**
-- **Activer le mode hors-ligne** dans les paramètres de carte
-- **Les couches disponibles** s'affichent automatiquement
-- **L'empilement s'adapte** au niveau de zoom
-- **Les tuiles vides** sont transparentes pour voir les couches inférieures
-
----
-
-## 🏗️ Installation et utilisation
-
-### 📋 Prérequis
-- **Android** : 6.0+ (API 23+)
-- **GPS** : Activé et autorisé
-- **Espace de stockage** : ~50MB
-
-### 🎯 Première utilisation
-1. **Autoriser la localisation** au lancement
-2. **Attendre le signal GPS** (indicateur vert)
-3. **Créer votre premier waypoint** avec le bouton +
-4. **Configurer les alarmes** si nécessaire
-5. **Personnaliser l'affichage** dans les paramètres
-
----
-
-## 📝 Notes de version
-
-### 🆕 v1.1.0 - 22 Septembre 2026
-- **Cartes marines SHOM hors-ligne** : Téléchargement de zones pour navigation sans connexion
-- **3 échelles SHOM** : 50K (large), 25K (moyenne), 10K (détail) avec empilement dynamique
-- **Couches LiDAR Litto3D** : Bathymétrie haute résolution par région
-- **Préflight SHOM** : Vérification de couverture avant téléchargement
-- **Cache FMTC optimisé** : Flutter Map Tile Caching avec gestion d'instances
-- **Filtre de tuiles vides** : Pixels blancs/gris rendus transparents
-- **Pause/Resume téléchargements** : Gestion des téléchargements en cours
-- **Synchronisation suppression** : Annulation propre avant suppression de stores
-- **Tests unitaires complets** : Couverture des fonctionnalités de téléchargement
-
-### 🆕 v1.0.1+2 - 24 Août 2026
-- **Architecture GPS unifiée** : GpsController comme unique source de tracking GPS
-- **Service utilitaire GpsService** : Nettoyé pour ne contenir que des fonctions pures (calculs, formatage)
-- **Initialisation centralisée** : AppBootstrap pour démarrage propre de l'application
-- **Repository pattern FMTC** : TileCacheRepository pour isoler les dépendances internes
-- **Extraction widgets MapScreen** : GpsMarkerWidget, SelectedWaypointPanel, MapControlsWidget
-- **Extraction ManagePortsScreen** : Écran de gestion des ports séparé de SettingsScreen
-- **Sécurité AlarmService** : Protection contre les conditions de course GPS
-- **Réduction MapScreen** : De ~1066 à ~876 lignes
-- **Réduction SettingsScreen** : De ~1678 à ~1420 lignes
-
-### 🆕 v1.01 - 20 Juin 2026
-- **Navigation active** : Bandeau avec distance, cap, vitesse, ETA
-- **Contrôle audio** : Bouton Mute intégré dans le bandeau
-- **Refactoring alarmes** : Service autonome AlarmService
-- **Activation explicite** : Alarmes uniquement en mode navigation
-- **Suppression vibrations** : Son uniquement, plus de retour tactile
-- **Bug corrigé** : Plus de bip involontaire à la sélection de waypoint
-
-### 📝 Notes de version v1.00 - 5 Mars 2026
-
-### ✨ Fonctionnalités principales
-- **Navigation GPS** en temps réel avec précision colorée
-- **Gestion waypoints** multi-catégories (Pêche/Champignons/Autre)
-- **Carte interactive** avec 3 types de fonds
-- **Alarme proximité** à 3 zones configurables
-- **Interface glissante** pour création/édition
-- **Paramètres complets** : unités, police, visibilité
-
-### 🛰️ Fonctionnalités avancées
-- **Vue détaillée des satellites** : nombre, type GNSS, signal, altitude
-- **Import/Export GPX** : Standard avec métadonnées enrichies
-- **Précision historique** : Chaque waypoint enregistre la précision GPS
-- **Tri intelligent** : Waypoints automatiquement triés par distance
-- **Sauvegarde complète** : Waypoints + réglages + métadonnées
-- **Accès direct satellites** : Clic sur signal GPS
-
----
-
-## 📱 Compatibilité
-
-### Plateformes supportées
-- **Android** : 6.0+ (API 23+)
-
-### Formats supportés
-- **GPX 1.1** : Import/Export standard
-- **JSON** : Sauvegarde interne
-- **OpenStreetMap** : Fonds de carte
-- **TopoMap** : Cartes de relief
-
----
-
-## 🤝 Contribuer
-
-### 🐛 Rapporter un bug
-1. **Décrire** le problème avec précision
-2. **Fournir** les étapes pour reproduire
-3. **Inclure** les informations sur l'appareil et la version
-4. **Ajouter** des captures d'écran si pertinent
-
-### 💡 Suggérer une amélioration
-1. **Décrire** la fonctionnalité souhaitée
-2. **Expliquer** le cas d'usage
-3. **Proposer** des solutions techniques si possible
-4. **Discuter** de la priorité et de la complexité
-
----
-
-## 📄 Licence
-
-Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de détails.
-
----
-
-**Développé avec ❤️ en Flutter pour les amateurs de plein air**
-
-*Version 1.1.0 - Cartes marines SHOM hors-ligne et téléchargement intelligent*
+- Unités de distance : mètres ou milles nautiques
+- Unités de vitesse : km/h ou nœuds
+- Type de carte par défaut
+- Visibilité des waypoints par catégorie
+- Opacité de la bathymétrie
+- Mode hors-ligne forcé (bloque les requêtes réseau)
+
+## 🚀 Installation
+
+### Prérequis
+- Flutter 3.16+
+- Android Studio ou Xcode
+
+### Étapes
+
+```bash
+git clone <repository-url>
+cd my_spots
+flutter pub get
+dart run build_runner build
+flutter run
+
+```
+
+Permissions
+Android :
+Localisation précise
+Internet (pour cartes en ligne)
+Stockage (pour cache hors-ligne)
+iOS :
+Localisation quand l'app est active
+
+📱 Utilisation
+Créer un waypoint
+Maintenir appuyé sur la carte
+Sélectionner "Ajouter un waypoint ici"
+Choisir nom, catégorie, couleur
+Valider
+Télécharger une zone hors-ligne
+Maintenir appuyé sur la carte
+Sélectionner "Tracer une zone hors-ligne"
+Choisir rectangle ou main levée
+Ajuster les bounds
+Valider le téléchargement
+Naviguer vers un waypoint
+Appuyer sur un waypoint sur la carte
+Appuyer sur l'icône navigation 🧭
+Le bandeau de navigation apparaît
+Suivre le cap indiqué
+Mesurer une distance
+Maintenir appuyé sur la carte
+Sélectionner "Mesurer une distance"
+Placer le premier point
+Placer le second point
+La distance s'affiche (mètres + milles nautiques)
+
+📦 Dépendances principales
+flutter_map : rendu cartographique
+flutter_map_tile_caching : cache et téléchargement de tuiles
+geolocator : accès GPS
+objectbox : base de données locale
+audioplayers : alarmes sonores
+latlong2 : calculs géographiques
+url_launcher : ouverture météo dans navigateur
+
+📄 Licence
+Projet privé - Tous droits réservés
+
+**Développé avec ❤️ en Flutter et vibe coding pour les amateurs de plein air**

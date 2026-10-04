@@ -279,7 +279,6 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     );
     if (confirm != true) return;
 
-    // 🟢 Annulation avec vérification aggressive de l'arrêt
     await _zoneService.cancelAndAwaitEnd(map.uuid);
 
     // Vérification finale : le téléchargement est-il vraiment arrêté ?

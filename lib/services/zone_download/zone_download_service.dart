@@ -584,8 +584,6 @@ class ZoneDownloadService {
           );
         }
 
-        // Si c'est le dernier attempt, on log un warning mais on retourne quand même
-        // pour ne pas bloquer indéfiniment
         if (attempt == maxRetries - 1) {
           if (kVerboseZoneDownload) {
             debugPrint(
