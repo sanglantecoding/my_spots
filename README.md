@@ -125,27 +125,27 @@ flutter run
 
 ### 📱 Utilisation
 - Créer un waypoint
-    Maintenir appuyé sur la carte
-    Sélectionner "Ajouter un waypoint ici"
-    Choisir nom, catégorie, couleur
-    Valider
+    - Maintenir appuyé sur la carte
+    - Sélectionner "Ajouter un waypoint ici"
+    - Choisir nom, catégorie, couleur
+    - Valider
 - Télécharger une zone hors-ligne
-    Maintenir appuyé sur la carte
-    Sélectionner "Tracer une zone hors-ligne"
-    Choisir rectangle ou main levée
-    Ajuster les bounds
-    Valider le téléchargement
+    - Maintenir appuyé sur la carte
+    - Sélectionner "Tracer une zone hors-ligne"
+    - Choisir rectangle ou main levée
+    - Ajuster les bounds
+    - Valider le téléchargement
 - Naviguer vers un waypoint
-    Appuyer sur un waypoint sur la carte
-    Appuyer sur l'icône navigation 🧭
-    Le bandeau de navigation apparaît
-    Suivre le cap indiqué
+    - Appuyer sur un waypoint sur la carte
+    - Appuyer sur l'icône navigation 🧭
+    - Le bandeau de navigation apparaît
+    - Suivre le cap indiqué
 - Mesurer une distance
-    Maintenir appuyé sur la carte
-    Sélectionner "Mesurer une distance"
-    Placer le premier point
-    Placer le second point
-    La distance s'affiche (mètres + milles nautiques)
+    - Maintenir appuyé sur la carte
+    - Sélectionner "Mesurer une distance"
+    - Placer le premier point
+    - Placer le second point
+    - La distance s'affiche (mètres + milles nautiques)
 
 ### 📦 Dépendances principales
 - flutter_map : rendu cartographique
