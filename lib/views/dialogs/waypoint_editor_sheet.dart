@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/services/gps_service.dart';
-import 'package:my_spots/utils/gps_status_utils.dart';
 import 'package:my_spots/widgets/satellite_status_dialog.dart';
 import 'package:my_spots/controllers/gps_controller.dart';
 
@@ -324,9 +323,7 @@ class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
       colorHex: _colorHex,
       category: _category,
       creationAccuracy: _currentAccuracy, // Enregistrement de la précision GPS
-      gpsStatus: GpsStatusUtils.getGpsStatusLabel(
-        _currentAccuracy,
-      ), // Enregistrement du statut GPS
+      gpsStatus: GpsService.getGpsStatusLabel(_currentAccuracy),
     );
 
     Navigator.of(context).pop(WaypointEditorOutcome.saved(waypoint));

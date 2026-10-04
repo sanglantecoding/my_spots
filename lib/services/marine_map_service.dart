@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/lidar_region_bounds.dart';
 import 'package:my_spots/models/litto3d_layer.dart';
+import 'package:my_spots/models/marine_layer.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/services/tile_cache/blank_gray_filter.dart';
@@ -10,21 +11,6 @@ import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 
 /// Logs de construction des couches (1 à 3 Hz). Laisser à false.
 const bool kVerboseLayers = false;
-
-/// Plages de zoom par échelle RasterMarine (clevisu SHOM).
-class _MarineLayerZoomConfig {
-  const _MarineLayerZoomConfig({
-    required this.minZoom,
-    required this.maxZoom,
-    required this.minNativeZoom,
-    required this.maxNativeZoom,
-  });
-
-  final double minZoom;
-  final double maxZoom;
-  final int minNativeZoom;
-  final int maxNativeZoom;
-}
 
 class MarineMapService {
   static const String _clevisuWmtsLayerPrefix =
@@ -36,52 +22,8 @@ class MarineMapService {
       '&TileMatrix={z}&TileCol={x}&TileRow={y}'
       '&layer=';
 
-  static const String layer10k = 'RASTER_MARINE_10_WMTS_3857';
-
   static String clevisuWmtsUrl(String layerName) =>
       '$_clevisuWmtsLayerPrefix$layerName';
-
-  static const Map<String, _MarineLayerZoomConfig> _zoomByLayer = {
-    'RASTER_MARINE_3857_WMTS': _MarineLayerZoomConfig(
-      minZoom: 1.0,
-      maxZoom: 8.0,
-      minNativeZoom: 1,
-      maxNativeZoom: 7,
-    ),
-    'RASTER_MARINE_350_WMTS_3857': _MarineLayerZoomConfig(
-      minZoom: 7.0,
-      maxZoom: 10.0,
-      minNativeZoom: 6,
-      maxNativeZoom: 9,
-    ),
-    'RASTER_MARINE_100_WMTS_3857': _MarineLayerZoomConfig(
-      minZoom: 9.0,
-      maxZoom: 12.0,
-      minNativeZoom: 9,
-      maxNativeZoom: 11,
-    ),
-    'RASTER_MARINE_50_WMTS_3857': _MarineLayerZoomConfig(
-      minZoom: 11.0,
-      maxZoom: 22.0,
-      minNativeZoom: 11,
-      maxNativeZoom: 14,
-    ),
-    // minZoom 12.0 : flutter_map arrondit le zoom tuile à 13 dès ~12.5.
-    // La 25K doit déjà être empilée avant ce palier, sinon les zones
-    // transparentes de la 50K native z=13 laissent voir le fond « Dézoomez ».
-    'RASTER_MARINE_25_WMTS_3857': _MarineLayerZoomConfig(
-      minZoom: 12.0,
-      maxZoom: 22.0,
-      minNativeZoom: 12,
-      maxNativeZoom: 15,
-    ),
-    'RASTER_MARINE_10_WMTS_3857': _MarineLayerZoomConfig(
-      minZoom: 14.0,
-      maxZoom: 22.0,
-      minNativeZoom: 14,
-      maxNativeZoom: 16,
-    ),
-  };
 
   /// Ordre d'empilement (bas → haut). Les seuils 12.0 / 14.0 sont en deçà
   /// du demi-niveau (12.5 / 14.5) où flutter_map passe à z entier +1.
@@ -89,31 +31,33 @@ class MarineMapService {
     double currentZoom, {
     required bool offline,
   }) {
+    // Utilisation des noms centralisés depuis le catalogue
+    final n50 = MarineLayerCatalog.marine50k.wmtsLayerName;
+    final n25 = MarineLayerCatalog.marine25k.wmtsLayerName;
+    final n10 = MarineLayerCatalog.marine10k.wmtsLayerName;
+    final n100 = MarineLayerCatalog.marine100k.wmtsLayerName;
+    final n350 = MarineLayerCatalog.marine350k.wmtsLayerName;
+    final nOverview = MarineLayerCatalog.overview.wmtsLayerName;
+
     if (currentZoom >= 14.0) {
-      return const [
-        'RASTER_MARINE_50_WMTS_3857',
-        'RASTER_MARINE_25_WMTS_3857',
-        'RASTER_MARINE_10_WMTS_3857',
-      ];
+      return [n50, n25, n10];
     }
     if (currentZoom >= 12.0) {
-      return const ['RASTER_MARINE_50_WMTS_3857', 'RASTER_MARINE_25_WMTS_3857'];
+      return [n50, n25];
     }
     if (offline) {
-      // 100K / 350K / 1M ne sont pas téléchargés hors-ligne : la 50K
-      // s'étire (minNativeZoom 11, TileLayer.minZoom 8).
-      return const ['RASTER_MARINE_50_WMTS_3857'];
+      return [n50];
     }
     if (currentZoom >= 11.0) {
-      return const ['RASTER_MARINE_50_WMTS_3857'];
+      return [n50];
     }
     if (currentZoom >= 9.0) {
-      return const ['RASTER_MARINE_100_WMTS_3857'];
+      return [n100];
     }
     if (currentZoom >= 7.0) {
-      return const ['RASTER_MARINE_350_WMTS_3857'];
+      return [n350];
     }
-    return const ['RASTER_MARINE_3857_WMTS'];
+    return [nOverview];
   }
 
   @visibleForTesting
@@ -130,7 +74,7 @@ class MarineMapService {
     final marineLayers = layerOrder.asMap().entries.map((entry) {
       final index = entry.key; // 0 = couche du BAS
       final layerName = entry.value;
-      final zoom = _zoomByLayer[layerName]!;
+      final layer = MarineLayerCatalog.findByWmtsName(layerName)!;
       final urlTemplate = '$_clevisuWmtsLayerPrefix$layerName';
       final rawProvider = MapTileCacheService.marineTileProviderFor(
         layerName,
@@ -141,16 +85,14 @@ class MarineMapService {
         key: Key('marine_layer_$layerName'),
         urlTemplate: urlTemplate,
         userAgentPackageName: MapTileCacheService.packageName,
-        minZoom: zoom.minZoom,
+        minZoom: layer.minZoom,
         maxZoom: 22.0,
-        minNativeZoom: zoom.minNativeZoom,
-        maxNativeZoom: zoom.maxNativeZoom,
+        minNativeZoom: layer.minNativeZoom,
+        maxNativeZoom: layer.maxNativeZoom,
         retinaMode: false,
         tileDimension: 256,
         keepBuffer: 0,
         panBuffer: 0,
-        // En mode online : le filtre rend transparentes les zones grises
-        // pour laisser voir la couche en dessous.
         tileProvider: BlankGrayFilteringTileProvider(
           rawProvider,
           paintMessage: index == 0,
@@ -226,13 +168,6 @@ class MarineMapService {
   }
 
   /// Couches marines en mode HORS-LIGNE.
-  ///
-  /// Le filtre [BlankGrayFilteringTileProvider] distingue lui-même les deux cas :
-  /// - tuile 100 % vide **opaque** (SHOM sans couverture) → message « Dézoomez »
-  ///   sur la couche du bas ;
-  /// - tuile 100 % **transparente** (absente du cache / hors zone, alpha = 0)
-  ///   → transparent pur, jamais de message → pas de papier peint hors des
-  ///   zones téléchargées.
   static List<TileLayer> getOfflineMarineTileLayers(
     double currentZoom,
     List<String> zoneUuids, {
@@ -245,13 +180,13 @@ class MarineMapService {
     );
 
     final marineLayers = layerOrder.asMap().entries.map((entry) {
-      final index = entry.key; // 0 = couche du BAS
+      final index = entry.key;
       final layerName = entry.value;
-      final zoom = _zoomByLayer[layerName]!;
+      final layer = MarineLayerCatalog.findByWmtsName(layerName)!;
       final urlTemplate = '$_clevisuWmtsLayerPrefix$layerName';
       if (kVerboseLayers) {
         debugPrint(
-          '[MarineService] Layer[$index] $layerName: minNativeZoom=${zoom.minNativeZoom} maxNativeZoom=${zoom.maxNativeZoom}',
+          '[MarineService] Layer[$index] $layerName: minNativeZoom=${layer.minNativeZoom} maxNativeZoom=${layer.maxNativeZoom}',
         );
       }
 
@@ -261,14 +196,12 @@ class MarineMapService {
         userAgentPackageName: MapTileCacheService.packageName,
         minZoom: 8.0,
         maxZoom: 22.0,
-        minNativeZoom: zoom.minNativeZoom,
-        maxNativeZoom: zoom.maxNativeZoom,
+        minNativeZoom: layer.minNativeZoom,
+        maxNativeZoom: layer.maxNativeZoom,
         retinaMode: false,
         tileDimension: 256,
         keepBuffer: 0,
         panBuffer: 0,
-        // ✅ Plus de paintMessage ici : une tuile absente/vide devient
-        //    transparente, et c'est la couche-message DE SOUS qui apparaît.
         tileProvider: BlankGrayFilteringTileProvider(offlineProvider),
         errorImage: MemoryImage(TileProviderFactory.transparentTilePng),
         errorTileCallback: errorTileCallback ?? (tile, error, stackTrace) {},
@@ -277,9 +210,6 @@ class MarineMapService {
       );
     }).toList();
 
-    // 👇 Couche-message SOUS toutes les couches marines : visible partout où
-    //    aucune tuile téléchargée n'apporte de contenu (miss ou 100 % vide),
-    //    à TOUS les zooms — plus aucune dépendance au seuil 13.5.
     return [
       TileLayer(
         key: const Key('offline_message_base'),
@@ -295,11 +225,6 @@ class MarineMapService {
   }
 
   /// Couches LiDAR en mode HORS-LIGNE.
-  ///
-  /// [lidarLayersByZone] associe l'uuid de chaque zone prête/partielle à ses
-  /// couches LiDAR persistées. Une campagne ne consulte donc QUE les stores
-  /// des zones qui la possèdent réellement (au lieu de toutes les zones
-  /// prêtes) : moins de stores FMTC interrogés par tuile, moins de misses.
   static List<TileLayer> getOfflineLidarLayers(
     LatLngBounds? visibleBounds,
     Map<String, List<OfflineMapLayer>> lidarLayersByZone, {
@@ -309,9 +234,6 @@ class MarineMapService {
     final enabled = AppSettings.bathymetryOverlayEnabled;
     if (!enabled) return [];
 
-    // 👇 Campagne → uuids des zones qui possèdent RÉELLEMENT des tuiles.
-    //    Une couche `skipped` (hors couverture) ou `failed` sans aucune tuile
-    //    n'ajoute pas son store : la recherche serait toujours un miss.
     final zonesByCampaign = <String, List<String>>{};
     lidarLayersByZone.forEach((uuid, layers) {
       if (uuid.isEmpty) return;
@@ -327,9 +249,6 @@ class MarineMapService {
     });
     if (zonesByCampaign.isEmpty) return [];
 
-    // 👇 Filtrage spatial : on ne garde que les campagnes dont l'emprise
-    //    intersecte la vue actuelle (la marge de 25 km est gérée par le
-    //    catalogue).
     Set<String>? allowedLayerIds;
     if (visibleBounds != null) {
       allowedLayerIds = <String>{};
@@ -341,8 +260,6 @@ class MarineMapService {
       }
     }
 
-    // 👇 Résolution campagne → Litto3DLayer, tri sortOrder croissant
-    //    (l'ancien dessiné en bas, le récent au-dessus).
     final campaigns = <Litto3DLayer>[];
     for (final campaignId in zonesByCampaign.keys) {
       if (allowedLayerIds != null && !allowedLayerIds.contains(campaignId)) {
@@ -356,7 +273,6 @@ class MarineMapService {
 
     final layerOpacity = opacity ?? AppSettings.bathymetryOverlayOpacity;
     return campaigns.map((layer) {
-      // 👇 UNIQUEMENT les stores des zones qui possèdent cette campagne.
       final storeNames = <String>[
         for (final uuid in zonesByCampaign[layer.id]!)
           'lidar_zone_${uuid}_${layer.id}',

@@ -342,9 +342,6 @@ class _MapViewState extends State<MapView> {
       minNativeZoom: minNativeZoom,
       maxNativeZoom: maxNativeZoom,
       maxZoom: maxZoom,
-      tileProvider: MapTileCacheService.getTileProviderForMapType(
-        widget.mapType,
-      ),
     );
   }
 

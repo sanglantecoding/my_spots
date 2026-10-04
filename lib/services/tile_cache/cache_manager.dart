@@ -1,5 +1,6 @@
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:my_spots/models/litto3d_layer.dart';
+import 'package:my_spots/models/marine_layer.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/repositories/fmtc_tile_cache_repository.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
@@ -8,24 +9,13 @@ import 'package:my_spots/services/tile_cache/tile_provider_factory.dart'
     show TileProviderFactory;
 
 class CacheManager {
-  static const String baseMapStore = 'baseMapStore';
-  static const String reliefMapStore = 'reliefMapStore';
-  static const String hikingMapStore = 'hikingMapStore';
   static const String _legacyBathymetryStore = 'bathymetryOverlayTiles';
   static final Map<String, int> _zoneSizeCache = {};
 
   static List<String> get bathymetryLayerNames =>
       Litto3DCatalog.allLayers.map((l) => l.wmtsLayerName).toList();
 
-  static const List<String> marineLayerNames = [
-    'RASTER_MARINE_3857_WMTS',
-    'RASTER_MARINE_1M_3857_WMTS',
-    'RASTER_MARINE_350_WMTS_3857',
-    'RASTER_MARINE_100_WMTS_3857',
-    'RASTER_MARINE_50_WMTS_3857',
-    'RASTER_MARINE_25_WMTS_3857',
-    'RASTER_MARINE_10_WMTS_3857',
-  ];
+  static List<String> get marineLayerNames => MarineLayerCatalog.allWmtsNames;
 
   static String bathymetryStoreForLayer(String layerName) =>
       'bathymetryOverlay_$layerName';
@@ -44,9 +34,6 @@ class CacheManager {
 
   static Future<void> initialise() async {
     await FMTCObjectBoxBackend().initialise();
-    await const FMTCStore(baseMapStore).manage.create();
-    await const FMTCStore(reliefMapStore).manage.create();
-    await const FMTCStore(hikingMapStore).manage.create();
     await _deleteLegacyBathymetryStore();
     for (final layerName in bathymetryLayerNames) {
       await FMTCStore(bathymetryStoreForLayer(layerName)).manage.create();

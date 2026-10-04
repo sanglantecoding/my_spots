@@ -12,9 +12,12 @@ import '../models/waypoint.dart';
 /// - Calculs de distance
 /// - Formatage d'affichage
 /// - Détermination du statut GPS
+/// - Gestion du vocabulaire persisté (Waypoint.gpsStatus, GPX)
 ///
 /// Le suivi GPS actif est géré par GpsController
 class GpsService {
+  // ─── Calculs de distance ─────────────────────────────────────────────────
+
   /// Distance en mètres entre deux coordonnées (grande-circle, Haversine).
   ///
   /// Source UNIQUE de vérité pour tous les calculs de distance de l'app :
@@ -31,6 +34,7 @@ class GpsService {
     return R * 2 * atan2(sqrt(aVal), sqrt(1 - aVal));
   }
 
+  /// Distance entre deux coordonnées passées séparément (lat/lng).
   static double distanceBetweenCoords(
     double lat1,
     double lng1,
@@ -40,11 +44,12 @@ class GpsService {
     return distanceBetween(LatLng(lat1, lng1), LatLng(lat2, lng2));
   }
 
-  /// Surcharge : distance entre une position et un waypoint
+  /// Distance entre une position et un waypoint.
   static double distanceToWaypoint(LatLng from, Waypoint to) {
     return distanceBetween(from, LatLng(to.latitude, to.longitude));
   }
 
+  /// Cap initial en degrés (0–360) du point 1 vers le point 2.
   static double bearingBetween(
     double startLatitude,
     double startLongitude,
@@ -62,6 +67,8 @@ class GpsService {
   /// Convertit les degrés en radians
   static double _toRad(double deg) => deg * pi / 180;
 
+  // ─── Formatage ───────────────────────────────────────────────────────────
+
   /// Formate la distance selon les préférences utilisateur
   static String formatDistance(double meters) {
     if (AppSettings.distanceUnit == DistanceUnit.nautical) {
@@ -75,6 +82,8 @@ class GpsService {
       return '${(meters / 1000).toStringAsFixed(1)} km';
     }
   }
+
+  // ─── Statut GPS (depuis précision) ───────────────────────────────────────
 
   /// Détermine le statut GPS selon la précision
   /// Seuils unifiés pour toute l'application :
@@ -161,6 +170,65 @@ class GpsService {
     }
     final status = getGpsStatus(accuracy);
     return getGpsDetailedStatusText(status);
+  }
+
+  // ─── Vocabulaire persisté (Waypoint.gpsStatus, GPX <gps-status>) ─────────
+  // Ces libellés sont une DONNÉE : ne jamais les renommer sans migration.
+
+  /// Libellé persisté correspondant à un statut.
+  static String statusToLabel(GpsStatus status) => switch (status) {
+    GpsStatus.excellent => 'Vert',
+    GpsStatus.good => 'Jaune',
+    GpsStatus.medium => 'Orange',
+    GpsStatus.poor => 'Rouge',
+  };
+
+  /// Libellé persisté depuis une précision nullable.
+  /// `null` (import sans métadonnées) → 'Inconnu'.
+  static String getGpsStatusLabel(double? accuracy) =>
+      accuracy == null ? 'Inconnu' : statusToLabel(getGpsStatus(accuracy));
+
+  /// Relit un libellé persisté vers le statut enum (`null` si 'Inconnu'/invalide).
+  static GpsStatus? statusFromLabel(String? label) => switch (label) {
+    'Vert' => GpsStatus.excellent,
+    'Jaune' => GpsStatus.good,
+    'Orange' => GpsStatus.medium,
+    'Rouge' => GpsStatus.poor,
+    _ => null,
+  };
+
+  // ─── Présentation depuis un libellé persisté ────────────────────────────
+
+  /// Couleur depuis un libellé persisté ('Inconnu' → gris clair).
+  static Color getColorForStatusLabel(String? label) {
+    final status = statusFromLabel(label);
+    if (status == null) return Colors.grey.shade300;
+    return getGpsStatusColor(status);
+  }
+
+  /// Icône depuis un libellé persisté ('Inconnu' → point d'interrogation).
+  static IconData getGpsStatusIcon(String? label) {
+    final status = statusFromLabel(label);
+    if (status == null) return Icons.help_outline;
+    return switch (status) {
+      GpsStatus.excellent || GpsStatus.good => Icons.gps_fixed,
+      GpsStatus.medium => Icons.location_searching,
+      GpsStatus.poor => Icons.gps_off,
+    };
+  }
+
+  /// Description longue depuis un libellé persisté.
+  static String getGpsStatusDescription(String? label) {
+    final status = statusFromLabel(label);
+    if (status == null) {
+      return 'Signal inconnu (import sans métadonnées)';
+    }
+    return switch (status) {
+      GpsStatus.excellent => 'Précision excellente',
+      GpsStatus.good => 'Précision bonne',
+      GpsStatus.medium => 'Précision moyenne',
+      GpsStatus.poor => 'Précision faible',
+    };
   }
 }
 

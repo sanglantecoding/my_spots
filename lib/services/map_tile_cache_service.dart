@@ -8,14 +8,11 @@ import 'package:my_spots/services/tile_cache/tile_provider_factory.dart';
 class MapTileCacheService {
   MapTileCacheService._();
 
-  static const String baseMapStore = CacheManager.baseMapStore;
-  static const String reliefMapStore = CacheManager.reliefMapStore;
-  static const String hikingMapStore = CacheManager.hikingMapStore;
   static const String packageName = TileProviderFactory.packageName;
 
   static List<String> get bathymetryLayerNames =>
       CacheManager.bathymetryLayerNames;
-  static const List<String> marineLayerNames = CacheManager.marineLayerNames;
+  static List<String> marineLayerNames = CacheManager.marineLayerNames;
 
   static Uint8List get transparentTilePng =>
       TileProviderFactory.transparentTilePng;

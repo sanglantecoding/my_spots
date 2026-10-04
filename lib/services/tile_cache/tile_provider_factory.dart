@@ -307,6 +307,4 @@ class _BoundedProviderCache {
   }
 
   void clear() => _entries.clear();
-
-  int get length => _entries.length;
 }

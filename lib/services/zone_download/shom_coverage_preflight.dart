@@ -1,7 +1,9 @@
 import 'dart:math' as math;
+
 import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
+import 'package:my_spots/models/marine_layer.dart';
 import 'package:my_spots/services/marine_map_service.dart';
 
 class ShomCoveragePreflight {
@@ -15,11 +17,9 @@ class ShomCoveragePreflight {
     'Referer': 'https://data.shom.fr/',
   };
 
-  static int _probeZoom(String layerName) => switch (layerName) {
-    'RASTER_MARINE_25_WMTS_3857' => 13,
-    'RASTER_MARINE_10_WMTS_3857' => 15,
-    _ => 12,
-  };
+  /// Retourne 12 par défaut si la couche n'est pas trouvée (ne devrait jamais arriver).
+  static int _probeZoom(String layerName) =>
+      MarineLayerCatalog.findByWmtsName(layerName)?.probeZoom ?? 12;
 
   static List<LatLng> probePoints(LatLngBounds b) {
     final midLat = (b.north + b.south) / 2;
@@ -49,11 +49,6 @@ class ShomCoveragePreflight {
     return (x, y);
   }
 
-  /// `true` = couvert, `false` = non couvert (404), `null` = SHOM injoignable.
-  ///
-  /// Les 9 points sont sondés en PARALLÈLE. On attend que TOUTES les requêtes
-  /// soient terminées avant de retourner, pour éviter de fermer le http.Client
-  /// alors que des requêtes sont encore en vol.
   Future<bool?> covers(LatLngBounds bounds, String layerName) async {
     final z = _probeZoom(layerName);
     final points = probePoints(bounds);
@@ -75,14 +70,9 @@ class ShomCoveragePreflight {
         if (resp.statusCode == 200 && resp.bodyBytes.length > 200) {
           foundCoverage = true;
         }
-      } catch (_) {
-        // point injoignable : on ignore, les autres continuent
-      }
+      } catch (_) {}
     }
 
-    // Attend que TOUTES les probes soient terminées avant de retourner.
-    // Plus de court-circuit : le http.Client ne sera jamais fermé sous
-    // des requêtes en vol.
     await Future.wait(points.map(probePoint));
 
     if (foundCoverage) return true;

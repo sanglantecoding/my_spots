@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/waypoint.dart';
-import '../utils/gps_status_utils.dart';
+import '../services/gps_service.dart'; // ← remplace gps_status_utils.dart
 
-/// Widget indicateur de précision GPS pour les waypoints
 class WaypointAccuracyIndicator extends StatelessWidget {
   final Waypoint waypoint;
   final double? size;
@@ -16,12 +15,13 @@ class WaypointAccuracyIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Priorité au statut GPS enregistré, sinon calcul depuis la précision
-    final status =
+    final label =
         waypoint.gpsStatus ??
-        GpsStatusUtils.getGpsStatusLabel(waypoint.creationAccuracy);
-    final color = GpsStatusUtils.getGpsStatusColor(status);
-    final icon = GpsStatusUtils.getGpsStatusIcon(status);
-
-    return Icon(icon, size: size, color: color);
+        GpsService.getGpsStatusLabel(waypoint.creationAccuracy);
+    return Icon(
+      GpsService.getGpsStatusIcon(label),
+      size: size,
+      color: GpsService.getColorForStatusLabel(label),
+    );
   }
 }

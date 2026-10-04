@@ -1,10 +1,12 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/lidar_region_bounds.dart';
 import 'package:my_spots/models/litto3d_layer.dart';
+import 'package:my_spots/models/marine_layer.dart';
 import 'package:my_spots/models/offline_map.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/services/marine_map_service.dart';
@@ -365,7 +367,7 @@ class ZoneDownloadService {
         map.lastError = noCov == outcomes.length
             ? 'Aucune couverture SHOM/LiDAR sur cette zone'
             : '$noCov couche(s) sans couverture, aucune donnée utilisable';
-        return OfflineMapStatus.failed;
+        return OfflineMapStatus.partial;
       }
       // Mélange de couches réussies et de couches sans couverture
       map.lastError = '$noCov couche(s) sans couverture sur cette zone';
@@ -556,12 +558,16 @@ class ZoneDownloadService {
     String? lidarLayerId,
   ]) {
     switch (type) {
+      // ✅ Lecture depuis le catalogue centralisé
       case LayerType.marine50k:
-        return MarineMapService.clevisuWmtsUrl('RASTER_MARINE_50_WMTS_3857');
       case LayerType.marine25k:
-        return MarineMapService.clevisuWmtsUrl('RASTER_MARINE_25_WMTS_3857');
       case LayerType.marine10k:
-        return MarineMapService.clevisuWmtsUrl('RASTER_MARINE_10_WMTS_3857');
+        final layer = MarineLayerCatalog.findByLayerType(type);
+        if (layer == null) {
+          throw StateError('Marine layer not found for type: $type');
+        }
+        return MarineMapService.clevisuWmtsUrl(layer.wmtsLayerName);
+
       case LayerType.lidarLitto3d:
         if (lidarLayerId != null) {
           final layer = Litto3DCatalog.findById(lidarLayerId);

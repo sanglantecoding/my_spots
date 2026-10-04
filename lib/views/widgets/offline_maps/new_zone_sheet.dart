@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:my_spots/models/lidar_region_bounds.dart';
+import 'package:my_spots/models/marine_layer.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/repositories/offline_map_repository.dart';
 import 'package:my_spots/services/zone_download/shom_coverage_preflight.dart';
@@ -16,23 +17,17 @@ class ZoneConfig {
     required this.zoneType,
   });
 
+  /// Couches par défaut avant le preflight de couverture SHOM.
+  /// Utilise les zooms natifs du catalogue centralisé.
   static List<OfflineMapLayer> defaultLayersForBounds(LatLngBounds bounds) {
+    // ✅ Lecture depuis le catalogue centralisé
     final layers = <OfflineMapLayer>[
-      OfflineMapLayer.create(
-        layerType: LayerType.marine50k,
-        minZoom: 11, // Zoom natif min
-        maxZoom: 14, // Zoom natif max
-      ),
-      OfflineMapLayer.create(
-        layerType: LayerType.marine25k,
-        minZoom: 12,
-        maxZoom: 15,
-      ),
-      OfflineMapLayer.create(
-        layerType: LayerType.marine10k,
-        minZoom: 14,
-        maxZoom: 16,
-      ),
+      for (final ml in MarineLayerCatalog.downloadableLayers)
+        OfflineMapLayer.create(
+          layerType: ml.layerType!,
+          minZoom: ml.minNativeZoom < 8 ? 8 : ml.minNativeZoom,
+          maxZoom: ml.maxNativeZoom,
+        ),
     ];
 
     // Ajoute un OfflineMapLayer par campagne LiDAR disponible dans la zone
@@ -73,43 +68,39 @@ class ZoneConfig {
     final fallback = defaultLayersForBounds(bounds);
     final layers = <OfflineMapLayer>[];
 
-    const scales = [
-      ('RASTER_MARINE_50_WMTS_3857', LayerType.marine50k, 11, 14),
-      ('RASTER_MARINE_25_WMTS_3857', LayerType.marine25k, 12, 15),
-      ('RASTER_MARINE_10_WMTS_3857', LayerType.marine10k, 14, 16),
-    ];
-
     try {
-      // Parallélise les 3 échelles SHOM (50K, 25K, 10K)
-      final results = <LayerType, bool?>{};
-      final futures = scales.map((scale) async {
-        final (url, type, zmin, zmax) = scale;
-        final covered = await pf.covers(bounds, url);
-        results[type] = covered;
-        return (type, covered, zmin, zmax);
+      // ✅ Parallélise les sondages pour toutes les couches téléchargeables
+      final futures = MarineLayerCatalog.downloadableLayers.map((ml) async {
+        final covered = await pf.covers(bounds, ml.wmtsLayerName);
+        return (ml: ml, covered: covered);
       }).toList();
 
       final scaleResults = await Future.wait(futures);
 
-      for (final (type, covered, zmin, zmax) in scaleResults) {
-        if (covered == true) {
-          // Force minZoom à au moins 8 pour éviter le téléchargement des zooms 0-7
-          final effectiveMinZoom = zmin.clamp(8, 17).toInt();
-          layers.add(
-            OfflineMapLayer.create(
-              layerType: type,
-              minZoom: effectiveMinZoom,
-              maxZoom: zmax,
-            ),
-          );
-        }
-      }
-
       // Fail-open : SHOM totalement injoignable → comportement actuel.
-      if (results.values.every((v) => v == null)) {
+      final allNull = scaleResults.every((r) => r.covered == null);
+      if (allNull) {
         layers.addAll(
           fallback.where((l) => l.layerType != LayerType.lidarLitto3d),
         );
+      } else {
+        // Ajoute uniquement les couches couvertes
+        for (final result in scaleResults) {
+          if (result.covered == true) {
+            final ml = result.ml;
+            // Force minZoom à au moins 8 pour éviter le téléchargement des zooms 0-7
+            final effectiveMinZoom = ml.minNativeZoom < 8
+                ? 8
+                : ml.minNativeZoom;
+            layers.add(
+              OfflineMapLayer.create(
+                layerType: ml.layerType!,
+                minZoom: effectiveMinZoom,
+                maxZoom: ml.maxNativeZoom,
+              ),
+            );
+          }
+        }
       }
     } finally {
       // Ferme le client HTTP si on l'a créé nous-mêmes
