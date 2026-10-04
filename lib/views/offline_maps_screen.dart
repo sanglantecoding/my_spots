@@ -279,7 +279,33 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     );
     if (confirm != true) return;
 
+    // 🟢 Annulation avec vérification aggressive de l'arrêt
     await _zoneService.cancelAndAwaitEnd(map.uuid);
+
+    // Vérification finale : le téléchargement est-il vraiment arrêté ?
+    final stillDownloading = _zoneService.isDownloading(map.uuid);
+    if (stillDownloading) {
+      debugPrint(
+        '[OfflineMapsScreen] WARNING: Suppression de ${map.uuid} alors que '
+        'le téléchargement est toujours actif. Tentative d\'arrêt forcé.',
+      );
+
+      // Tentative d'arrêt forcé si le timeout initial n'a pas suffi
+      final stopped = await _zoneService.forceStopDownload(map.uuid);
+      if (!stopped) {
+        debugPrint(
+          '[OfflineMapsScreen] CRITICAL: Impossible d\'arrêter le téléchargement '
+          '${map.uuid} après arrêt forcé. Risque de corruption FMTC.',
+        );
+        if (mounted) {
+          _snack(
+            'Attention : suppression potentiellement incomplète',
+            isError: true,
+          );
+        }
+      }
+    }
+
     await MapTileCacheService.deleteStoresForZone(map.uuid);
     _offlineMapRepo!.deleteByUuid(map.uuid);
 

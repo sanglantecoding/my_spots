@@ -246,6 +246,7 @@ class _MapScreenState extends State<MapScreen> {
   /// combined bounds of all downloaded zones so that LiDAR layers can be
   /// determined even before the map camera has fired its first event.
   void _loadOfflineZones() {
+    if (!mounted) return;
     final data = OfflineZonesLoader.loadOfflineZones();
     setState(() {
       _readyZoneUuids = data.readyZoneUuids;

@@ -411,11 +411,15 @@ class ZoneDownloadService {
     }
     final noCov = outcomes.where((o) => o == LayerOutcome.noCoverage).length;
     if (noCov > 0) {
-      // Si aucune couche n'a pu être téléchargée (que des noCoverage, ou mixte avec des échecs/interruptions)
+      // Si toutes les couches sont noCoverage sans aucune donnée utilisable
+      if (!hasOkOrPartial && noCov == outcomes.length) {
+        map.lastError = 'Zone sans couverture SHOM/LiDAR';
+        return OfflineMapStatus.partial;
+      }
+      // Mixte avec des échecs/interruptions mais aucune donnée utilisable
       if (!hasOkOrPartial) {
-        map.lastError = noCov == outcomes.length
-            ? 'Aucune couverture SHOM/LiDAR sur cette zone'
-            : '$noCov couche(s) sans couverture, aucune donnée utilisable';
+        map.lastError =
+            '$noCov couche(s) sans couverture, aucune donnée utilisable';
         return OfflineMapStatus.failed;
       }
       // Mélange de couches réussies et de couches sans couverture
@@ -489,6 +493,26 @@ class ZoneDownloadService {
   }) async {
     await cancelDownload(zoneUuid);
     await waitForCompletion(zoneUuid, timeout: timeout);
+  }
+
+  Future<bool> forceStopDownload(
+    String zoneUuid, {
+    Duration finalTimeout = const Duration(seconds: 10),
+  }) async {
+    // Déjà terminé : rien à forcer.
+    if (!_zones.containsKey(zoneUuid)) return true;
+
+    // Appels cancel() répétés : FMTC peut ignorer le premier appel
+    // si le worker isolate est occupé ou bloqué.
+    for (var i = 0; i < 3; i++) {
+      await cancelDownload(zoneUuid);
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!isDownloading(zoneUuid)) return true;
+    }
+
+    // Dernière tentative : attente courte de la complétion réelle.
+    await waitForCompletion(zoneUuid, timeout: finalTimeout, maxRetries: 1);
+    return !isDownloading(zoneUuid);
   }
 
   bool pauseDownload(String zoneUuid) {
