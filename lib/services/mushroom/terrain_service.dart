@@ -16,8 +16,5 @@ abstract class TerrainService {
   });
 
   /// Récupère l'altitude uniquement (plus léger si seule l'altitude est nécessaire).
-  Future<double> getElevation({
-    required double lat,
-    required double lng,
-  });
+  Future<double> getElevation({required double lat, required double lng});
 }

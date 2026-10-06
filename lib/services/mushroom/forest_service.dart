@@ -10,8 +10,5 @@ abstract class ForestService {
   /// [lng] : Longitude
   ///
   /// Retourne le type de forêt, la densité et la couverture forestière.
-  Future<ForestData> getForestData({
-    required double lat,
-    required double lng,
-  });
+  Future<ForestData> getForestData({required double lat, required double lng});
 }

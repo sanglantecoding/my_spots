@@ -39,5 +39,13 @@ void main() {
       expect(TerrainData.mock(aspect: 270).aspectCardinal, 'O');
       expect(TerrainData.mock(aspect: 315).aspectCardinal, 'NO');
     });
+
+    test('allows unavailable terrain measures', () {
+      final terrain = TerrainData(latitude: 43.5, longitude: 3.5);
+      expect(terrain.elevation, isNull);
+      expect(terrain.slope, isNull);
+      expect(terrain.aspect, isNull);
+      expect(terrain.aspectCardinal, isNull);
+    });
   });
 }

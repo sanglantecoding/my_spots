@@ -2,7 +2,7 @@
 class ForestData {
   final double latitude;
   final double longitude;
-  final bool isForest; // true si zone forestière, false sinon
+  final bool? isForest; // null si inconnu
   final String?
   forestType; // Type de forêt (ex: "feuillu", "conifère", "mixte") si isForest=true
   final double? treeDensity; // % (0-100) si isForest=true
@@ -13,7 +13,7 @@ class ForestData {
   ForestData({
     required this.latitude,
     required this.longitude,
-    required this.isForest,
+    this.isForest,
     this.forestType,
     this.treeDensity,
     this.canopyCover,
@@ -24,7 +24,7 @@ class ForestData {
   factory ForestData.mock({
     double lat = 43.5,
     double lng = 3.5,
-    bool isForest = true,
+    bool? isForest,
     String? forestType,
     double? treeDensity,
     double? canopyCover,
@@ -34,8 +34,8 @@ class ForestData {
       latitude: lat,
       longitude: lng,
       isForest: isForest,
-      forestType: forestType ?? (isForest ? 'feuillu' : null),
-      treeDensity: treeDensity ?? (isForest ? 60.0 : null),
+      forestType: forestType,
+      treeDensity: treeDensity,
       canopyCover: canopyCover,
       source: source,
     );

@@ -14,6 +14,7 @@ void main() {
       );
 
       expect(moisture.date, date);
+      expect(moisture.kind, SoilMoistureDataKind.historical);
       expect(moisture.depthStart, 0.0);
       expect(moisture.depthEnd, 7.0);
       expect(moisture.soilMoisture, 30.0);
@@ -33,12 +34,26 @@ void main() {
       expect(moisture.source, isNull);
     });
 
-    test('mock creates instance with default values', () {
+    test('records historical provenance by default', () {
+      final moisture = SoilMoistureData.mock();
+
+      expect(moisture.kind, SoilMoistureDataKind.historical);
+    });
+
+    test('records forecast provenance when specified', () {
+      final moisture = SoilMoistureData.mock(
+        kind: SoilMoistureDataKind.forecast,
+      );
+
+      expect(moisture.kind, SoilMoistureDataKind.forecast);
+    });
+
+    test('mock leaves measurements absent unless supplied', () {
       final moisture = SoilMoistureData.mock();
 
       expect(moisture.depthStart, 0.0);
       expect(moisture.depthEnd, 7.0);
-      expect(moisture.soilMoisture, 30.0);
+      expect(moisture.soilMoisture, isNull);
       expect(moisture.soilTemperature, isNull);
       expect(moisture.soilWaterIndex, isNull);
       expect(moisture.source, isNull);

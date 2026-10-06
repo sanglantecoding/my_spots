@@ -40,7 +40,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
         ? soilMoistureLayers.reduce(
             (a, b) => a.depthStart < b.depthStart ? a : b,
           )
-        : SoilMoistureData.mock();
+        : null;
 
     // 1. Calcul du facteur eau (pluie cumulée récente + humidité sol)
     final waterFactor = _calculateWaterFactor(weatherHistory, soilMoisture);
@@ -93,15 +93,19 @@ class BoletusEdulisModel implements MushroomForecastEngine {
   /// Facteur eau : pluie cumulée sur 7-14 jours + humidité du sol.
   double _calculateWaterFactor(
     List<WeatherDay> history,
-    SoilMoistureData moisture,
+    SoilMoistureData? moisture,
   ) {
     // Pluie cumulée sur les 14 derniers jours
     final recent14Days = history.take(14).toList();
     final precip14 = WeatherDay.cumulativePrecipitation(recent14Days);
 
     // Normalisation placeholder (à calibrer)
-    final precipScore = (precip14 / 50.0).clamp(0.0, 1.0);
-    final moistureScore = (moisture.soilMoisture / 50.0).clamp(0.0, 1.0);
+    final precipScore = precip14.value == null
+        ? 0.0
+        : (precip14.value! / 50.0).clamp(0.0, 1.0);
+    final moistureScore = moisture?.soilMoisture == null
+        ? 0.0
+        : (moisture!.soilMoisture! / 50.0).clamp(0.0, 1.0);
 
     return (precipScore * 0.7 + moistureScore * 0.3).clamp(0.0, 1.0);
   }
@@ -109,10 +113,11 @@ class BoletusEdulisModel implements MushroomForecastEngine {
   /// Facteur température : températures moyennes récentes.
   double _calculateTemperatureFactor(List<WeatherDay> history) {
     final recent14Days = history.take(14).toList();
-    final meanTemp = WeatherDay.meanTemperature(recent14Days);
+    final meanTemp = WeatherDay.meanTemperature(recent14Days).value;
 
     // Température optimale pour les cèpes : ~15-20°C
     // Normalisation placeholder (à calibrer)
+    if (meanTemp == null) return 0.0;
     if (meanTemp >= 15 && meanTemp <= 20) {
       return 1.0;
     } else if (meanTemp >= 10 && meanTemp < 15) {
@@ -129,7 +134,8 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     // Compter les jours consécutifs sans pluie significative (< 2mm)
     int dryDays = 0;
     for (final day in history) {
-      if (day.precipitation < 2.0) {
+      if (day.precipitation == null) break;
+      if (day.precipitation! < 2.0) {
         dryDays++;
       } else {
         break;
@@ -146,13 +152,19 @@ class BoletusEdulisModel implements MushroomForecastEngine {
   /// Facteur terrain : pente, exposition, altitude.
   double _calculateTerrainFactor(TerrainData terrain) {
     // Pente : les cèpes préfèrent les pentes modérées (5-20°)
-    final slopeScore = _normalizeSlope(terrain.slope);
+    final slopeScore = terrain.slope == null
+        ? 0.0
+        : _normalizeSlope(terrain.slope!);
 
     // Exposition : préférence pour les expositions nord/est (plus fraîches)
-    final aspectScore = _normalizeAspect(terrain.aspect);
+    final aspectScore = terrain.aspect == null
+        ? 0.0
+        : _normalizeAspect(terrain.aspect!);
 
     // Altitude : préférence pour 200-800m (à calibrer selon région)
-    final elevationScore = _normalizeElevation(terrain.elevation);
+    final elevationScore = terrain.elevation == null
+        ? 0.0
+        : _normalizeElevation(terrain.elevation!);
 
     return (slopeScore * 0.4 + aspectScore * 0.3 + elevationScore * 0.3).clamp(
       0.0,
@@ -189,7 +201,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
   /// Facteur forêt : type, densité.
   double _calculateForestFactor(ForestData forest) {
     // Si ce n'est pas une forêt, pas de facteur forêt
-    if (!forest.isForest) return 0.0;
+    if (forest.isForest == null || !forest.isForest!) return 0.0;
 
     // Type de forêt : feuillu et mixte favorables
     final typeScore =
@@ -238,7 +250,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
   double _calculateConfidence(
     List<WeatherDay> history,
     List<WeatherDay> forecast,
-    SoilMoistureData moisture,
+    SoilMoistureData? moisture,
     TerrainData terrain,
     ForestData forest,
   ) {
@@ -251,10 +263,10 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     if (forecast.length >= 7) {
       confidence += 0.1;
     }
-    if (moisture.soilMoisture > 0) {
+    if (moisture?.soilMoisture != null) {
       confidence += 0.1;
     }
-    if (terrain.elevation > 0) {
+    if (terrain.elevation != null) {
       confidence += 0.05;
     }
     if (forest.forestType != null && forest.forestType!.isNotEmpty) {

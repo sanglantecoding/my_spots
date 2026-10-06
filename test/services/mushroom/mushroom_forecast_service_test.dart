@@ -45,6 +45,7 @@ class MockWeatherService implements WeatherService {
       days,
       (i) => WeatherDay.mock(
         date: DateTime.now().add(Duration(days: i)),
+        kind: WeatherDataKind.forecast,
         precip: 2.0,
         tempMean: 18.0,
       ),

@@ -47,14 +47,14 @@ void main() {
       expect(forest.canopyCover, isNull);
     });
 
-    test('mock creates instance with default values', () {
+    test('mock leaves forest classification and measurements absent', () {
       final forest = ForestData.mock();
 
       expect(forest.latitude, 43.5);
       expect(forest.longitude, 3.5);
-      expect(forest.isForest, true);
-      expect(forest.forestType, 'feuillu');
-      expect(forest.treeDensity, 60.0);
+      expect(forest.isForest, isNull);
+      expect(forest.forestType, isNull);
+      expect(forest.treeDensity, isNull);
       expect(forest.canopyCover, isNull);
       expect(forest.source, isNull);
     });

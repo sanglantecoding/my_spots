@@ -2,16 +2,16 @@
 class TerrainData {
   final double latitude;
   final double longitude;
-  final double elevation; // mètres
-  final double slope; // degrés (0-90)
-  final double aspect; // degrés (0-360, 0=Nord, 90=Est, 180=Sud, 270=Ouest)
+  final double? elevation; // mètres
+  final double? slope; // degrés (0-90)
+  final double? aspect; // degrés (0-360, 0=Nord, 90=Est, 180=Sud, 270=Ouest)
 
   TerrainData({
     required this.latitude,
     required this.longitude,
-    required this.elevation,
-    required this.slope,
-    required this.aspect,
+    this.elevation,
+    this.slope,
+    this.aspect,
   });
 
   /// Crée une instance mockée pour les tests/développement.
@@ -32,9 +32,11 @@ class TerrainData {
   }
 
   /// Orientation cardinale textuelle.
-  String get aspectCardinal {
+  String? get aspectCardinal {
+    final a = aspect;
+    if (a == null) return null;
     const directions = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
-    final index = ((aspect + 22.5) / 45).floor() % 8;
+    final index = ((a + 22.5) / 45).floor() % 8;
     return directions[index];
   }
 }
