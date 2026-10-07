@@ -137,11 +137,12 @@ void main() {
     });
 
     test('calculateForecastRange does not refetch data for each day', () async {
+      final start = DateTime.now();
       final forecasts = await service.calculateForecastRange(
         lat: 43.5,
         lng: 3.5,
         species: MushroomSpecies.boletusEdulis,
-        startDate: DateTime.now(),
+        startDate: start,
         days: 7,
       );
 
@@ -152,12 +153,22 @@ void main() {
       expect(mockTerrainService.getTerrainDataCallCount, 1);
       expect(mockForestService.getForestDataCallCount, 1);
 
-      // 7 prévisions générées
-      expect(forecasts.length, 7);
+      // days:7 = J+0 inclus → 8 prévisions générées (J+0 … J+7)
+      expect(forecasts.length, 8);
 
       // Chaque prévision a une date différente
       final dates = forecasts.map((f) => f.date).toSet();
-      expect(dates.length, 7);
+      expect(dates.length, 8);
+
+      // Premier jour = J+0 = startDate
+      expect(forecasts.first.date.year, start.year);
+      expect(forecasts.first.date.month, start.month);
+      expect(forecasts.first.date.day, start.day);
+      // Dernier jour = J+7
+      final j7 = start.add(const Duration(days: 7));
+      expect(forecasts.last.date.year, j7.year);
+      expect(forecasts.last.date.month, j7.month);
+      expect(forecasts.last.date.day, j7.day);
     });
 
     test(

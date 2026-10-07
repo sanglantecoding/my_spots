@@ -5,6 +5,8 @@ class TerrainData {
   final double? elevation; // mètres
   final double? slope; // degrés (0-90)
   final double? aspect; // degrés (0-360, 0=Nord, 90=Est, 180=Sud, 270=Ouest)
+  final String?
+  source; // nom du fournisseur (ign_bdalti, srtm_open_elevation, …)
 
   TerrainData({
     required this.latitude,
@@ -12,6 +14,7 @@ class TerrainData {
     this.elevation,
     this.slope,
     this.aspect,
+    this.source,
   });
 
   /// Crée une instance mockée pour les tests/développement.
@@ -21,6 +24,7 @@ class TerrainData {
     double elevation = 200.0,
     double slope = 10.0,
     double aspect = 180.0,
+    String? source,
   }) {
     return TerrainData(
       latitude: lat,
@@ -28,6 +32,7 @@ class TerrainData {
       elevation: elevation,
       slope: slope,
       aspect: aspect,
+      source: source,
     );
   }
 

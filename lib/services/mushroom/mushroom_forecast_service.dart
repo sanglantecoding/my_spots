@@ -117,8 +117,9 @@ class MushroomForecastService {
     final forest = await _forestService.getForestData(lat: lat, lng: lng);
 
     // Calculer les prévisions pour chaque jour avec les mêmes données
+    // Convention : days = index du dernier jour (J+days), J+0 inclus → days+1 itérations
     final forecasts = <MushroomForecast>[];
-    for (int i = 0; i < days; i++) {
+    for (int i = 0; i <= days; i++) {
       final targetDate = startDate.add(Duration(days: i));
       final forecast = engine.calculate(
         weatherHistory: weatherHistory,
