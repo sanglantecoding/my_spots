@@ -25,6 +25,25 @@ class BoletusEdulisModel implements MushroomForecastEngine {
   @override
   MushroomSpecies get species => MushroomSpecies.boletusEdulis;
 
+  static DateTime _stripTime(DateTime d) =>
+      DateTime.utc(d.year, d.month, d.day);
+
+  /// Ordonne une liste de jours météo en antéchronologique :
+  /// du PLUS RÉCENT (index 0) au PLUS ANCIEN.
+  static List<WeatherDay> _sortDesc(List<WeatherDay> days) {
+    final list = List<WeatherDay>.from(days);
+    list.sort((a, b) => b.date.compareTo(a.date));
+    return list;
+  }
+
+  /// Ordonne une liste SoilMoistureData en antéchronologique
+  /// (du PLUS RÉCENT au PLUS ANCIEN) pour la couche [layerDepthMin..layerDepthMax].
+  static List<SoilMoistureData> _sortSoilDesc(List<SoilMoistureData> layers) {
+    final list = List<SoilMoistureData>.from(layers);
+    list.sort((a, b) => b.date.compareTo(a.date));
+    return list;
+  }
+
   @override
   MushroomForecast calculate({
     required List<WeatherDay> weatherHistory,
@@ -34,30 +53,61 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     required ForestData forest,
     required DateTime targetDate,
   }) {
-    // Sélectionner la couche de sol la plus superficielle (0-7cm typiquement)
-    // Si aucune donnée, utiliser une valeur par défaut neutre
-    final soilMoisture = soilMoistureLayers.isNotEmpty
-        ? soilMoistureLayers.reduce(
-            (a, b) => a.depthStart < b.depthStart ? a : b,
-          )
-        : null;
+    final tDay = _stripTime(targetDate);
 
-    // 1. Calcul du facteur eau (pluie cumulée récente + humidité sol)
-    final waterFactor = _calculateWaterFactor(weatherHistory, soilMoisture);
+    // ── 1. Série météo jusqu'à targetDate, en antéchronologique ──────────
+    // Concaténer historique + prévisions, puis filtrer ceux dont la date
+    // est <= targetDate. On trie ensuite en antéchronologique (plus récent
+    // en index 0) pour que .take(14) corresponde aux 14 JOURS QUI PRECEDENT
+    // (ou incluent) targetDate, et que le calcul des jours secs parte de
+    // targetDate vers le passé.
+    final allWeather = <WeatherDay>[...weatherHistory, ...weatherForecast];
+    final upToTarget = allWeather
+        .where((d) => !_stripTime(d.date).isAfter(tDay))
+        .toList();
+    final weatherSeriesDesc = _sortDesc(upToTarget);
 
-    // 2. Calcul du facteur température (températures moyennes récentes)
-    final temperatureFactor = _calculateTemperatureFactor(weatherHistory);
+    // ── 2. Couche de sol la plus superficielle, proche de targetDate ─────
+    final byLayer = <(double s, double e), List<SoilMoistureData>>{};
+    for (final layer in soilMoistureLayers) {
+      final k = (layer.depthStart, layer.depthEnd);
+      byLayer.putIfAbsent(k, () => []).add(layer);
+    }
+    SoilMoistureData? nearestSoil;
+    if (byLayer.isNotEmpty) {
+      final shallowestKey = byLayer.keys.reduce((a, b) => a.$1 < b.$1 ? a : b);
+      final list = byLayer[shallowestKey]!;
+      final sorted = _sortSoilDesc(list);
+      // Prendre l'entrée dont la date est <= targetDate la plus récente ;
+      // sinon la plus ancienne en fallback (hors futur).
+      try {
+        nearestSoil = sorted.firstWhere(
+          (s) => !_stripTime(s.date).isAfter(tDay),
+        );
+      } on StateError {
+        // toutes les entrées sont dans le futur
+        if (sorted.isNotEmpty) {
+          nearestSoil = sorted.last;
+        }
+      }
+    }
 
-    // 3. Calcul du facteur dessèchement (périodes sèches prolongées)
-    final dryingFactor = _calculateDryingFactor(weatherHistory);
+    // 3. Calcul du facteur eau (pluie cumulée récente + humidité sol)
+    final waterFactor = _calculateWaterFactor(weatherSeriesDesc, nearestSoil);
 
-    // 4. Calcul du facteur terrain (pente, exposition, altitude)
+    // 4. Calcul du facteur température (températures moyennes récentes)
+    final temperatureFactor = _calculateTemperatureFactor(weatherSeriesDesc);
+
+    // 5. Calcul du facteur dessèchement (périodes sèches prolongées)
+    final dryingFactor = _calculateDryingFactor(weatherSeriesDesc);
+
+    // 6. Calcul du facteur terrain (pente, exposition, altitude)
     final terrainFactor = _calculateTerrainFactor(terrain);
 
-    // 5. Calcul du facteur forêt (type, densité)
+    // 7. Calcul du facteur forêt (type, densité)
     final forestFactor = _calculateForestFactor(forest);
 
-    // 6. Agrégation des facteurs en indice global (0-100)
+    // 8. Agrégation des facteurs en indice global (0-100)
     final index = _aggregateIndex(
       waterFactor,
       temperatureFactor,
@@ -66,11 +116,11 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       forestFactor,
     );
 
-    // 7. Calcul de la confiance (basée sur la disponibilité des données)
+    // 9. Calcul de la confiance (basée sur la disponibilité des données)
     final confidence = _calculateConfidence(
-      weatherHistory,
+      weatherSeriesDesc,
       weatherForecast,
-      soilMoisture,
+      nearestSoil,
       terrain,
       forest,
     );
@@ -90,19 +140,27 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     );
   }
 
-  /// Facteur eau : pluie cumulée sur 7-14 jours + humidité du sol.
+  /// Facteur eau : pluie cumulée sur 14 jours récents + humidité du sol.
   double _calculateWaterFactor(
-    List<WeatherDay> history,
+    List<WeatherDay> weatherSeriesDesc,
     SoilMoistureData? moisture,
   ) {
-    // Pluie cumulée sur les 14 derniers jours
-    final recent14Days = history.take(14).toList();
+    // weatherSeriesDesc est déjà antéchronologique : take(14) sélectionne
+    // correctement les 14 jours les plus récents AVANT (ou égal à) la date
+    // cible.
+    final recent14Days = weatherSeriesDesc.take(14).toList();
     final precip14 = WeatherDay.cumulativePrecipitation(recent14Days);
 
-    // Normalisation placeholder (à calibrer)
+    // Normalisation placeholder (à calibrer).
     final precipScore = precip14.value == null
         ? 0.0
         : (precip14.value! / 50.0).clamp(0.0, 1.0);
+
+    // Open-Meteo soilMoisture a déjà été converti en % volumique par le
+    // provider (m³/m³ × 100). Un volume m3/m3 = 0.25 → 25 % vol.
+    // Saturation en eau du sol est ≈ 50 % volumique (sable 25-35 %, limon
+    // 30-45 %, argile 40-60 %). On normalise donc /50 pour se situer dans
+    // [0,1]. Note : placeholder, à calibrer.
     final moistureScore = moisture?.soilMoisture == null
         ? 0.0
         : (moisture!.soilMoisture! / 50.0).clamp(0.0, 1.0);
@@ -110,13 +168,12 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     return (precipScore * 0.7 + moistureScore * 0.3).clamp(0.0, 1.0);
   }
 
-  /// Facteur température : températures moyennes récentes.
-  double _calculateTemperatureFactor(List<WeatherDay> history) {
-    final recent14Days = history.take(14).toList();
+  /// Facteur température : températures moyennes sur les 14 derniers jours.
+  double _calculateTemperatureFactor(List<WeatherDay> weatherSeriesDesc) {
+    final recent14Days = weatherSeriesDesc.take(14).toList();
     final meanTemp = WeatherDay.meanTemperature(recent14Days).value;
 
     // Température optimale pour les cèpes : ~15-20°C
-    // Normalisation placeholder (à calibrer)
     if (meanTemp == null) return 0.0;
     if (meanTemp >= 15 && meanTemp <= 20) {
       return 1.0;
@@ -129,11 +186,15 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     }
   }
 
-  /// Facteur dessèchement : pénalité pour périodes sèches prolongées.
-  double _calculateDryingFactor(List<WeatherDay> history) {
-    // Compter les jours consécutifs sans pluie significative (< 2mm)
+  /// Facteur dessèchement : pénalité pour jours secs consécutifs.
+  ///
+  /// IMPORTANT : la série [weatherSeriesDesc] doit être triée du PLUS RÉCENT
+  /// (index 0 = targetDate ou le jour précédent immédiat) au PLUS ANCIEN.
+  /// La boucle parcourt depuis le présent vers le passé et arrête le comptage
+  /// à la première pluie significative rencontrée.
+  double _calculateDryingFactor(List<WeatherDay> weatherSeriesDesc) {
     int dryDays = 0;
-    for (final day in history) {
+    for (final day in weatherSeriesDesc) {
       if (day.precipitation == null) break;
       if (day.precipitation! < 2.0) {
         dryDays++;
@@ -142,7 +203,6 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       }
     }
 
-    // Plus de 10 jours sans pluie = pénalité forte
     if (dryDays > 10) return 0.2;
     if (dryDays > 7) return 0.4;
     if (dryDays > 5) return 0.6;
@@ -200,7 +260,6 @@ class BoletusEdulisModel implements MushroomForecastEngine {
 
   /// Facteur forêt : type, densité.
   double _calculateForestFactor(ForestData forest) {
-    // Si ce n'est pas une forêt, pas de facteur forêt
     if (forest.isForest == null || !forest.isForest!) return 0.0;
 
     // Type de forêt : feuillu et mixte favorables
@@ -248,16 +307,17 @@ class BoletusEdulisModel implements MushroomForecastEngine {
 
   /// Calcul de la confiance dans la prédiction.
   double _calculateConfidence(
-    List<WeatherDay> history,
+    List<WeatherDay> weatherSeriesDesc,
     List<WeatherDay> forecast,
     SoilMoistureData? moisture,
     TerrainData terrain,
     ForestData forest,
   ) {
-    // Confiance basée sur la disponibilité des données
     double confidence = 0.5;
 
-    if (history.length >= 30) {
+    // On utilise la série effective (qui va jusqu'à targetDate), pas
+    // l'historique brut, pour valider qu'on a assez de données.
+    if (weatherSeriesDesc.length >= 30) {
       confidence += 0.2;
     }
     if (forecast.length >= 7) {
