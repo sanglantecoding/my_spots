@@ -12,3 +12,25 @@ abstract class ForestService {
   /// Retourne le type de forêt, la densité et la couverture forestière.
   Future<ForestData> getForestData({required double lat, required double lng});
 }
+
+/// Service neutre : aucune donnée forestière n'est disponible localement.
+class UnknownForestService implements ForestService {
+  @override
+  Future<ForestData> getForestData({
+    required double lat,
+    required double lng,
+  }) async {
+    return ForestData(
+      latitude: lat,
+      longitude: lng,
+      isForest: null,
+      forestType: null,
+      treeDensity: null,
+      canopyCover: null,
+      source: 'unknown',
+    );
+  }
+}
+
+/// Nom de compatibilité pour l'injection du service forestier neutre.
+class NeutralForestService extends UnknownForestService {}

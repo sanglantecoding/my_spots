@@ -36,11 +36,11 @@ class MushroomForecast {
 
 /// Facteurs détaillés contribuant à l'indice de prévision.
 class ForecastFactors {
-  final double waterFactor; // 0-1 : contribution eau/pluie
-  final double temperatureFactor; // 0-1 : contribution température
+  final double? waterFactor; // null si inconnue
+  final double? temperatureFactor; // null si inconnue
   final double dryingFactor; // 0-1 : contribution dessèchement
-  final double terrainFactor; // 0-1 : contribution terrain (pente, exposition)
-  final double forestFactor; // 0-1 : contribution forêt/type
+  final double? terrainFactor; // 0-1 : contribution terrain (pente, exposition)
+  final double? forestFactor; // 0-1 : contribution forêt/type
 
   ForecastFactors({
     required this.waterFactor,
@@ -52,8 +52,8 @@ class ForecastFactors {
 
   /// Crée une instance mockée pour les tests/développement.
   factory ForecastFactors.mock({
-    double water = 0.5,
-    double temperature = 0.5,
+    double? water = 0.5,
+    double? temperature = 0.5,
     double drying = 0.5,
     double terrain = 0.5,
     double forest = 0.5,

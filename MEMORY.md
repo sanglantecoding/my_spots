@@ -235,3 +235,9 @@ lib/
 - **Package name** : `com.svc.my_spots`
 - **Localisation** : Français uniquement (`fr_FR`)
 - **Thème** : Dark mode (couleur de fond `#0A1929`)
+
+## Module champignons
+- Les facteurs inconnus (eau, température, terrain, forêt) sont exclus des moyennes pondérées et réduisent la confiance.
+- `MushroomForecastProvider` centralise les prévisions cèpe J+0 à J+7 ; la forêt absente reste inconnue.
+- La fiche montre le meilleur jour, 8 barres et le détail des facteurs au toucher ; elle précise que l'indice est provisoire.
+- Hors-ligne, aucune requête réseau champignon n'est lancée ; une erreur réseau propose Réessayer.

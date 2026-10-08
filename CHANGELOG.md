@@ -2,6 +2,10 @@
 
 Toutes les modifications notables de ce projet seront documentées dans ce fichier.
 
+## Prévisions champignons
+- Ajout des prévisions cèpe J+0 à J+7 depuis le menu de carte et les waypoints champignons.
+- Forêt inconnue signalée sans inventer de données ; facteurs absents et confiance affichés.
+- Mode hors-ligne protégé des appels réseau, erreurs réseau accompagnées d'une action Réessayer.
 
 
 ## 🆕 [v1.1.1] - 30 Septembre 2026

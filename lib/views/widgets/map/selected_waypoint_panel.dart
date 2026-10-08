@@ -11,6 +11,7 @@ class SelectedWaypointPanel extends StatelessWidget {
   final VoidCallback onCenterOnTarget;
   final Future<void> Function(WaypointEditorOutcome?) onEditWaypoint;
   final VoidCallback onStartNavigation;
+  final VoidCallback onShowMushroomForecast;
   final VoidCallback onClose;
 
   const SelectedWaypointPanel({
@@ -20,6 +21,7 @@ class SelectedWaypointPanel extends StatelessWidget {
     required this.onCenterOnTarget,
     required this.onEditWaypoint,
     required this.onStartNavigation,
+    required this.onShowMushroomForecast,
     required this.onClose,
   });
 
@@ -167,6 +169,16 @@ class SelectedWaypointPanel extends StatelessWidget {
               ),
             ],
           ),
+          if (waypoint.category == WaypointCategory.mushrooms)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onShowMushroomForecast,
+                icon: const Icon(Icons.park, size: 18),
+                label: const Text('Prévision cèpe ici'),
+                style: TextButton.styleFrom(foregroundColor: Colors.green),
+              ),
+            ),
         ],
       ),
     );

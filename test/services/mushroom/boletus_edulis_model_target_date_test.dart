@@ -179,8 +179,8 @@ void main() {
 
       // Le facteur température doit être dégradé à J+7
       expect(
-        f7.factors.temperatureFactor,
-        lessThanOrEqualTo(f0.factors.temperatureFactor),
+        f7.factors.temperatureFactor!,
+        lessThanOrEqualTo(f0.factors.temperatureFactor!),
       );
 
       // Le facteur séchage doit être dégradé à J+7 (plusieurs jours secs)

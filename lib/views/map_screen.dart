@@ -24,6 +24,7 @@ import 'package:my_spots/views/widgets/map/distance_measurement_overlay.dart';
 import 'package:my_spots/views/widgets/map/map_context_menu.dart';
 import 'package:my_spots/views/widgets/map/map_controls_widget.dart';
 import 'package:my_spots/views/widgets/map/map_view.dart';
+import 'package:my_spots/views/widgets/map/mushroom_forecast_sheet.dart';
 import 'package:my_spots/views/widgets/map/selected_waypoint_panel.dart';
 import 'package:my_spots/views/widgets/offline_maps/new_zone_sheet.dart';
 import 'package:my_spots/views/widgets/offline_maps/zone_editor_overlay.dart';
@@ -267,6 +268,8 @@ class _MapScreenState extends State<MapScreen> {
         onOpenOfflineZone: _openNewOfflineZone,
         onShowOfflineModeBlockingDialog: _showOfflineModeBlockingDialog,
         onStartDistanceMeasurement: _startDistanceMeasurement,
+        onShowMushroomForecast: (point) =>
+            showMushroomForecastSheet(context, point),
       ),
     );
   }
@@ -663,11 +666,18 @@ class _MapScreenState extends State<MapScreen> {
                 // ── UI masquée pendant le tracé de zone ──
                 if (!_zoneEditMode) ...[
                   if (AppSettings.mapType == MapType.marine)
-                    // Sélecteur LiDAR / Bathymétrie (haut-gauche).
                     Positioned(
                       left: 6,
                       top: 10,
-                      child: const BathymetryControlsWidget(),
+                      child: BathymetryControlsWidget(
+                        onChanged: () {
+                          if (mounted) {
+                            setState(
+                              () {},
+                            ); // rebuild MapView avec les nouvelles props
+                          }
+                        },
+                      ),
                     ),
                   // Boutons : recentrage GPS, toggle waypoints, + waypoint.
                   Positioned(
@@ -740,6 +750,14 @@ class _MapScreenState extends State<MapScreen> {
                               AlarmService.startMonitoring(_navigationTarget!);
                             }
                           },
+                          onShowMushroomForecast: () =>
+                              showMushroomForecastSheet(
+                                context,
+                                LatLng(
+                                  _selectedWaypoint!.latitude,
+                                  _selectedWaypoint!.longitude,
+                                ),
+                              ),
                           onClose: () {
                             AlarmService.stopMonitoring();
                             setState(() {

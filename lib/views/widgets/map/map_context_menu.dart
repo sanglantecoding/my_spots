@@ -9,12 +9,14 @@ class MapContextMenuCallbacks {
   final Future<void> Function(LatLng point) onOpenOfflineZone;
   final Future<void> Function(LatLng point) onShowOfflineModeBlockingDialog;
   final void Function(LatLng point) onStartDistanceMeasurement;
+  final Future<void> Function(LatLng point) onShowMushroomForecast;
 
   const MapContextMenuCallbacks({
     required this.onAddWaypoint,
     required this.onOpenOfflineZone,
     required this.onShowOfflineModeBlockingDialog,
     required this.onStartDistanceMeasurement,
+    required this.onShowMushroomForecast,
   });
 }
 
@@ -67,6 +69,21 @@ void showMapContextMenu(
             onTap: () {
               Navigator.pop(ctx);
               unawaited(callbacks.onAddWaypoint(point));
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.park, color: Color(0xFF80CBC4)),
+            title: const Text(
+              'Prévision cèpe ici',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+            ),
+            subtitle: const Text(
+              'Prévision de J+0 à J+7',
+              style: TextStyle(color: Colors.white38, fontSize: 12),
+            ),
+            onTap: () {
+              Navigator.pop(ctx);
+              unawaited(callbacks.onShowMushroomForecast(point));
             },
           ),
           ListTile(
