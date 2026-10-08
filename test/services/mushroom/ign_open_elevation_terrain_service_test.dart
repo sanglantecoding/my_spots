@@ -54,6 +54,15 @@ void main() {
       expect(out[3], isNull);
       expect(out[8], isNull);
     });
+
+    test('code IGN -99999 est parsé comme pas de donnée, jamais altitude', () {
+      const body = '{"elevations":[{"z":100},{"z":-99999},{"z":200}]}';
+      final out = IgnOpenElevationTerrainService.parseIgnResponse(
+        body,
+        expectedPoints: 3,
+      );
+      expect(out, [100.0, isNull, 200.0]);
+    });
   });
 
   group('parseOpenElevationResponse', () {
@@ -99,6 +108,17 @@ void main() {
   });
 
   group('calcul pente + aspect via getTerrainData (MockClient)', () {
+    test(
+      'sentinelle IGN centrale produit noElevationData sans altitude',
+      () async {
+        final vals = List<double?>.filled(9, 100.0);
+        vals[4] = -99999.0;
+        final data = await _terrainFromVals(vals);
+        expect(data.elevation, isNull);
+        expect(data.noElevationData, isTrue);
+      },
+    );
+
     test('terrain plat uniforme → aspect null, pente < 0.5°', () async {
       final r = await _terrainFromVals(List<double?>.filled(9, 200.0));
       expect(r.elevation, 200.0);

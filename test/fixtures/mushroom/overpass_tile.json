@@ -1,0 +1,75 @@
+{
+  "elements": [
+    {
+      "type": "relation",
+      "id": 100,
+      "tags": {
+        "type": "multipolygon",
+        "landuse": "forest",
+        "leaf_type": "broadleaved"
+      },
+      "members": [
+        {
+          "type": "way",
+          "ref": 101,
+          "role": "outer",
+          "geometry": [
+            {"lat": 45.01, "lon": 3.01},
+            {"lat": 45.04, "lon": 3.01},
+            {"lat": 45.04, "lon": 3.04},
+            {"lat": 45.01, "lon": 3.04},
+            {"lat": 45.01, "lon": 3.01}
+          ]
+        },
+        {
+          "type": "way",
+          "ref": 102,
+          "role": "inner",
+          "geometry": [
+            {"lat": 45.018, "lon": 3.018},
+            {"lat": 45.032, "lon": 3.018},
+            {"lat": 45.032, "lon": 3.032},
+            {"lat": 45.018, "lon": 3.032},
+            {"lat": 45.018, "lon": 3.018}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 200,
+      "tags": {"natural": "water"},
+      "geometry": [
+        {"lat": 45.002, "lon": 3.002},
+        {"lat": 45.006, "lon": 3.002},
+        {"lat": 45.006, "lon": 3.006},
+        {"lat": 45.002, "lon": 3.006},
+        {"lat": 45.002, "lon": 3.002}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 300,
+      "tags": {"natural": "beach"},
+      "geometry": [
+        {"lat": 45.002, "lon": 3.01},
+        {"lat": 45.006, "lon": 3.01},
+        {"lat": 45.006, "lon": 3.014},
+        {"lat": 45.002, "lon": 3.014},
+        {"lat": 45.002, "lon": 3.01}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 400,
+      "tags": {"landuse": "residential"},
+      "geometry": [
+        {"lat": 45.011, "lon": 3.011},
+        {"lat": 45.013, "lon": 3.011},
+        {"lat": 45.013, "lon": 3.013},
+        {"lat": 45.011, "lon": 3.013},
+        {"lat": 45.011, "lon": 3.011}
+      ]
+    }
+  ]
+}

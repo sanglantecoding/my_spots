@@ -5,10 +5,12 @@ import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 import 'package:my_spots/models/mushroom/mushroom_grid_cell.dart';
 import 'package:my_spots/models/mushroom/mushroom_species.dart';
+import 'package:my_spots/models/mushroom/terrain_data.dart';
 import 'package:my_spots/services/mushroom/forest_service.dart';
 import 'package:my_spots/services/mushroom/mushroom_forecast_engine.dart';
 import 'package:my_spots/services/mushroom/terrain_service.dart';
 import 'package:my_spots/services/mushroom/weather_service.dart';
+import 'package:my_spots/services/mushroom/habitat_rules.dart';
 
 /// Service principal pour le calcul de prévisions champignon.
 class MushroomForecastService {
@@ -49,6 +51,14 @@ class MushroomForecastService {
       throw ArgumentError('Aucun moteur enregistré pour $species');
     }
 
+    final terrain = await _terrainService.getTerrainData(lat: lat, lng: lng);
+    final excludedForecast = _excludedTerrainForecast(
+      terrain,
+      species: species,
+      targetDate: targetDate,
+    );
+    if (excludedForecast != null) return excludedForecast;
+
     // Récupérer les données météo
     final weatherHistory = await _weatherService.getHistoricalWeather(
       lat: lat,
@@ -65,14 +75,11 @@ class MushroomForecastService {
       lng: lng,
     );
 
-    // Récupérer les données de terrain
-    final terrain = await _terrainService.getTerrainData(lat: lat, lng: lng);
-
     // Récupérer les données de forêt
     final forest = await _forestService.getForestData(lat: lat, lng: lng);
 
     // Calculer la prévision via le moteur
-    return engine.calculate(
+    final forecast = engine.calculate(
       weatherHistory: weatherHistory,
       weatherForecast: weatherForecast,
       soilMoistureLayers: soilMoistureLayers,
@@ -80,6 +87,7 @@ class MushroomForecastService {
       forest: forest,
       targetDate: targetDate,
     );
+    return _withWeatherSource(forecast);
   }
 
   /// Calcule les prévisions pour J+0 à J+7 pour une position et une espèce.
@@ -98,7 +106,25 @@ class MushroomForecastService {
       throw ArgumentError('Aucun moteur enregistré pour $species');
     }
 
-    // Récupérer les données une seule fois
+    // Le terrain est évalué en premier : une altitude connue hors habitat
+    // évite les appels réseau météo, sol et forêt.
+    final terrain = await _terrainService.getTerrainData(lat: lat, lng: lng);
+    final firstExcludedForecast = _excludedTerrainForecast(
+      terrain,
+      species: species,
+      targetDate: startDate,
+    );
+    if (firstExcludedForecast != null) {
+      return List.generate(days + 1, (i) {
+        return _excludedTerrainForecast(
+          terrain,
+          species: species,
+          targetDate: startDate.add(Duration(days: i)),
+        )!;
+      });
+    }
+
+    // Récupérer les autres données une seule fois.
     final weatherHistory = await _weatherService.getHistoricalWeather(
       lat: lat,
       lng: lng,
@@ -113,7 +139,6 @@ class MushroomForecastService {
       lat: lat,
       lng: lng,
     );
-    final terrain = await _terrainService.getTerrainData(lat: lat, lng: lng);
     final forest = await _forestService.getForestData(lat: lat, lng: lng);
 
     // Calculer les prévisions pour chaque jour avec les mêmes données
@@ -129,10 +154,61 @@ class MushroomForecastService {
         forest: forest,
         targetDate: targetDate,
       );
-      forecasts.add(forecast);
+      forecasts.add(_withWeatherSource(forecast));
     }
     return forecasts;
   }
+
+  MushroomForecast? _excludedTerrainForecast(
+    TerrainData terrain, {
+    required MushroomSpecies species,
+    required DateTime targetDate,
+  }) {
+    final exclusion = HabitatRules.evaluateTerrain(terrain);
+    if (exclusion == null) return null;
+    return MushroomForecast(
+      date: targetDate,
+      species: species,
+      index: 0,
+      confidence: 1.0,
+      habitat: exclusion.status,
+      habitatReason: exclusion.reason,
+      factors: ForecastFactors(
+        waterFactor: null,
+        temperatureFactor: null,
+        dryingFactor: 0,
+        terrainFactor: null,
+        forestFactor: null,
+        shockFactor: null,
+      ),
+    );
+  }
+
+  MushroomForecast _withWeatherSource(MushroomForecast forecast) =>
+      MushroomForecast(
+        date: forecast.date,
+        species: forecast.species,
+        index: forecast.index,
+        confidence: forecast.confidence,
+        factors: forecast.factors,
+        habitat: forecast.habitat,
+        habitatReason: forecast.habitatReason,
+        wetStreak: forecast.wetStreak,
+        dryBefore: forecast.dryBefore,
+        soilMoistureAvailable: forecast.soilMoistureAvailable,
+        soilMoisture0To7Percent: forecast.soilMoisture0To7Percent,
+        soilMoisture7To28Percent: forecast.soilMoisture7To28Percent,
+        soilTemperature0To7C: forecast.soilTemperature0To7C,
+        hydricGate: forecast.hydricGate,
+        shockDate: forecast.shockDate,
+        shockRainMm: forecast.shockRainMm,
+        shockTempDropC: forecast.shockTempDropC,
+        temperatureSource: forecast.temperatureSource,
+        dataSources: {
+          ...forecast.dataSources,
+          'weather': _weatherService.runtimeType.toString(),
+        },
+      );
 
   /// Calcule une grille de prévisions pour une zone géographique.
   ///

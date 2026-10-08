@@ -217,28 +217,85 @@ void main() {
           forestType: null,
           treeDensity: null,
         );
+        final targetDate = DateTime.utc(2026, 9, 1);
+        final weather = List<WeatherDay>.generate(40, (index) {
+          return WeatherDay(
+            date: targetDate.subtract(Duration(days: 39 - index)),
+            precipitation: 4,
+            temperatureMean: 17,
+          );
+        });
+        final soil = [
+          SoilMoistureData(
+            date: targetDate,
+            depthStart: 7,
+            depthEnd: 28,
+            soilMoisture: 30,
+            soilTemperature: 15,
+          ),
+        ];
 
         final withForestKnown = model.calculate(
-          weatherHistory: [],
+          weatherHistory: weather,
           weatherForecast: [],
-          soilMoistureLayers: [],
+          soilMoistureLayers: soil,
           terrain: fullTerrain,
           forest: forestKnown,
-          targetDate: DateTime.now(),
+          targetDate: targetDate,
         );
         final withForestUnknown = model.calculate(
-          weatherHistory: [],
+          weatherHistory: weather,
           weatherForecast: [],
-          soilMoistureLayers: [],
+          soilMoistureLayers: soil,
           terrain: fullTerrain,
           forest: forestUnknown,
-          targetDate: DateTime.now(),
+          targetDate: targetDate,
         );
 
         expect(
           withForestUnknown.confidence,
           lessThan(withForestKnown.confidence),
         );
+      });
+
+      test('la confiance baisse lorsque les mesures du sol manquent', () {
+        final targetDate = DateTime(2026, 9, 1);
+        final history = List.generate(
+          40,
+          (i) => WeatherDay.mock(
+            date: targetDate.subtract(Duration(days: 39 - i)),
+            tempMean: 16,
+            precip: 4,
+          ),
+        );
+        final terrain = TerrainData.mock(elevation: 400, slope: 10, aspect: 90);
+        final forest = ForestData.mock(isForest: true);
+        final withSoil = model.calculate(
+          weatherHistory: history,
+          weatherForecast: const [],
+          terrain: terrain,
+          forest: forest,
+          soilMoistureLayers: [
+            SoilMoistureData.mock(
+              date: targetDate,
+              moisture: 30,
+              soilTemperature: 15,
+              depthStart: 0,
+              depthEnd: 7,
+            ),
+          ],
+          targetDate: targetDate,
+        );
+        final withoutSoil = model.calculate(
+          weatherHistory: history,
+          weatherForecast: const [],
+          terrain: terrain,
+          forest: forest,
+          soilMoistureLayers: const [],
+          targetDate: targetDate,
+        );
+
+        expect(withoutSoil.confidence, lessThan(withSoil.confidence));
       });
 
       test('(c) terrain entièrement null donne terrainFactor == null', () {
@@ -382,7 +439,12 @@ void main() {
           );
           final moistureOnly = calculate(
             soil: [
-              SoilMoistureData.mock(date: DateTime(2026, 9, 1), moisture: 25),
+              SoilMoistureData.mock(
+                date: DateTime(2026, 9, 1),
+                depthStart: 0,
+                depthEnd: 7,
+                moisture: 25,
+              ),
             ],
           );
           final noWaterData = calculate(
@@ -401,8 +463,8 @@ void main() {
             ],
           );
 
-          expect(rainOnly.factors.waterFactor, 0.5);
-          expect(moistureOnly.factors.waterFactor, 0.5);
+          expect(rainOnly.factors.waterFactor, closeTo(0.083333, 0.00001));
+          expect(moistureOnly.factors.waterFactor, closeTo(0.2, 0.00001));
           expect(noWaterData.factors.waterFactor, isNull);
           expect(noWaterData.index, greaterThan(knownZeroWater.index));
         },

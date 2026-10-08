@@ -30,6 +30,7 @@ class IgnOpenElevationTerrainService implements TerrainService {
   final http.Client _client;
 
   static const _ignSource = 'ign_bdalti_5m';
+  static const _ignNoDataValue = -99999.0;
   static const _openElevationSource = 'srtm_open_elevation_30m';
 
   static const _ignBaseUrl =
@@ -93,10 +94,13 @@ class IgnOpenElevationTerrainService implements TerrainService {
     final lngs = patch.map((p) => p.$2).toList();
 
     List<double?> elevations9;
+    var noElevationData = false;
     String source;
 
     try {
-      elevations9 = await _fetchIgn(lats, lngs);
+      final ign = await _fetchIgn(lats, lngs);
+      elevations9 = ign.elevations;
+      noElevationData = ign.noElevationData[4];
       source = _ignSource;
     } on _ProviderUnavailableException {
       elevations9 = await _fetchOpenElevation(lats, lngs);
@@ -113,6 +117,7 @@ class IgnOpenElevationTerrainService implements TerrainService {
       latitude: lat,
       longitude: lng,
       elevation: centralElevation,
+      noElevationData: noElevationData,
       slope: derived.slopeDeg,
       aspect: derived.aspectDeg,
       source: source,
@@ -141,7 +146,10 @@ class IgnOpenElevationTerrainService implements TerrainService {
   /// dans le même ordre que [lats]/[lngs].
   /// Lève [_ProviderUnavailableException] si le provider est indisponible
   /// (HTTP 4xx/5xx, timeout, parsing impossible).
-  Future<List<double?>> _fetchIgn(List<double> lats, List<double> lngs) async {
+  Future<_ParsedIgnResponse> _fetchIgn(
+    List<double> lats,
+    List<double> lngs,
+  ) async {
     assert(lats.length == 9 && lngs.length == 9);
     final uri = Uri.parse(_ignBaseUrl);
     final body = jsonEncode(<String, dynamic>{
@@ -161,7 +169,7 @@ class IgnOpenElevationTerrainService implements TerrainService {
     if (response.statusCode != 200) {
       throw const _ProviderUnavailableException();
     }
-    return parseIgnResponse(response.body, expectedPoints: 9);
+    return _parseIgnResponseDetails(response.body, expectedPoints: 9);
   }
 
   Future<List<double?>> _fetchOpenElevation(
@@ -203,21 +211,40 @@ class IgnOpenElevationTerrainService implements TerrainService {
     String body, {
     required int expectedPoints,
   }) {
+    return _parseIgnResponseDetails(
+      body,
+      expectedPoints: expectedPoints,
+    ).elevations;
+  }
+
+  static _ParsedIgnResponse _parseIgnResponseDetails(
+    String body, {
+    required int expectedPoints,
+  }) {
     final json = jsonDecode(body) as Map<String, dynamic>;
     final elevations = json['elevations'] as List<dynamic>?;
     if (elevations == null) {
-      return List<double?>.filled(expectedPoints, null);
+      return _ParsedIgnResponse(
+        List<double?>.filled(expectedPoints, null),
+        List<bool>.filled(expectedPoints, false),
+      );
     }
     final result = List<double?>.filled(expectedPoints, null);
+    final noData = List<bool>.filled(expectedPoints, false);
     final len = min(elevations.length, expectedPoints);
     for (var i = 0; i < len; i++) {
       final e = elevations[i];
       if (e is! Map<String, dynamic>) continue;
       final z = e['z'];
       if (z == null) continue;
-      result[i] = (z as num).toDouble();
+      final value = (z as num).toDouble();
+      if (value == _ignNoDataValue) {
+        noData[i] = true;
+      } else {
+        result[i] = value;
+      }
     }
-    return result;
+    return _ParsedIgnResponse(result, noData);
   }
 
   /// Parse une réponse Open-Elevation en respectant l'ordre du patch
@@ -310,6 +337,12 @@ class _CachedTerrain {
   _CachedTerrain({required this.fetchedAt, required this.data});
   final DateTime fetchedAt;
   final TerrainData data;
+}
+
+class _ParsedIgnResponse {
+  const _ParsedIgnResponse(this.elevations, this.noElevationData);
+  final List<double?> elevations;
+  final List<bool> noElevationData;
 }
 
 class _ProviderUnavailableException implements Exception {

@@ -3,6 +3,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/services/gps_service.dart';
 import 'package:my_spots/views/dialogs/waypoint_editor_sheet.dart';
+import 'package:my_spots/views/mushroom/mushroom_observation_form.dart';
 
 /// Panel showing details of the selected waypoint with action buttons
 class SelectedWaypointPanel extends StatelessWidget {
@@ -172,11 +173,30 @@ class SelectedWaypointPanel extends StatelessWidget {
           if (waypoint.category == WaypointCategory.mushrooms)
             Align(
               alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: onShowMushroomForecast,
-                icon: const Icon(Icons.park, size: 18),
-                label: const Text('Prévision cèpe ici'),
-                style: TextButton.styleFrom(foregroundColor: Colors.green),
+              child: Wrap(
+                spacing: 4,
+                children: [
+                  TextButton.icon(
+                    onPressed: onShowMushroomForecast,
+                    icon: const Icon(Icons.park, size: 18),
+                    label: const Text('Prévision cèpe ici'),
+                    style: TextButton.styleFrom(foregroundColor: Colors.green),
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      await showMushroomObservationForm(
+                        context,
+                        latitude: waypoint.latitude,
+                        longitude: waypoint.longitude,
+                      );
+                    },
+                    icon: const Icon(Icons.edit_note, size: 18),
+                    label: const Text('Noter une observation'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.teal.shade800,
+                    ),
+                  ),
+                ],
               ),
             ),
         ],

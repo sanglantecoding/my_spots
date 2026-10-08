@@ -7,6 +7,9 @@ class ForestData {
   forestType; // Type de forêt (ex: "feuillu", "conifère", "mixte") si isForest=true
   final double? treeDensity; // % (0-100) si isForest=true
   final double? canopyCover; // % couverture forestière (0-100) si isForest=true
+  /// Occupation du sol connue : water, beach, desert, glacier,
+  /// bare_rock ou urban. Null tant qu'aucune source ne la renseigne.
+  final String? landCover;
   final String?
   source; // Source des données (ex: "ign", "corine", si disponible)
 
@@ -17,6 +20,7 @@ class ForestData {
     this.forestType,
     this.treeDensity,
     this.canopyCover,
+    this.landCover,
     this.source,
   });
 
@@ -28,6 +32,7 @@ class ForestData {
     String? forestType,
     double? treeDensity,
     double? canopyCover,
+    String? landCover,
     String? source,
   }) {
     return ForestData(
@@ -37,6 +42,7 @@ class ForestData {
       forestType: forestType,
       treeDensity: treeDensity,
       canopyCover: canopyCover,
+      landCover: landCover,
       source: source,
     );
   }

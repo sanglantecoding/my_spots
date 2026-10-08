@@ -49,15 +49,15 @@ void main() {
       final json = _buildSimpleJson(
         historicalDays: 1,
         forecastDays: 1,
-        soilMoisture01: [0.25, 0.35],
+        soilMoisture07: [0.25, 0.35],
       );
       final result = OpenMeteoWeatherService.parseJson(json, forecastDays: 1);
-      final layer01 = result.soilLayers.firstWhere(
-        (s) => s.depthStart == 0 && s.depthEnd == 1,
+      final layer07 = result.soilLayers.firstWhere(
+        (s) => s.depthStart == 0 && s.depthEnd == 7,
       );
       // moyenne (0.25 + 0.35) / 2 = 0.30 → ×100 = 30 %
-      expect(layer01.soilMoisture, closeTo(30.0, 0.001));
-      expect(layer01.soilWaterIndex, isNull);
+      expect(layer07.soilMoisture, closeTo(30.0, 0.001));
+      expect(layer07.soilWaterIndex, isNull);
     });
 
     test('séparation historical / forecast – index-based', () {
@@ -118,14 +118,14 @@ void main() {
           'time': ['2026-01-01T00:00'],
           'relative_humidity_2m': [null],
           'shortwave_radiation': [null],
-          'soil_moisture_0_1cm': [null],
-          'soil_moisture_1_3cm': [null],
-          'soil_moisture_3_9cm': [null],
-          'soil_moisture_9_27cm': [null],
-          'soil_moisture_27_81cm': [null],
-          'soil_temperature_6cm': [null],
-          'soil_temperature_18cm': [null],
-          'soil_temperature_54cm': [null],
+          'soil_moisture_0_to_7cm': [null],
+          'soil_moisture_7_to_28cm': [null],
+          'soil_moisture_28_to_100cm': [null],
+          'soil_moisture_100_to_255cm': [null],
+          'soil_temperature_0_to_7cm': [null],
+          'soil_temperature_7_to_28cm': [null],
+          'soil_temperature_28_to_100cm': [null],
+          'soil_temperature_100_to_255cm': [null],
         },
       };
       final result = OpenMeteoWeatherService.parseJson(json, forecastDays: 1);
@@ -143,7 +143,7 @@ void main() {
   });
 
   group('parseJson – sol', () {
-    test('5 couches de profondeur natives avec bornes respectées', () {
+    test('4 couches ECMWF natives avec bornes respectées', () {
       final json = _buildSimpleJson(historicalDays: 1, forecastDays: 1);
       final result = OpenMeteoWeatherService.parseJson(json, forecastDays: 1);
 
@@ -154,11 +154,10 @@ void main() {
       expect(
         depths,
         containsAllInOrder([
-          (0.0, 1.0),
-          (1.0, 3.0),
-          (3.0, 9.0),
-          (9.0, 27.0),
-          (27.0, 81.0),
+          (0.0, 7.0),
+          (7.0, 28.0),
+          (28.0, 100.0),
+          (100.0, 255.0),
         ]),
       );
     });
@@ -169,30 +168,30 @@ void main() {
       final json = _buildSimpleJson(
         historicalDays: 1,
         forecastDays: 1,
-        // Couche 3-9 cm utilise soil_temperature_6cm
-        soilMoisture39: [0.10, 0.30],
-        soilTemp6: [13.0, 15.0],
-        // Couche 9-27 cm utilise soil_temperature_18cm
-        soilMoisture927: [0.20, 0.40],
-        soilTemp18: [11.0, 17.0],
+        // Couche 0-7 cm utilise soil_temperature_0_to_7cm.
+        soilMoisture07: [0.10, 0.30],
+        soilTemp07: [13.0, 15.0],
+        // Couche 7-28 cm utilise soil_temperature_7_to_28cm.
+        soilMoisture728: [0.20, 0.40],
+        soilTemp728: [11.0, 17.0],
       );
       final result = OpenMeteoWeatherService.parseJson(json, forecastDays: 1);
 
-      final layer39 = result.soilLayers.firstWhere(
-        (s) => s.depthStart == 3 && s.depthEnd == 9,
+      final layer07 = result.soilLayers.firstWhere(
+        (s) => s.depthStart == 0 && s.depthEnd == 7,
       );
       // (0.10 + 0.30) / 2 = 0.20 → ×100 = 20 %
-      expect(layer39.soilMoisture, closeTo(20.0, 0.001));
+      expect(layer07.soilMoisture, closeTo(20.0, 0.001));
       // (13.0 + 15.0) / 2 = 14.0
-      expect(layer39.soilTemperature, closeTo(14.0, 0.001));
+      expect(layer07.soilTemperature, closeTo(14.0, 0.001));
 
-      final layer927 = result.soilLayers.firstWhere(
-        (s) => s.depthStart == 9 && s.depthEnd == 27,
+      final layer728 = result.soilLayers.firstWhere(
+        (s) => s.depthStart == 7 && s.depthEnd == 28,
       );
       // (0.20 + 0.40) / 2 = 0.30 → ×100 = 30 %
-      expect(layer927.soilMoisture, closeTo(30.0, 0.001));
+      expect(layer728.soilMoisture, closeTo(30.0, 0.001));
       // (11.0 + 17.0) / 2 = 14.0
-      expect(layer927.soilTemperature, closeTo(14.0, 0.001));
+      expect(layer728.soilTemperature, closeTo(14.0, 0.001));
     });
 
     test(
@@ -201,34 +200,30 @@ void main() {
         final json = _buildSimpleJson(
           historicalDays: 1,
           forecastDays: 1,
-          soilTemp6: [6.6],
-          soilTemp18: [18.8],
-          soilTemp54: [54.4],
+          soilTemp07: [6.6],
+          soilTemp728: [18.8],
+          soilTemp28100: [54.4],
+          soilTemp100255: [25.5],
         );
         final result = OpenMeteoWeatherService.parseJson(json, forecastDays: 1);
 
-        // 0-1 et 1-3 n'ont pas de température
-        final l01 = result.soilLayers.firstWhere(
-          (s) => s.depthStart == 0 && s.depthEnd == 1,
+        final l07 = result.soilLayers.firstWhere(
+          (s) => s.depthStart == 0 && s.depthEnd == 7,
         );
-        final l13 = result.soilLayers.firstWhere(
-          (s) => s.depthStart == 1 && s.depthEnd == 3,
+        final l728 = result.soilLayers.firstWhere(
+          (s) => s.depthStart == 7 && s.depthEnd == 28,
         );
-        final l39 = result.soilLayers.firstWhere(
-          (s) => s.depthStart == 3 && s.depthEnd == 9,
+        final l28100 = result.soilLayers.firstWhere(
+          (s) => s.depthStart == 28 && s.depthEnd == 100,
         );
-        final l927 = result.soilLayers.firstWhere(
-          (s) => s.depthStart == 9 && s.depthEnd == 27,
-        );
-        final l2781 = result.soilLayers.firstWhere(
-          (s) => s.depthStart == 27 && s.depthEnd == 81,
+        final l100255 = result.soilLayers.firstWhere(
+          (s) => s.depthStart == 100 && s.depthEnd == 255,
         );
 
-        expect(l01.soilTemperature, isNull);
-        expect(l13.soilTemperature, isNull);
-        expect(l39.soilTemperature, closeTo(6.6, 0.001));
-        expect(l927.soilTemperature, closeTo(18.8, 0.001));
-        expect(l2781.soilTemperature, closeTo(54.4, 0.001));
+        expect(l07.soilTemperature, closeTo(6.6, 0.001));
+        expect(l728.soilTemperature, closeTo(18.8, 0.001));
+        expect(l28100.soilTemperature, closeTo(54.4, 0.001));
+        expect(l100255.soilTemperature, closeTo(25.5, 0.001));
       },
     );
 
@@ -294,14 +289,14 @@ void main() {
           'time': ['2026-01-01T00:00', '2026-01-01T12:00'],
           'relative_humidity_2m': [0.0, 0.0],
           'shortwave_radiation': [0.0, 0.0],
-          'soil_moisture_0_1cm': [null, null],
-          'soil_moisture_1_3cm': [null, null],
-          'soil_moisture_3_9cm': [null, null],
-          'soil_moisture_9_27cm': [null, null],
-          'soil_moisture_27_81cm': [null, null],
-          'soil_temperature_6cm': [null, null],
-          'soil_temperature_18cm': [null, null],
-          'soil_temperature_54cm': [null, null],
+          'soil_moisture_0_to_7cm': [null, null],
+          'soil_moisture_7_to_28cm': [null, null],
+          'soil_moisture_28_to_100cm': [null, null],
+          'soil_moisture_100_to_255cm': [null, null],
+          'soil_temperature_0_to_7cm': [null, null],
+          'soil_temperature_7_to_28cm': [null, null],
+          'soil_temperature_28_to_100cm': [null, null],
+          'soil_temperature_100_to_255cm': [null, null],
         },
       };
       final result = OpenMeteoWeatherService.parseJson(json, forecastDays: 1);
@@ -354,7 +349,7 @@ void main() {
     });
 
     test(
-      'getSoilMoisture retourne 5 couches par jour avec profondeurs natives',
+      'getSoilMoisture retourne 4 couches par jour avec profondeurs natives',
       () async {
         final client = MockClient((request) async {
           return Response(
@@ -364,17 +359,16 @@ void main() {
         });
         final svc = OpenMeteoWeatherService(client: client);
         final result = await svc.getSoilMoisture(lat: 44.0, lng: 3.0);
-        // 4 jours × 5 couches
-        expect(result.length, 20);
+        // 4 jours × 4 couches natives ECMWF IFS
+        expect(result.length, 16);
         final depthSpans = result
             .map((s) => '${s.depthStart}-${s.depthEnd}')
             .toSet();
         expect(depthSpans, {
-          '0.0-1.0',
-          '1.0-3.0',
-          '3.0-9.0',
-          '9.0-27.0',
-          '27.0-81.0',
+          '0.0-7.0',
+          '7.0-28.0',
+          '28.0-100.0',
+          '100.0-255.0',
         });
       },
     );
@@ -433,14 +427,14 @@ Map<String, dynamic> _buildSimpleJson({
   required int forecastDays,
   List<double>? humidityByHour,
   List<double>? solarByHour,
-  List<double>? soilMoisture01,
-  List<double>? soilMoisture13,
-  List<double>? soilMoisture39,
-  List<double>? soilMoisture927,
-  List<double>? soilMoisture2781,
-  List<double>? soilTemp6,
-  List<double>? soilTemp18,
-  List<double>? soilTemp54,
+  List<double>? soilMoisture07,
+  List<double>? soilMoisture728,
+  List<double>? soilMoisture28100,
+  List<double>? soilMoisture100255,
+  List<double>? soilTemp07,
+  List<double>? soilTemp728,
+  List<double>? soilTemp28100,
+  List<double>? soilTemp100255,
 }) {
   final totalDays = historicalDays + forecastDays;
   final start = DateTime(2026, 1, 1);
@@ -497,14 +491,14 @@ Map<String, dynamic> _buildSimpleJson({
     'time': hourlyTime,
     'relative_humidity_2m': fill2(humidityByHour, 70.0),
     'shortwave_radiation': fill2(solarByHour, 200.0),
-    'soil_moisture_0_1cm': fill2(soilMoisture01, 0.20),
-    'soil_moisture_1_3cm': fill2(soilMoisture13, 0.22),
-    'soil_moisture_3_9cm': fill2(soilMoisture39, 0.25),
-    'soil_moisture_9_27cm': fill2(soilMoisture927, 0.28),
-    'soil_moisture_27_81cm': fill2(soilMoisture2781, 0.30),
-    'soil_temperature_6cm': fill2(soilTemp6, 10.0),
-    'soil_temperature_18cm': fill2(soilTemp18, 12.0),
-    'soil_temperature_54cm': fill2(soilTemp54, 14.0),
+    'soil_moisture_0_to_7cm': fill2(soilMoisture07, 0.20),
+    'soil_moisture_7_to_28cm': fill2(soilMoisture728, 0.22),
+    'soil_moisture_28_to_100cm': fill2(soilMoisture28100, 0.25),
+    'soil_moisture_100_to_255cm': fill2(soilMoisture100255, 0.28),
+    'soil_temperature_0_to_7cm': fill2(soilTemp07, 10.0),
+    'soil_temperature_7_to_28cm': fill2(soilTemp728, 12.0),
+    'soil_temperature_28_to_100cm': fill2(soilTemp28100, 14.0),
+    'soil_temperature_100_to_255cm': fill2(soilTemp100255, 16.0),
   };
 
   return {'daily': daily, 'hourly': hourly};

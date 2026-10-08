@@ -60,14 +60,14 @@ class OpenMeteoWeatherService implements WeatherService {
     final hourlyParams = [
       'relative_humidity_2m',
       'shortwave_radiation',
-      'soil_moisture_0_1cm',
-      'soil_moisture_1_3cm',
-      'soil_moisture_3_9cm',
-      'soil_moisture_9_27cm',
-      'soil_moisture_27_81cm',
-      'soil_temperature_6cm',
-      'soil_temperature_18cm',
-      'soil_temperature_54cm',
+      'soil_moisture_0_to_7cm',
+      'soil_moisture_7_to_28cm',
+      'soil_moisture_28_to_100cm',
+      'soil_moisture_100_to_255cm',
+      'soil_temperature_0_to_7cm',
+      'soil_temperature_7_to_28cm',
+      'soil_temperature_28_to_100cm',
+      'soil_temperature_100_to_255cm',
     ].join(',');
 
     final uri = Uri.parse(_baseUrl).replace(
@@ -171,26 +171,36 @@ class OpenMeteoWeatherService implements WeatherService {
 
     final hourlyHumidity = _toDoubleListOrNull(hourly['relative_humidity_2m']);
     final hourlySolar = _toDoubleListOrNull(hourly['shortwave_radiation']);
-    final hourlySm01 = _toDoubleListOrNull(hourly['soil_moisture_0_1cm']);
-    final hourlySm13 = _toDoubleListOrNull(hourly['soil_moisture_1_3cm']);
-    final hourlySm39 = _toDoubleListOrNull(hourly['soil_moisture_3_9cm']);
-    final hourlySm927 = _toDoubleListOrNull(hourly['soil_moisture_9_27cm']);
-    final hourlySm2781 = _toDoubleListOrNull(hourly['soil_moisture_27_81cm']);
-    final hourlySt6 = _toDoubleListOrNull(hourly['soil_temperature_6cm']);
-    final hourlySt18 = _toDoubleListOrNull(hourly['soil_temperature_18cm']);
-    final hourlySt54 = _toDoubleListOrNull(hourly['soil_temperature_54cm']);
+    final hourlySm07 = _toDoubleListOrNull(hourly['soil_moisture_0_to_7cm']);
+    final hourlySm728 = _toDoubleListOrNull(hourly['soil_moisture_7_to_28cm']);
+    final hourlySm28100 = _toDoubleListOrNull(
+      hourly['soil_moisture_28_to_100cm'],
+    );
+    final hourlySm100255 = _toDoubleListOrNull(
+      hourly['soil_moisture_100_to_255cm'],
+    );
+    final hourlySt07 = _toDoubleListOrNull(hourly['soil_temperature_0_to_7cm']);
+    final hourlySt728 = _toDoubleListOrNull(
+      hourly['soil_temperature_7_to_28cm'],
+    );
+    final hourlySt28100 = _toDoubleListOrNull(
+      hourly['soil_temperature_28_to_100cm'],
+    );
+    final hourlySt100255 = _toDoubleListOrNull(
+      hourly['soil_temperature_100_to_255cm'],
+    );
 
     final humidityByDay = _dailyMeanFromHourly(hourlyTimes, hourlyHumidity);
     final solarByDay = _dailyMeanFromHourly(hourlyTimes, hourlySolar);
 
-    final sm01ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm01);
-    final sm13ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm13);
-    final sm39ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm39);
-    final sm927ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm927);
-    final sm2781ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm2781);
-    final st6ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySt6);
-    final st18ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySt18);
-    final st54ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySt54);
+    final sm07ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm07);
+    final sm728ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm728);
+    final sm28100ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm28100);
+    final sm100255ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm100255);
+    final st07ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySt07);
+    final st728ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySt728);
+    final st28100ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySt28100);
+    final st100255ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySt100255);
 
     final weatherDays = <WeatherDay>[];
     for (var i = 0; i < dailyDates.length; i++) {
@@ -217,11 +227,10 @@ class OpenMeteoWeatherService implements WeatherService {
 
     final soilLayers = <SoilMoistureData>[];
     final allSoilDates = <DateTime>{
-      ...sm01ByDay.keys,
-      ...sm13ByDay.keys,
-      ...sm39ByDay.keys,
-      ...sm927ByDay.keys,
-      ...sm2781ByDay.keys,
+      ...sm07ByDay.keys,
+      ...sm728ByDay.keys,
+      ...sm28100ByDay.keys,
+      ...sm100255ByDay.keys,
     }.toList()..sort();
 
     final forecastStartDate =
@@ -237,11 +246,10 @@ class OpenMeteoWeatherService implements WeatherService {
           : SoilMoistureDataKind.historical;
 
       final layerSpecs = <_LayerSpec>[
-        _LayerSpec(0, 1, sm01ByDay[date], null),
-        _LayerSpec(1, 3, sm13ByDay[date], null),
-        _LayerSpec(3, 9, sm39ByDay[date], st6ByDay[date]),
-        _LayerSpec(9, 27, sm927ByDay[date], st18ByDay[date]),
-        _LayerSpec(27, 81, sm2781ByDay[date], st54ByDay[date]),
+        _LayerSpec(0, 7, sm07ByDay[date], st07ByDay[date]),
+        _LayerSpec(7, 28, sm728ByDay[date], st728ByDay[date]),
+        _LayerSpec(28, 100, sm28100ByDay[date], st28100ByDay[date]),
+        _LayerSpec(100, 255, sm100255ByDay[date], st100255ByDay[date]),
       ];
 
       for (final spec in layerSpecs) {

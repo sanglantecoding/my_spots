@@ -237,7 +237,7 @@ lib/
 - **Thème** : Dark mode (couleur de fond `#0A1929`)
 
 ## Module champignons
-- Les facteurs inconnus (eau, température, terrain, forêt) sont exclus des moyennes pondérées et réduisent la confiance.
-- `MushroomForecastProvider` centralise les prévisions cèpe J+0 à J+7 ; la forêt absente reste inconnue.
-- La fiche montre le meilleur jour, 8 barres et le détail des facteurs au toucher ; elle précise que l'indice est provisoire.
-- Hors-ligne, aucune requête réseau champignon n'est lancée ; une erreur réseau propose Réessayer.
+- `HabitatConfig` documente 100–1800 m ; altitude inconnue reste admissible, et le service court-circuite météo/sol/forêt si exclu.
+- Altitude ou forêt inconnue donne `HabitatStatus.unknown`; persistance hydrique et choc hydro-thermique pilotent l'indice avec seuils provisoires documentés.
+- Les facteurs inconnus restent exclus des moyennes pondérées et réduisent la confiance.
+- `MushroomForecastProvider` centralise J+0 à J+7; hydric 7–28/repli 0–7 cm, température 0–7 cm. Comparatif 08/10/26 : `ecmwf_ifs025` 0,25° et `ecmwf_ifs` HRES 9 km, 0/264 nulls chacun; service inchangé. Overpass : 9 ways, relation 13756798 sans membres, bord à 2 013,7 m; relations incomplètes journalisées.

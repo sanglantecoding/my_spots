@@ -64,6 +64,7 @@ class MockWeatherService implements WeatherService {
 
 class MockTerrainService implements TerrainService {
   int getTerrainDataCallCount = 0;
+  double? elevation = 400.0;
 
   @override
   Future<TerrainData> getTerrainData({
@@ -71,7 +72,13 @@ class MockTerrainService implements TerrainService {
     required double lng,
   }) async {
     getTerrainDataCallCount++;
-    return TerrainData.mock(elevation: 400.0, slope: 12.0, aspect: 45.0);
+    return TerrainData(
+      latitude: lat,
+      longitude: lng,
+      elevation: elevation,
+      slope: 12.0,
+      aspect: 45.0,
+    );
   }
 
   @override
@@ -79,7 +86,7 @@ class MockTerrainService implements TerrainService {
     required double lat,
     required double lng,
   }) async {
-    return 400.0;
+    return elevation ?? 0.0;
   }
 }
 
@@ -169,6 +176,99 @@ void main() {
       expect(forecasts.last.date.year, j7.year);
       expect(forecasts.last.date.month, j7.month);
       expect(forecasts.last.date.day, j7.day);
+    });
+
+    test(
+      'altitude exclue arrête les appels après le terrain et renvoie J+0..J+7',
+      () async {
+        mockTerrainService.elevation = 50;
+        final start = DateTime(2026, 10, 8);
+        final forecasts = await service.calculateForecastRange(
+          lat: 43.5,
+          lng: 3.5,
+          species: MushroomSpecies.boletusEdulis,
+          startDate: start,
+          days: 7,
+        );
+
+        expect(forecasts, hasLength(8));
+        expect(forecasts.first.date, start);
+        expect(forecasts.last.date, start.add(const Duration(days: 7)));
+        expect(forecasts.every((f) => f.index == 0), isTrue);
+        expect(forecasts.every((f) => f.confidence == 1.0), isTrue);
+        expect(forecasts.every((f) => f.habitat.name == 'excluded'), isTrue);
+        expect(forecasts.first.habitatReason, contains('sous la limite basse'));
+        expect(mockTerrainService.getTerrainDataCallCount, 1);
+        expect(mockWeatherService.getHistoricalWeatherCallCount, 0);
+        expect(mockWeatherService.getWeatherForecastCallCount, 0);
+        expect(mockWeatherService.getSoilMoistureCallCount, 0);
+        expect(mockForestService.getForestDataCallCount, 0);
+      },
+    );
+
+    test(
+      'calculateForecast saute météo, sol et forêt si terrain exclu',
+      () async {
+        mockTerrainService.elevation = 1950;
+        final forecast = await service.calculateForecast(
+          lat: 43.5,
+          lng: 3.5,
+          species: MushroomSpecies.boletusEdulis,
+          targetDate: DateTime(2026, 10, 8),
+        );
+
+        expect(forecast.index, 0);
+        expect(forecast.confidence, 1.0);
+        expect(forecast.habitat.name, 'excluded');
+        expect(
+          forecast.habitatReason,
+          contains('au-dessus de la limite haute'),
+        );
+        expect(mockTerrainService.getTerrainDataCallCount, 1);
+        expect(mockWeatherService.getHistoricalWeatherCallCount, 0);
+        expect(mockWeatherService.getWeatherForecastCallCount, 0);
+        expect(mockWeatherService.getSoilMoistureCallCount, 0);
+        expect(mockForestService.getForestDataCallCount, 0);
+      },
+    );
+
+    test('altitude de 600 m conserve les appels et huit résultats', () async {
+      mockTerrainService.elevation = 600;
+      final start = DateTime(2026, 10, 8);
+      final forecasts = await service.calculateForecastRange(
+        lat: 43.5,
+        lng: 3.5,
+        species: MushroomSpecies.boletusEdulis,
+        startDate: start,
+        days: 7,
+      );
+
+      expect(forecasts, hasLength(8));
+      expect(forecasts.first.date, start);
+      expect(forecasts.last.date, start.add(const Duration(days: 7)));
+      expect(mockWeatherService.getHistoricalWeatherCallCount, 1);
+      expect(mockWeatherService.getWeatherForecastCallCount, 1);
+      expect(mockWeatherService.getSoilMoistureCallCount, 1);
+      expect(mockTerrainService.getTerrainDataCallCount, 1);
+      expect(mockForestService.getForestDataCallCount, 1);
+    });
+
+    test('altitude inconnue ne déclenche pas la sortie anticipée', () async {
+      mockTerrainService.elevation = null;
+      final forecasts = await service.calculateForecastRange(
+        lat: 43.5,
+        lng: 3.5,
+        species: MushroomSpecies.boletusEdulis,
+        startDate: DateTime(2026, 10, 8),
+        days: 7,
+      );
+
+      expect(forecasts, hasLength(8));
+      expect(forecasts.every((f) => f.habitat.name != 'excluded'), isTrue);
+      expect(mockWeatherService.getHistoricalWeatherCallCount, 1);
+      expect(mockWeatherService.getWeatherForecastCallCount, 1);
+      expect(mockWeatherService.getSoilMoistureCallCount, 1);
+      expect(mockForestService.getForestDataCallCount, 1);
     });
 
     test(

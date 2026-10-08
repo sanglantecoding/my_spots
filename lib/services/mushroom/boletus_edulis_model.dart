@@ -1,10 +1,14 @@
 import 'package:my_spots/models/mushroom/forest_data.dart';
+import 'package:my_spots/models/mushroom/habitat_status.dart';
 import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 import 'package:my_spots/models/mushroom/mushroom_species.dart';
 import 'package:my_spots/models/mushroom/soil_moisture_data.dart';
 import 'package:my_spots/models/mushroom/terrain_data.dart';
 import 'package:my_spots/models/mushroom/weather_day.dart';
 import 'package:my_spots/services/mushroom/mushroom_forecast_engine.dart';
+import 'package:my_spots/services/mushroom/hydric_config.dart';
+import 'package:my_spots/services/mushroom/shock_config.dart';
+import 'package:my_spots/services/mushroom/habitat_rules.dart';
 
 /// Moteur de prévision pour le Cèpe de Bordeaux (Boletus edulis).
 ///
@@ -28,6 +32,22 @@ class BoletusEdulisModel implements MushroomForecastEngine {
   static DateTime _stripTime(DateTime d) =>
       DateTime.utc(d.year, d.month, d.day);
 
+  double? _soilValueAt(
+    List<SoilMoistureData> layers,
+    DateTime targetDate, {
+    required (double, double) depth,
+    required double? Function(SoilMoistureData) select,
+  }) {
+    for (final soil in layers) {
+      if (soil.depthStart == depth.$1 &&
+          soil.depthEnd == depth.$2 &&
+          _stripTime(soil.date) == targetDate) {
+        return select(soil);
+      }
+    }
+    return null;
+  }
+
   /// Ordonne une liste de jours météo en antéchronologique :
   /// du PLUS RÉCENT (index 0) au PLUS ANCIEN.
   static List<WeatherDay> _sortDesc(List<WeatherDay> days) {
@@ -38,12 +58,6 @@ class BoletusEdulisModel implements MushroomForecastEngine {
 
   /// Ordonne une liste SoilMoistureData en antéchronologique
   /// (du PLUS RÉCENT au PLUS ANCIEN) pour la couche [layerDepthMin..layerDepthMax].
-  static List<SoilMoistureData> _sortSoilDesc(List<SoilMoistureData> layers) {
-    final list = List<SoilMoistureData>.from(layers);
-    list.sort((a, b) => b.date.compareTo(a.date));
-    return list;
-  }
-
   @override
   MushroomForecast calculate({
     required List<WeatherDay> weatherHistory,
@@ -68,135 +82,419 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     final weatherSeriesDesc = _sortDesc(upToTarget);
 
     // ── 2. Couche de sol la plus superficielle, proche de targetDate ─────
-    final byLayer = <(double s, double e), List<SoilMoistureData>>{};
-    for (final layer in soilMoistureLayers) {
-      final k = (layer.depthStart, layer.depthEnd);
-      byLayer.putIfAbsent(k, () => []).add(layer);
-    }
-    SoilMoistureData? nearestSoil;
-    if (byLayer.isNotEmpty) {
-      final shallowestKey = byLayer.keys.reduce((a, b) => a.$1 < b.$1 ? a : b);
-      final list = byLayer[shallowestKey]!;
-      final sorted = _sortSoilDesc(list);
-      // Prendre l'entrée dont la date est <= targetDate la plus récente ;
-      // sinon la plus ancienne en fallback (hors futur).
-      try {
-        nearestSoil = sorted.firstWhere(
-          (s) => !_stripTime(s.date).isAfter(tDay),
-        );
-      } on StateError {
-        // toutes les entrées sont dans le futur
-        if (sorted.isNotEmpty) {
-          nearestSoil = sorted.last;
-        }
-      }
-    }
+    final hydric = _calculateHydricMetrics(
+      weatherSeriesDesc,
+      soilMoistureLayers,
+      tDay,
+    );
+    final waterFactor = hydric.factor;
 
-    // 3. Calcul du facteur eau (pluie cumulée récente + humidité sol)
-    final waterFactor = _calculateWaterFactor(weatherSeriesDesc, nearestSoil);
+    // 4. Température du sol si connue, sinon température de l'air.
+    final temperature = _calculateTemperatureFactor(
+      weatherSeriesDesc,
+      soilMoistureLayers,
+      tDay,
+    );
+    final temperatureFactor = temperature.factor;
 
-    // 4. Calcul du facteur température (températures moyennes récentes)
-    final temperatureFactor = _calculateTemperatureFactor(weatherSeriesDesc);
+    // 5. Événement hydro-thermique antérieur et décalage de fructification.
+    final shock = _calculateShockFactor(upToTarget, tDay);
 
-    // 5. Calcul du facteur dessèchement (périodes sèches prolongées)
+    // 6. Calcul du facteur dessèchement (périodes sèches prolongées)
     final dryingFactor = _calculateDryingFactor(weatherSeriesDesc);
 
-    // 6. Calcul du facteur terrain (pente, exposition, altitude)
+    // 7. Calcul du facteur terrain (pente, exposition, altitude)
     final terrainFactor = _calculateTerrainFactor(terrain);
 
-    // 7. Calcul du facteur forêt (type, densité)
+    // 8. Calcul du facteur forêt (type, densité)
     final forestFactor = _calculateForestFactor(forest);
 
-    // 8. Agrégation des facteurs en indice global (0-100)
-    final index = _aggregateIndex(
+    // 9. Vérification de l'habitat avant de produire un indice.
+    final habitat = _evaluateHabitat(terrain, forest);
+
+    // 10. Une exclusion certaine interdit toute valeur d'indice positive.
+    final aggregatedIndex = _aggregateIndex(
       waterFactor,
       temperatureFactor,
       dryingFactor,
+      shock.factor,
       terrainFactor,
       forestFactor,
     );
+    final hydricGate = waterFactor == null
+        ? 1.0
+        : (waterFactor / HydricConfig.gateFullAt).clamp(0.0, 1.0).toDouble();
+    final index = habitat.status == HabitatStatus.excluded
+        ? 0
+        : (aggregatedIndex * hydricGate).round();
 
-    // 9. Calcul de la confiance (basée sur la disponibilité des données)
+    // 10. Calcul de la confiance (basée sur la disponibilité des données)
     final confidence = _calculateConfidence(
       weatherSeriesDesc,
       weatherForecast,
-      nearestSoil,
+      hydric.hasSoilMoisture,
+      temperature.source == 'soil_0_7cm',
       waterFactor,
       temperatureFactor,
+      shock.factor,
       terrain,
       forest,
     );
+
+    String? soilSource;
+    for (final layer in soilMoistureLayers) {
+      if (!_stripTime(layer.date).isAfter(tDay) && layer.source != null) {
+        soilSource = layer.source;
+        break;
+      }
+    }
 
     return MushroomForecast(
       date: targetDate,
       species: species,
       index: index,
       confidence: confidence,
+      habitat: habitat.status,
+      habitatReason: habitat.reason,
+      wetStreak: hydric.wetStreak,
+      dryBefore: hydric.dryBefore,
+      soilMoistureAvailable: hydric.hasSoilMoisture,
+      soilMoisture0To7Percent: _soilValueAt(
+        soilMoistureLayers,
+        tDay,
+        depth: (0, 7),
+        select: (soil) => soil.soilMoisture,
+      ),
+      soilMoisture7To28Percent: _soilValueAt(
+        soilMoistureLayers,
+        tDay,
+        depth: (7, 28),
+        select: (soil) => soil.soilMoisture,
+      ),
+      soilTemperature0To7C: _soilValueAt(
+        soilMoistureLayers,
+        tDay,
+        depth: ShockConfig.soilTemperatureLayerDepth,
+        select: (soil) => soil.soilTemperature,
+      ),
+      hydricGate: hydricGate,
+      shockDate: shock.date,
+      shockRainMm: shock.rain48h,
+      shockTempDropC: shock.tempDrop,
+      temperatureSource: temperature.source,
+      dataSources: {
+        'terrain': terrain.source,
+        'forest': forest.source,
+        'temperature': temperature.source,
+        'soil': soilSource,
+      },
       factors: ForecastFactors(
         waterFactor: waterFactor,
         temperatureFactor: temperatureFactor,
         dryingFactor: dryingFactor,
         terrainFactor: terrainFactor,
         forestFactor: forestFactor,
+        shockFactor: shock.factor,
       ),
     );
   }
 
-  /// Facteur eau : pluie cumulée sur 14 jours récents + humidité du sol.
-  double? _calculateWaterFactor(
-    List<WeatherDay> weatherSeriesDesc,
-    SoilMoistureData? moisture,
+  ({HabitatStatus status, String? reason}) _evaluateHabitat(
+    TerrainData terrain,
+    ForestData forest,
   ) {
-    // weatherSeriesDesc est déjà antéchronologique : take(14) sélectionne
-    // correctement les 14 jours les plus récents AVANT (ou égal à) la date
-    // cible.
-    final recent14Days = weatherSeriesDesc.take(14).toList();
-    final precip14 = WeatherDay.cumulativePrecipitation(recent14Days);
+    final terrainExclusion = HabitatRules.evaluateTerrain(terrain);
+    if (terrainExclusion != null) return terrainExclusion;
 
-    // Normalisation placeholder (à calibrer).
-    final precipScore = precip14.value == null
-        ? null
-        : (precip14.value! / 50.0).clamp(0.0, 1.0).toDouble();
-
-    // Open-Meteo soilMoisture a déjà été converti en % volumique par le
-    // provider (m³/m³ × 100). Un volume m3/m3 = 0.25 → 25 % vol.
-    // Saturation en eau du sol est ≈ 50 % volumique (sable 25-35 %, limon
-    // 30-45 %, argile 40-60 %). On normalise donc /50 pour se situer dans
-    // [0,1]. Note : placeholder, à calibrer.
-    final moistureScore = moisture?.soilMoisture == null
-        ? null
-        : (moisture!.soilMoisture! / 50.0).clamp(0.0, 1.0).toDouble();
-    if (precipScore == null && moistureScore == null) return null;
-
-    var weightedSum = 0.0;
-    var knownWeight = 0.0;
-    if (precipScore != null) {
-      weightedSum += precipScore * 0.7;
-      knownWeight += 0.7;
+    const landCoverReasons = <String, String>{
+      'water': 'Étendue d’eau',
+      'beach': 'Plage ou sable',
+      'desert': 'Désert',
+      'glacier': 'Glacier',
+      'bare_rock': 'Roche nue',
+      'urban': 'Zone urbanisée',
+    };
+    final landCoverReason = landCoverReasons[forest.landCover?.toLowerCase()];
+    if (landCoverReason != null) {
+      return (status: HabitatStatus.excluded, reason: landCoverReason);
     }
-    if (moistureScore != null) {
-      weightedSum += moistureScore * 0.3;
-      knownWeight += 0.3;
+
+    if (terrain.elevation == null || forest.isForest == null) {
+      final missing = <String>[];
+      if (terrain.elevation == null) missing.add('Altitude inconnue');
+      if (forest.isForest == null) {
+        missing.add('Présence de forêt non vérifiée');
+      }
+      return (status: HabitatStatus.unknown, reason: missing.join(' · '));
     }
-    return (weightedSum / knownWeight).clamp(0.0, 1.0).toDouble();
+
+    return (status: HabitatStatus.suitable, reason: null);
   }
 
-  /// Facteur température : températures moyennes sur les 14 derniers jours.
-  double? _calculateTemperatureFactor(List<WeatherDay> weatherSeriesDesc) {
-    final recent14Days = weatherSeriesDesc.take(14).toList();
-    final meanTemp = WeatherDay.meanTemperature(recent14Days).value;
-
-    // Température optimale pour les cèpes : ~15-20°C
-    if (meanTemp == null) return null;
-    if (meanTemp >= 15 && meanTemp <= 20) {
-      return 1.0;
-    } else if (meanTemp >= 10 && meanTemp < 15) {
-      return 0.7;
-    } else if (meanTemp > 20 && meanTemp <= 25) {
-      return 0.6;
-    } else {
-      return 0.3;
+  /// Persistance hydrique. Les seuils de [HydricConfig] sont des placeholders.
+  ({double? factor, int? wetStreak, int? dryBefore, bool hasSoilMoisture})
+  _calculateHydricMetrics(
+    List<WeatherDay> weatherSeriesDesc,
+    List<SoilMoistureData> soilLayers,
+    DateTime targetDate,
+  ) {
+    final preferred = HydricConfig.soilLayerDepth;
+    final preferredAvailable = soilLayers.any(
+      (s) =>
+          s.depthStart == preferred.$1 &&
+          s.depthEnd == preferred.$2 &&
+          s.soilMoisture != null &&
+          !_stripTime(s.date).isAfter(targetDate),
+    );
+    final fallback = HydricConfig.soilLayerFallbackDepth;
+    final fallbackAvailable = soilLayers.any(
+      (s) =>
+          s.depthStart == fallback.$1 &&
+          s.depthEnd == fallback.$2 &&
+          s.soilMoisture != null &&
+          !_stripTime(s.date).isAfter(targetDate),
+    );
+    final depth = preferredAvailable
+        ? preferred
+        : fallbackAvailable
+        ? fallback
+        : preferred;
+    final soilByDay = <DateTime, double?>{};
+    for (final soil in soilLayers) {
+      if (soil.depthStart == depth.$1 &&
+          soil.depthEnd == depth.$2 &&
+          !_stripTime(soil.date).isAfter(targetDate)) {
+        soilByDay[_stripTime(soil.date)] = soil.soilMoisture;
+      }
     }
+    final nearestSoilDate = soilByDay.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+    final hasSoilMoisture =
+        nearestSoilDate.isNotEmpty && soilByDay[nearestSoilDate.first] != null;
+
+    int? wetStreak;
+    if (soilByDay[targetDate] != null) {
+      var streak = 0;
+      var date = targetDate;
+      while (soilByDay.containsKey(date)) {
+        final value = soilByDay[date];
+        if (value == null || value < HydricConfig.wetThresholdPercent) break;
+        streak++;
+        date = date.subtract(const Duration(days: 1));
+      }
+      wetStreak = streak;
+    }
+
+    final recent = weatherSeriesDesc.take(HydricConfig.window).toList();
+    final knownRain = recent.map((d) => d.precipitation).whereType<double>();
+    final rainValues = knownRain.toList();
+    final rainDays14 = rainValues.isEmpty
+        ? null
+        : rainValues.where((p) => p >= HydricConfig.rainDayMm).length;
+    final rainSum = rainValues.fold<double>(0, (sum, value) => sum + value);
+    final rainConcentration = rainSum <= 0 || rainValues.isEmpty
+        ? null
+        : rainValues.reduce((a, b) => a > b ? a : b) / rainSum;
+
+    double? balance14;
+    for (final day in recent) {
+      if (day.precipitation == null || day.et0 == null) continue;
+      balance14 = (balance14 ?? 0) + day.precipitation! - day.et0!;
+    }
+
+    // Localise le dernier épisode de jours pluvieux et son début.
+    var runStart = weatherSeriesDesc.indexWhere(
+      (d) =>
+          d.precipitation != null && d.precipitation! >= HydricConfig.rainDayMm,
+    );
+    if (runStart < 0) {
+      runStart = 0;
+    } else {
+      while (runStart + 1 < weatherSeriesDesc.length) {
+        final newer = weatherSeriesDesc[runStart];
+        final older = weatherSeriesDesc[runStart + 1];
+        final consecutive =
+            _stripTime(newer.date).difference(_stripTime(older.date)).inDays ==
+            1;
+        if (!consecutive ||
+            older.precipitation == null ||
+            older.precipitation! < HydricConfig.rainDayMm) {
+          break;
+        }
+        runStart++;
+      }
+    }
+    final prior = weatherSeriesDesc
+        .skip(runStart + 1)
+        .take(HydricConfig.drynessWindow)
+        .where((d) => d.precipitation != null)
+        .toList();
+    final dryBefore = prior.isEmpty
+        ? null
+        : prior.where((d) => d.precipitation! < HydricConfig.rainDayMm).length;
+
+    final terms = <(double, double)>[];
+    if (wetStreak != null) {
+      terms.add(((wetStreak / HydricConfig.wetMinDays).clamp(0.0, 1.0), 0.40));
+    }
+    if (rainDays14 != null) {
+      terms.add(((rainDays14 / 6).clamp(0.0, 1.0), 0.20));
+    }
+    if (rainConcentration != null) {
+      terms.add((1 - ((rainConcentration - 0.4) / 0.4).clamp(0.0, 1.0), 0.20));
+    }
+    if (balance14 != null) {
+      terms.add(((balance14 / 40).clamp(0.0, 1.0), 0.20));
+    }
+
+    double? factor;
+    if (terms.isNotEmpty) {
+      final weightSum = terms.fold<double>(0, (sum, term) => sum + term.$2);
+      factor =
+          terms.fold<double>(0, (sum, term) => sum + term.$1 * term.$2) /
+          weightSum;
+      if (wetStreak != null &&
+          wetStreak < 2 &&
+          dryBefore != null &&
+          dryBefore >= 14) {
+        factor = factor.clamp(0.0, 0.3).toDouble();
+      }
+    }
+    return (
+      factor: factor,
+      wetStreak: wetStreak,
+      dryBefore: dryBefore,
+      hasSoilMoisture: hasSoilMoisture,
+    );
+  }
+
+  ({double? factor, String source}) _calculateTemperatureFactor(
+    List<WeatherDay> weatherSeriesDesc,
+    List<SoilMoistureData> soilLayers,
+    DateTime targetDate,
+  ) {
+    final soilTemps =
+        soilLayers
+            .where(
+              (soil) =>
+                  soil.depthStart == ShockConfig.soilTemperatureLayerDepth.$1 &&
+                  soil.depthEnd == ShockConfig.soilTemperatureLayerDepth.$2 &&
+                  soil.soilTemperature != null &&
+                  !_stripTime(soil.date).isAfter(targetDate),
+            )
+            .toList()
+          ..sort((a, b) => b.date.compareTo(a.date));
+    if (soilTemps.isNotEmpty) {
+      final temperature = soilTemps.first.soilTemperature!;
+      if (temperature >= ShockConfig.soilTemperatureOptimalLowC &&
+          temperature <= ShockConfig.soilTemperatureOptimalHighC) {
+        return (factor: 1.0, source: 'soil_0_7cm');
+      }
+      if ((temperature >= ShockConfig.soilTemperatureLowC &&
+              temperature < ShockConfig.soilTemperatureOptimalLowC) ||
+          (temperature > ShockConfig.soilTemperatureOptimalHighC &&
+              temperature <= ShockConfig.soilTemperatureHighC)) {
+        return (
+          factor: ShockConfig.soilTemperatureModeratePart,
+          source: 'soil_0_7cm',
+        );
+      }
+      return (factor: 0.0, source: 'soil_0_7cm');
+    }
+
+    final meanTemp = WeatherDay.meanTemperature(
+      weatherSeriesDesc.take(14).toList(),
+    ).value;
+    if (meanTemp == null) return (factor: null, source: 'air');
+    // Formule existante pour la température de l'air, conservée en repli.
+    if (meanTemp >= 15 && meanTemp <= 20) {
+      return (factor: 1.0, source: 'air');
+    } else if (meanTemp >= 10 && meanTemp < 15) {
+      return (factor: 0.7, source: 'air');
+    } else if (meanTemp > 20 && meanTemp <= 25) {
+      return (factor: 0.6, source: 'air');
+    } else {
+      return (factor: 0.3, source: 'air');
+    }
+  }
+
+  ({double? factor, DateTime? date, double? rain48h, double? tempDrop})
+  _calculateShockFactor(List<WeatherDay> weather, DateTime targetDate) {
+    final byDate = <DateTime, WeatherDay>{};
+    for (final day in weather) {
+      final date = _stripTime(day.date);
+      if (!date.isAfter(targetDate)) byDate[date] = day;
+    }
+
+    double? bestFactor;
+    DateTime? bestDate;
+    double? bestRain;
+    double? bestTempDrop;
+    for (
+      var lag = ShockConfig.lagMinDays;
+      lag <= ShockConfig.lagMaxDays;
+      lag++
+    ) {
+      final date = targetDate.subtract(Duration(days: lag));
+      final eventDay = byDate[date];
+      final previousDay = byDate[date.subtract(const Duration(days: 1))];
+      if (eventDay?.precipitation == null ||
+          previousDay?.precipitation == null) {
+        continue;
+      }
+      final rain48h = eventDay!.precipitation! + previousDay!.precipitation!;
+      final tempDrop = _temperatureDrop(byDate, date);
+      final score = rain48h < ShockConfig.rainTriggerMm
+          ? 0.0
+          : _shockScore(rain48h, tempDrop);
+      if (bestFactor == null || score > bestFactor) {
+        bestFactor = score;
+        bestDate = date;
+        bestRain = rain48h;
+        bestTempDrop = tempDrop;
+      }
+    }
+    return (
+      factor: bestFactor,
+      date: bestDate,
+      rain48h: bestRain,
+      tempDrop: bestTempDrop,
+    );
+  }
+
+  double _shockScore(double rain48h, double? tempDrop) {
+    final rainPart = rain48h >= ShockConfig.rainHighMm
+        ? ShockConfig.rainHighPart
+        : rain48h >= ShockConfig.rainMediumMm
+        ? ShockConfig.rainMediumPart
+        : ShockConfig.rainLowPart;
+    if (tempDrop == null) return rainPart;
+    final tempPart = tempDrop >= ShockConfig.temperatureDropHighC
+        ? ShockConfig.temperatureDropHighPart
+        : tempDrop >= ShockConfig.temperatureDropMediumC
+        ? ShockConfig.temperatureDropMediumPart
+        : ShockConfig.temperatureDropNoPart;
+    return (rainPart + tempPart) / 2;
+  }
+
+  double? _temperatureDrop(Map<DateTime, WeatherDay> byDate, DateTime date) {
+    final previous = <double>[];
+    for (var daysAgo = 4; daysAgo >= 2; daysAgo--) {
+      final value =
+          byDate[date.subtract(Duration(days: daysAgo))]?.temperatureMean;
+      if (value == null) return null;
+      previous.add(value);
+    }
+    final current = <double>[];
+    for (var daysAhead = 0; daysAhead <= 1; daysAhead++) {
+      final value =
+          byDate[date.add(Duration(days: daysAhead))]?.temperatureMean;
+      if (value == null) return null;
+      current.add(value);
+    }
+    final previousMean = previous.reduce((a, b) => a + b) / previous.length;
+    final currentMean = current.reduce((a, b) => a + b) / current.length;
+    return previousMean - currentMean;
   }
 
   /// Facteur dessèchement : pénalité pour jours secs consécutifs.
@@ -337,20 +635,22 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     double? water,
     double? temperature,
     double drying,
+    double? shock,
     double? terrain,
     double? forest,
   ) {
-    // Pondérations par défaut (à calibrer)
-    const waterWeight = 0.35;
-    const temperatureWeight = 0.20;
-    const dryingWeight = 0.15;
-    const terrainWeight = 0.15;
-    const forestWeight = 0.15;
+    final waterWeight = ShockConfig.waterWeight;
+    final temperatureWeight = ShockConfig.airOrSoilTemperatureWeight;
+    final dryingWeight = ShockConfig.dryingWeight;
+    final shockWeight = ShockConfig.shockWeight;
+    final terrainWeight = ShockConfig.terrainWeight;
+    final forestWeight = ShockConfig.forestWeight;
 
     // Calculer la somme des poids des facteurs connus
     double knownWeightSum = dryingWeight;
     if (water != null) knownWeightSum += waterWeight;
     if (temperature != null) knownWeightSum += temperatureWeight;
+    if (shock != null) knownWeightSum += shockWeight;
     if (terrain != null) knownWeightSum += terrainWeight;
     if (forest != null) knownWeightSum += forestWeight;
 
@@ -358,6 +658,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     var weightedSum = drying * dryingWeight;
     if (water != null) weightedSum += water * waterWeight;
     if (temperature != null) weightedSum += temperature * temperatureWeight;
+    if (shock != null) weightedSum += shock * shockWeight;
     if (terrain != null) weightedSum += terrain * terrainWeight;
     if (forest != null) weightedSum += forest * forestWeight;
 
@@ -373,9 +674,11 @@ class BoletusEdulisModel implements MushroomForecastEngine {
   double _calculateConfidence(
     List<WeatherDay> weatherSeriesDesc,
     List<WeatherDay> forecast,
-    SoilMoistureData? moisture,
+    bool hasSoilMoisture,
+    bool hasSoilTemperature,
     double? waterFactor,
     double? temperatureFactor,
+    double? shockFactor,
     TerrainData terrain,
     ForestData forest,
   ) {
@@ -389,7 +692,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     if (forecast.length >= 7) {
       confidence += 0.1;
     }
-    if (moisture?.soilMoisture != null) {
+    if (hasSoilMoisture) {
       confidence += 0.1;
     }
     if (terrain.elevation != null) {
@@ -409,8 +712,13 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     if (forest.isForest == null) {
       missingWeight += 0.15; // poids du facteur forêt
     }
-    if (waterFactor == null) missingWeight += 0.35;
-    if (temperatureFactor == null) missingWeight += 0.20;
+    if (!hasSoilMoisture) missingWeight += 0.15;
+    if (!hasSoilTemperature) missingWeight += 0.05;
+    if (waterFactor == null) missingWeight += ShockConfig.waterWeight;
+    if (temperatureFactor == null) {
+      missingWeight += ShockConfig.airOrSoilTemperatureWeight;
+    }
+    if (shockFactor == null) missingWeight += ShockConfig.shockWeight;
 
     return (confidence - missingWeight).clamp(0.0, 1.0);
   }

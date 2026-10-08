@@ -3,6 +3,9 @@ class TerrainData {
   final double latitude;
   final double longitude;
   final double? elevation; // mètres
+  /// Vrai si l'IGN a explicitement renvoyé son code « pas de donnée ».
+  /// Une valeur null avec false signifie que l'altitude est simplement inconnue.
+  final bool noElevationData;
   final double? slope; // degrés (0-90)
   final double? aspect; // degrés (0-360, 0=Nord, 90=Est, 180=Sud, 270=Ouest)
   final String?
@@ -12,6 +15,7 @@ class TerrainData {
     required this.latitude,
     required this.longitude,
     this.elevation,
+    this.noElevationData = false,
     this.slope,
     this.aspect,
     this.source,
@@ -22,6 +26,7 @@ class TerrainData {
     double lat = 43.5,
     double lng = 3.5,
     double elevation = 200.0,
+    bool noElevationData = false,
     double slope = 10.0,
     double aspect = 180.0,
     String? source,
@@ -30,6 +35,7 @@ class TerrainData {
       latitude: lat,
       longitude: lng,
       elevation: elevation,
+      noElevationData: noElevationData,
       slope: slope,
       aspect: aspect,
       source: source,

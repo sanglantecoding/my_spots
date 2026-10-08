@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
+import 'package:my_spots/models/mushroom/habitat_status.dart';
 import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 import 'package:my_spots/services/mushroom/mushroom_forecast_provider.dart';
+import 'package:my_spots/views/mushroom/mushroom_observation_form.dart';
+import 'package:my_spots/views/mushroom/mushroom_observations_screen.dart';
 
 Future<void> showMushroomForecastSheet(BuildContext context, LatLng point) =>
     showModalBottomSheet<void>(
@@ -122,6 +125,9 @@ class _MushroomForecastSheetState extends State<MushroomForecastSheet> {
               else if (_forecasts != null) ...[
                 Builder(
                   builder: (context) {
+                    if (_forecasts!.first.habitat == HabitatStatus.excluded) {
+                      return const SizedBox.shrink();
+                    }
                     final bestDay = _forecasts!.asMap().entries.reduce(
                       (best, entry) =>
                           entry.value.index > best.value.index ? entry : best,
@@ -152,13 +158,57 @@ class _MushroomForecastSheetState extends State<MushroomForecastSheet> {
                   ),
                 ),
               ],
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const MushroomObservationsScreen(),
+                      ),
+                    ),
+                    icon: const Icon(Icons.list_alt),
+                    label: const Text('Observations'),
+                  ),
+                  const Spacer(),
+                  FilledButton.icon(
+                    onPressed: () async {
+                      final saved = await showMushroomObservationForm(
+                        context,
+                        latitude: widget.point.latitude,
+                        longitude: widget.point.longitude,
+                      );
+                      if (saved == true && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Observation enregistrée.'),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.edit_note),
+                    label: const Text('Noter une observation'),
+                  ),
+                ],
+              ),
               const Divider(color: Colors.white24, height: 20),
               const Text(
-                'Indice de conditions favorables (modèle provisoire), pas une '
-                'probabilité de trouver des cèpes.',
+                'Indice indicatif de conditions favorables (modèle provisoire).',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white54, fontSize: 12),
               ),
+              if (_forecasts != null &&
+                  !_forecasts!.first.soilMoistureAvailable)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Sources : météo ${_forecasts!.first.dataSources['weather'] ?? 'inconnue'} '
+                    '(sol : indisponible) · altitude '
+                    '${_forecasts!.first.dataSources['terrain'] ?? 'inconnue'} · forêt '
+                    '${_forecasts!.first.dataSources['forest'] ?? 'inconnue'}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white38, fontSize: 10),
+                  ),
+                ),
             ],
           ),
         ),
@@ -179,6 +229,7 @@ class _ForecastDayExpansion extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final f = forecast.factors;
+    final excluded = forecast.habitat == HabitatStatus.excluded;
     final date =
         '${forecast.date.day.toString().padLeft(2, '0')}/'
         '${forecast.date.month.toString().padLeft(2, '0')}';
@@ -189,9 +240,9 @@ class _ForecastDayExpansion extends StatelessWidget {
         children: [
           Expanded(child: Text('J+$dayOffset · $date')),
           Text(
-            '${forecast.index}',
-            style: const TextStyle(
-              color: Color(0xFF80CBC4),
+            excluded ? 'Hors habitat' : '${forecast.index}',
+            style: TextStyle(
+              color: excluded ? Colors.grey : Color(0xFF80CBC4),
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -199,31 +250,140 @@ class _ForecastDayExpansion extends StatelessWidget {
       ),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 6),
-        child: LinearProgressIndicator(
-          value: (forecast.index / 100).clamp(0.0, 1.0).toDouble(),
-          minHeight: 7,
-          backgroundColor: Colors.white12,
-          color: const Color(0xFF80CBC4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            LinearProgressIndicator(
+              value: (forecast.index / 100).clamp(0.0, 1.0).toDouble(),
+              minHeight: 7,
+              backgroundColor: excluded ? Colors.grey.shade700 : Colors.white12,
+              color: excluded ? Colors.grey.shade500 : const Color(0xFF80CBC4),
+            ),
+            if (excluded)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Hors habitat : ${forecast.habitatReason ?? 'raison inconnue'}',
+                  style: const TextStyle(color: Colors.white54, fontSize: 11),
+                ),
+              ),
+            if (forecast.habitat == HabitatStatus.unknown)
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'Habitat non vérifié',
+                  style: TextStyle(color: Colors.white54, fontSize: 11),
+                ),
+              ),
+          ],
         ),
       ),
       children: [
+        if ((forecast.hydricGate ?? 1.0) < 1.0)
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Humidité insuffisante : indice limité',
+              style: TextStyle(color: Colors.white60, fontSize: 12),
+            ),
+          ),
         Align(
           alignment: Alignment.centerLeft,
           child: Text(
-            'Indice : ${forecast.index}/100 · Confiance : '
-            '${(forecast.confidence * 100).round()} %',
-            style: const TextStyle(color: Colors.white70),
+            _shockDescription(forecast),
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ),
+        if (excluded)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Hors habitat : ${forecast.habitatReason ?? 'raison inconnue'} · '
+              'Confiance : '
+              '${(forecast.confidence * 100).round()} %',
+              style: const TextStyle(color: Colors.white70),
+            ),
+          )
+        else
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Indice : ${forecast.index}/100 · Confiance : '
+              '${(forecast.confidence * 100).round()} %',
+              style: const TextStyle(color: Colors.white70),
+            ),
+          ),
         const SizedBox(height: 8),
-        _FactorRow(label: 'Eau', value: f.waterFactor),
-        _FactorRow(label: 'Température', value: f.temperatureFactor),
+        _FactorRow(
+          label: mushroomWaterFactorLabel(forecast.soilMoistureAvailable),
+          value: f.waterFactor,
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Text(
+            forecast.wetStreak == null
+                ? 'Humidité maintenue : donnée non disponible'
+                : 'Humidité maintenue : ${forecast.wetStreak} '
+                      '${forecast.wetStreak == 1 ? 'jour' : 'jours'}',
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+        ),
+        _FactorRow(
+          label: forecast.temperatureSource == 'soil_0_7cm'
+              ? 'Température du sol (0–7 cm)'
+              : 'Température de l’air',
+          value: f.temperatureFactor,
+        ),
         _FactorRow(label: 'Dessèchement', value: f.dryingFactor),
+        _FactorRow(label: 'Choc déclencheur', value: f.shockFactor),
         _FactorRow(label: 'Terrain', value: f.terrainFactor),
         _FactorRow(label: 'Forêt', value: f.forestFactor),
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            mushroomSoilValuesLabel(forecast),
+            style: const TextStyle(color: Colors.white38, fontSize: 10),
+          ),
+        ),
       ],
     );
   }
+}
+
+/// Libellé du facteur eau selon la disponibilité d'une mesure du sol.
+String mushroomWaterFactorLabel(bool soilMoistureAvailable) =>
+    soilMoistureAvailable ? 'Eau' : 'Eau (sans mesure du sol)';
+
+/// Valeurs observées dans les réponses de sol pour le jour de la fiche.
+String mushroomSoilValuesLabel(MushroomForecast forecast) =>
+    'Sol 0-7 cm : ${_formatSoilValue(forecast.soilMoisture0To7Percent)} % · '
+    '7-28 cm : ${_formatSoilValue(forecast.soilMoisture7To28Percent)} % · '
+    'température sol 0-7 cm : '
+    '${_formatSoilValue(forecast.soilTemperature0To7C)} °C';
+
+String _formatSoilValue(double? value) =>
+    value == null ? 'n/d' : value.toStringAsFixed(1);
+
+String _shockDescription(MushroomForecast forecast) {
+  final eventDate = forecast.shockDate;
+  final score = forecast.factors.shockFactor;
+  if (eventDate == null || score == null || score <= 0) {
+    return 'Aucun choc dans la fenêtre';
+  }
+  final targetDay = DateTime.utc(
+    forecast.date.year,
+    forecast.date.month,
+    forecast.date.day,
+  );
+  final shockDay = DateTime.utc(eventDate.year, eventDate.month, eventDate.day);
+  final daysAgo = targetDay.difference(shockDay).inDays;
+  final rain =
+      forecast.shockRainMm?.toStringAsFixed(1) ?? 'donnée non disponible';
+  final drop = forecast.shockTempDropC == null
+      ? 'donnée non disponible'
+      : forecast.shockTempDropC!.toStringAsFixed(1);
+  return 'Choc déclencheur il y a $daysAgo jours '
+      '(pluie $rain mm, baisse $drop °C)';
 }
 
 class _FactorRow extends StatelessWidget {
