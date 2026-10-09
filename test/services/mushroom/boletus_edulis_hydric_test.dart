@@ -52,6 +52,54 @@ void main() {
       .waterFactor;
 
   group('persistance hydrique', () {
+    test('statistiques 7-28 cm: min, médiane, max et percentile', () {
+      final forecast = model.calculate(
+        weatherHistory: const [],
+        weatherForecast: const [],
+        soilMoistureLayers: moistureSeries([10, 20, 30, 40, 50]),
+        terrain: TerrainData.mock(),
+        forest: ForestData.mock(isForest: true),
+        targetDate: baseDate,
+      );
+
+      expect(forecast.soilMoisture7To28Min60dPercent, 10);
+      expect(forecast.soilMoisture7To28Median60dPercent, 30);
+      expect(forecast.soilMoisture7To28Max60dPercent, 50);
+      expect(forecast.soilMoisture7To28Percentile60d, 100);
+    });
+
+    test('série vide laisse toutes les statistiques inconnues', () {
+      final forecast = model.calculate(
+        weatherHistory: const [],
+        weatherForecast: const [],
+        soilMoistureLayers: const [],
+        terrain: TerrainData.mock(),
+        forest: ForestData.mock(isForest: true),
+        targetDate: baseDate,
+      );
+
+      expect(forecast.soilMoisture7To28Min60dPercent, isNull);
+      expect(forecast.soilMoisture7To28Median60dPercent, isNull);
+      expect(forecast.soilMoisture7To28Max60dPercent, isNull);
+      expect(forecast.soilMoisture7To28Percentile60d, isNull);
+    });
+
+    test('série constante conserve min médiane max et rang à 100', () {
+      final forecast = model.calculate(
+        weatherHistory: const [],
+        weatherForecast: const [],
+        soilMoistureLayers: moistureSeries(List<double>.filled(4, 41)),
+        terrain: TerrainData.mock(),
+        forest: ForestData.mock(isForest: true),
+        targetDate: baseDate,
+      );
+
+      expect(forecast.soilMoisture7To28Min60dPercent, 41);
+      expect(forecast.soilMoisture7To28Median60dPercent, 41);
+      expect(forecast.soilMoisture7To28Max60dPercent, 41);
+      expect(forecast.soilMoisture7To28Percentile60d, 100);
+    });
+
     test('7–28 cm est prioritaire et 0–7 cm est le repli', () {
       List<SoilMoistureData> layers({required bool includePrimary}) => [
         for (var offset = -4; offset <= 0; offset++) ...[

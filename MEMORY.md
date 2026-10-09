@@ -237,7 +237,7 @@ lib/
 - **Thème** : Dark mode (couleur de fond `#0A1929`)
 
 ## Module champignons
-- `HabitatConfig` documente 100–1800 m ; altitude inconnue reste admissible, et le service court-circuite météo/sol/forêt si exclu.
-- Altitude ou forêt inconnue donne `HabitatStatus.unknown`; persistance hydrique et choc hydro-thermique pilotent l'indice avec seuils provisoires documentés.
-- Les facteurs inconnus restent exclus des moyennes pondérées et réduisent la confiance.
-- `MushroomForecastProvider` centralise J+0 à J+7; hydric 7–28/repli 0–7 cm, température 0–7 cm. Comparatif 08/10/26 : `ecmwf_ifs025` 0,25° et `ecmwf_ifs` HRES 9 km, 0/264 nulls chacun; service inchangé. Overpass : 9 ways, relation 13756798 sans membres, bord à 2 013,7 m; relations incomplètes journalisées.
+- `HabitatConfig` documente 100–1800 m ; altitude inconnue reste admissible, et le service court-circuite météo/sol/forêt si exclu. Diagnostic IGN : tableaux JSON (`lon` manquant) et ressource `ign_rge_alti5` invalide ; chaînes `|` + `ign_rge_alti_wld` donnent 200/242 ms, 9 valeurs, sans `-99999`.
+- Altitude ou forêt inconnue donne `HabitatStatus.unknown`; OSM ne fournit que des preuves positives de forêt. Persistance hydrique et choc hydro-thermique pilotent l'indice avec seuils provisoires documentés.
+- Les facteurs inconnus restent exclus des moyennes pondérées et réduisent la confiance. La fiche expose la distribution 7–28 cm sur 60 jours ; valeurs manquantes `n/d`, seuil hydrique inchangé.
+- `MushroomForecastProvider` centralise J+0 à J+7; hydric 7–28/repli 0–7 cm, température 0–7 cm. ECMWF comparé 08/10/26 (0/264 nulls chacun). Overpass Salvetat : 9 ways, 1 relation incomplète (13756798), 9 zones, bord 2 015,9 m ; WFS `LANDCOVER.FORESTINVENTORY.V2:formation_vegetale` en EPSG:2154 : Hérault 1 feature (FF0, essence NR), échantillon Tarn/Lacaune 0.

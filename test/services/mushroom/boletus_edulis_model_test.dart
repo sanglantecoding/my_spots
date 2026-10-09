@@ -256,6 +256,7 @@ void main() {
           withForestUnknown.confidence,
           lessThan(withForestKnown.confidence),
         );
+        expect(withForestUnknown.factors.forestFactor, isNull);
       });
 
       test('la confiance baisse lorsque les mesures du sol manquent', () {

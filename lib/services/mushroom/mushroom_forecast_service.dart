@@ -198,6 +198,11 @@ class MushroomForecastService {
         soilMoistureAvailable: forecast.soilMoistureAvailable,
         soilMoisture0To7Percent: forecast.soilMoisture0To7Percent,
         soilMoisture7To28Percent: forecast.soilMoisture7To28Percent,
+        soilMoisture7To28Min60dPercent: forecast.soilMoisture7To28Min60dPercent,
+        soilMoisture7To28Median60dPercent:
+            forecast.soilMoisture7To28Median60dPercent,
+        soilMoisture7To28Max60dPercent: forecast.soilMoisture7To28Max60dPercent,
+        soilMoisture7To28Percentile60d: forecast.soilMoisture7To28Percentile60d,
         soilTemperature0To7C: forecast.soilTemperature0To7C,
         hydricGate: forecast.hydricGate,
         shockDate: forecast.shockDate,

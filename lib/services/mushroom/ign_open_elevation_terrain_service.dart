@@ -29,7 +29,7 @@ class IgnOpenElevationTerrainService implements TerrainService {
 
   final http.Client _client;
 
-  static const _ignSource = 'ign_bdalti_5m';
+  static const _ignSource = 'ign_rge_alti_wld';
   static const _ignNoDataValue = -99999.0;
   static const _openElevationSource = 'srtm_open_elevation_30m';
 
@@ -100,8 +100,28 @@ class IgnOpenElevationTerrainService implements TerrainService {
     try {
       final ign = await _fetchIgn(lats, lngs);
       elevations9 = ign.elevations;
-      noElevationData = ign.noElevationData[4];
       source = _ignSource;
+      if (ign.noElevationData[4]) {
+        // IGN's sentinel can also mean outside its coverage. Confirm sea
+        // level with SRTM before marking this location as having no data.
+        try {
+          final srtmElevations = await _fetchOpenElevation(lats, lngs);
+          final srtmCenter = srtmElevations[4];
+          if (srtmCenter == null) {
+            elevations9[4] = null;
+          } else {
+            elevations9 = srtmElevations;
+            source = _openElevationSource;
+            if (srtmCenter <= 0) {
+              elevations9[4] = 0;
+              noElevationData = true;
+            }
+          }
+        } catch (_) {
+          // An unavailable confirmation source leaves altitude unknown.
+          elevations9[4] = null;
+        }
+      }
     } on _ProviderUnavailableException {
       elevations9 = await _fetchOpenElevation(lats, lngs);
       source = _openElevationSource;
@@ -153,9 +173,10 @@ class IgnOpenElevationTerrainService implements TerrainService {
     assert(lats.length == 9 && lngs.length == 9);
     final uri = Uri.parse(_ignBaseUrl);
     final body = jsonEncode(<String, dynamic>{
-      'lon': lngs,
-      'lat': lats,
-      'resource': 'ign_rge_alti5',
+      'lon': lngs.join('|'),
+      'lat': lats.join('|'),
+      'resource': 'ign_rge_alti_wld',
+      'delimiter': '|',
     });
     final response = await _client.post(
       uri,

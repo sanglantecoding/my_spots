@@ -7,6 +7,8 @@ import 'package:my_spots/services/mushroom/mushroom_forecast_provider.dart';
 import 'package:my_spots/views/mushroom/mushroom_observation_form.dart';
 import 'package:my_spots/views/mushroom/mushroom_observations_screen.dart';
 
+const _observationActionBarHeight = 56.0;
+
 Future<void> showMushroomForecastSheet(BuildContext context, LatLng point) =>
     showModalBottomSheet<void>(
       context: context,
@@ -148,6 +150,9 @@ class _MushroomForecastSheetState extends State<MushroomForecastSheet> {
                 Flexible(
                   child: ListView.separated(
                     shrinkWrap: true,
+                    padding: const EdgeInsets.only(
+                      bottom: _observationActionBarHeight,
+                    ),
                     itemCount: _forecasts!.length,
                     separatorBuilder: (_, _) =>
                         const Divider(height: 1, color: Colors.white12),
@@ -158,37 +163,40 @@ class _MushroomForecastSheetState extends State<MushroomForecastSheet> {
                   ),
                 ),
               ],
-              Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const MushroomObservationsScreen(),
+              SizedBox(
+                height: _observationActionBarHeight,
+                child: Row(
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const MushroomObservationsScreen(),
+                        ),
                       ),
+                      icon: const Icon(Icons.list_alt),
+                      label: const Text('Observations'),
                     ),
-                    icon: const Icon(Icons.list_alt),
-                    label: const Text('Observations'),
-                  ),
-                  const Spacer(),
-                  FilledButton.icon(
-                    onPressed: () async {
-                      final saved = await showMushroomObservationForm(
-                        context,
-                        latitude: widget.point.latitude,
-                        longitude: widget.point.longitude,
-                      );
-                      if (saved == true && context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Observation enregistrée.'),
-                          ),
+                    const Spacer(),
+                    FilledButton.icon(
+                      onPressed: () async {
+                        final saved = await showMushroomObservationForm(
+                          context,
+                          latitude: widget.point.latitude,
+                          longitude: widget.point.longitude,
                         );
-                      }
-                    },
-                    icon: const Icon(Icons.edit_note),
-                    label: const Text('Noter une observation'),
-                  ),
-                ],
+                        if (saved == true && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Observation enregistrée.'),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.edit_note),
+                      label: const Text('Noter une observation'),
+                    ),
+                  ],
+                ),
               ),
               const Divider(color: Colors.white24, height: 20),
               const Text(
@@ -196,15 +204,11 @@ class _MushroomForecastSheetState extends State<MushroomForecastSheet> {
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white54, fontSize: 12),
               ),
-              if (_forecasts != null &&
-                  !_forecasts!.first.soilMoistureAvailable)
+              if (_forecasts != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    'Sources : météo ${_forecasts!.first.dataSources['weather'] ?? 'inconnue'} '
-                    '(sol : indisponible) · altitude '
-                    '${_forecasts!.first.dataSources['terrain'] ?? 'inconnue'} · forêt '
-                    '${_forecasts!.first.dataSources['forest'] ?? 'inconnue'}',
+                    _sourcesSummary(_forecasts!.first),
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white38, fontSize: 10),
                   ),
@@ -215,6 +219,27 @@ class _MushroomForecastSheetState extends State<MushroomForecastSheet> {
       ),
     );
   }
+}
+
+String _sourcesSummary(MushroomForecast forecast) {
+  final sources = forecast.dataSources;
+  final soilStatus = forecast.soilMoistureAvailable
+      ? 'disponible'
+      : 'indisponible';
+  final tileKnown = sources['forestTileKnown'] == 'true';
+  final areaCount = int.tryParse(sources['forestAreasInTile'] ?? '');
+  final distance = double.tryParse(
+    sources['nearestForestDistanceMeters'] ?? '',
+  );
+  final forestOsm = !tileKnown
+      ? 'Forêt OSM : donnée non disponible'
+      : areaCount == null || areaCount == 0
+      ? 'Forêt OSM : aucune zone forestière dans la tuile'
+      : 'Forêt OSM : $areaCount zones dans la tuile, la plus proche à '
+            '${distance == null ? 'n/d' : '${distance.toStringAsFixed(0)} m'}';
+  return 'Sources : météo ${sources['weather'] ?? 'inconnue'} '
+      '(sol : $soilStatus) · altitude ${sources['terrain'] ?? 'inconnue'} · '
+      'forêt ${sources['forest'] ?? 'inconnue'} · $forestOsm';
 }
 
 class _ForecastDayExpansion extends StatelessWidget {
@@ -345,6 +370,13 @@ class _ForecastDayExpansion extends StatelessWidget {
             style: const TextStyle(color: Colors.white38, fontSize: 10),
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.only(top: 3),
+          child: Text(
+            mushroomSoilHistoryStatsLabel(forecast),
+            style: const TextStyle(color: Colors.white38, fontSize: 10),
+          ),
+        ),
       ],
     );
   }
@@ -360,6 +392,14 @@ String mushroomSoilValuesLabel(MushroomForecast forecast) =>
     '7-28 cm : ${_formatSoilValue(forecast.soilMoisture7To28Percent)} % · '
     'température sol 0-7 cm : '
     '${_formatSoilValue(forecast.soilTemperature0To7C)} °C';
+
+String mushroomSoilHistoryStatsLabel(MushroomForecast forecast) =>
+    'Sol 7-28 cm sur 60 j : min '
+    '${_formatSoilValue(forecast.soilMoisture7To28Min60dPercent)} % · médiane '
+    '${_formatSoilValue(forecast.soilMoisture7To28Median60dPercent)} % · max '
+    '${_formatSoilValue(forecast.soilMoisture7To28Max60dPercent)} % · '
+    "aujourd'hui au "
+    '${forecast.soilMoisture7To28Percentile60d == null ? 'n/d' : '${forecast.soilMoisture7To28Percentile60d!.round()}e'} percentile';
 
 String _formatSoilValue(double? value) =>
     value == null ? 'n/d' : value.toStringAsFixed(1);

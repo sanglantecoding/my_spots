@@ -49,7 +49,10 @@ void main() {
         noElevationData: true,
       );
       expect(forecast.habitat, HabitatStatus.excluded);
-      expect(forecast.habitatReason, 'Pas d’altitude IGN : mer probable');
+      expect(
+        forecast.habitatReason,
+        'Pas d’altitude IGN ni SRTM : mer probable',
+      );
       expect(forecast.index, 0);
     });
 

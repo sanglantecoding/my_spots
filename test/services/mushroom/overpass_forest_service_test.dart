@@ -61,6 +61,8 @@ void main() {
       expect(data.treeDensity, isNull);
       expect(data.canopyCover, isNull);
       expect(data.source, 'osm_overpass');
+      expect(data.forestAreasInTile, greaterThan(0));
+      expect(data.nearestForestDistanceMeters, isNotNull);
       expect(
         data.landCover,
         isNull,
@@ -68,20 +70,38 @@ void main() {
       );
     });
 
-    test('point loin de toute forêt est connu comme non forestier', () async {
+    test('absence de polygone dans une tuile connue reste inconnue', () async {
       final data = await service(
         fixtureClient(),
       ).getForestData(lat: 45.045, lng: 3.045);
-      expect(data.isForest, isFalse);
+      expect(data.isForest, isNull);
       expect(data.landCover, isNull);
+      expect(data.forestAreasInTile, greaterThan(0));
+      expect(data.nearestForestDistanceMeters, greaterThan(50));
     });
 
-    test('le trou d’un multipolygon n’est pas considéré comme forêt', () async {
-      final data = await service(
-        fixtureClient(),
-      ).getForestData(lat: 45.025, lng: 3.025);
-      expect(data.isForest, isFalse);
-    });
+    test(
+      'tuile connue sans zone forestière compte zéro et distance nulle',
+      () async {
+        final empty = jsonEncode({'elements': <dynamic>[]});
+        final data = await service(
+          MockClient((_) async => http.Response(empty, 200)),
+        ).getForestData(lat: 45.012, lng: 3.012);
+        expect(data.isForest, isNull);
+        expect(data.forestAreasInTile, 0);
+        expect(data.nearestForestDistanceMeters, isNull);
+      },
+    );
+
+    test(
+      'un trou de multipolygon ne permet pas de conclure à l’absence',
+      () async {
+        final data = await service(
+          fixtureClient(),
+        ).getForestData(lat: 45.025, lng: 3.025);
+        expect(data.isForest, isNull);
+      },
+    );
 
     test(
       'assemble les segments outer désordonnés et inversés autour d’un trou',
@@ -156,20 +176,23 @@ void main() {
         final holePoint = await svc.getForestData(lat: 45.005, lng: 3.005);
 
         expect(forestPoint.isForest, isTrue);
-        expect(holePoint.isForest, isFalse);
+        expect(holePoint.isForest, isNull);
       },
     );
 
-    test('la lisière à 30 m est forêt, celle à 80 m ne l’est pas', () async {
-      final edge30 = await service(
-        fixtureClient(),
-      ).getForestData(lat: 45.025, lng: 3.04038);
-      final edge80 = await service(
-        fixtureClient(),
-      ).getForestData(lat: 45.025, lng: 3.04102);
-      expect(edge30.isForest, isTrue);
-      expect(edge80.isForest, isFalse);
-    });
+    test(
+      'la lisière à 30 m est prouvée, celle à 80 m reste inconnue',
+      () async {
+        final edge30 = await service(
+          fixtureClient(),
+        ).getForestData(lat: 45.025, lng: 3.04038);
+        final edge80 = await service(
+          fixtureClient(),
+        ).getForestData(lat: 45.025, lng: 3.04102);
+        expect(edge30.isForest, isTrue);
+        expect(edge80.isForest, isNull);
+      },
+    );
 
     test('lac et plage prennent priorité dans landCover', () async {
       final lake = await service(
@@ -266,6 +289,8 @@ void main() {
         expect(data.treeDensity, isNull);
         expect(data.canopyCover, isNull);
         expect(data.landCover, isNull);
+        expect(data.forestAreasInTile, isNull);
+        expect(data.nearestForestDistanceMeters, isNull);
         expect(data.source, isNull);
       },
     );
@@ -287,6 +312,8 @@ void main() {
       expect(data.treeDensity, isNull);
       expect(data.canopyCover, isNull);
       expect(data.landCover, isNull);
+      expect(data.forestAreasInTile, isNull);
+      expect(data.nearestForestDistanceMeters, isNull);
       expect(data.source, isNull);
     });
 

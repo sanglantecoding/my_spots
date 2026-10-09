@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart';
 import 'package:http/testing.dart';
+import 'package:my_spots/services/mushroom/habitat_rules.dart';
+import 'package:my_spots/models/mushroom/habitat_status.dart';
 import 'package:my_spots/services/mushroom/ign_open_elevation_terrain_service.dart';
 
 void main() {
@@ -109,13 +111,13 @@ void main() {
 
   group('calcul pente + aspect via getTerrainData (MockClient)', () {
     test(
-      'sentinelle IGN centrale produit noElevationData sans altitude',
+      'sentinelle IGN sans confirmation SRTM reste une altitude inconnue',
       () async {
         final vals = List<double?>.filled(9, 100.0);
         vals[4] = -99999.0;
         final data = await _terrainFromVals(vals);
         expect(data.elevation, isNull);
-        expect(data.noElevationData, isTrue);
+        expect(data.noElevationData, isFalse);
       },
     );
 
@@ -124,7 +126,7 @@ void main() {
       expect(r.elevation, 200.0);
       expect(r.slope, lessThan(0.5));
       expect(r.aspect, isNull);
-      expect(r.source, 'ign_bdalti_5m');
+      expect(r.source, 'ign_rge_alti_wld');
     });
 
     test('rampe Est pure (O→E) → aspect 90° ± 1, pente > 5°', () async {
@@ -132,7 +134,7 @@ void main() {
       final r = await _terrainFromVals(vals);
       expect(r.slope, greaterThan(5.0));
       expect(r.aspect, closeTo(90.0, 1.0));
-      expect(r.source, 'ign_bdalti_5m');
+      expect(r.source, 'ign_rge_alti_wld');
     });
 
     test('rampe Ouest pure (E→O) → aspect 270° ± 1', () async {
@@ -165,7 +167,7 @@ void main() {
       expect(r.elevation, 140.0);
       expect(r.slope, isNull);
       expect(r.aspect, isNull);
-      expect(r.source, 'ign_bdalti_5m');
+      expect(r.source, 'ign_rge_alti_wld');
     });
 
     test('seul le centre disponible → elevation ok, reste null', () async {
@@ -179,6 +181,41 @@ void main() {
   });
 
   group('fallback IGN → Open-Elevation', () {
+    test(
+      'IGN no-data confirmé par SRTM positif utilise son altitude',
+      () async {
+        final service = _serviceWithIgnNoData(srtmCenter: 900);
+        final terrain = await service.getTerrainData(lat: 44, lng: 1);
+        expect(terrain.elevation, 900);
+        expect(terrain.noElevationData, isFalse);
+        expect(terrain.source, 'srtm_open_elevation_30m');
+        expect(HabitatRules.evaluateTerrain(terrain), isNull);
+      },
+    );
+
+    test('IGN no-data confirmé par SRTM à zéro exclut le point', () async {
+      final service = _serviceWithIgnNoData(srtmCenter: 0);
+      final terrain = await service.getTerrainData(lat: 44, lng: 1);
+      expect(terrain.elevation, 0);
+      expect(terrain.noElevationData, isTrue);
+      expect(
+        HabitatRules.evaluateTerrain(terrain)?.status,
+        HabitatStatus.excluded,
+      );
+      expect(
+        HabitatRules.evaluateTerrain(terrain)?.reason,
+        'Pas d’altitude IGN ni SRTM : mer probable',
+      );
+    });
+
+    test('IGN no-data et SRTM indisponible reste inconnu', () async {
+      final service = _serviceWithIgnNoData(srtmFails: true);
+      final terrain = await service.getTerrainData(lat: 44, lng: 1);
+      expect(terrain.elevation, isNull);
+      expect(terrain.noElevationData, isFalse);
+      expect(HabitatRules.evaluateTerrain(terrain), isNull);
+    });
+
     test('IGN 500 bascule sur Open-Elevation, source correcte', () async {
       final client = MockClient((request) async {
         if (request.url.host == 'data.geopf.fr') {
@@ -244,7 +281,7 @@ void main() {
       expect(ignCallCount, 1);
       expect(a.elevation, b.elevation);
       expect(a.source, b.source);
-      expect(a.source, 'ign_bdalti_5m');
+      expect(a.source, 'ign_rge_alti_wld');
     });
 
     test('coords éloignées (> précision cache) → 2 appels HTTP', () async {
@@ -275,36 +312,38 @@ void main() {
   });
 
   group('requête HTTP IGN bien formée', () {
-    test('POST JSON avec lon/lat arrays + resource ign_rge_alti5', () async {
-      Request? captured;
-      final client = MockClient((request) async {
-        captured = request;
-        final body = jsonEncode({
-          'elevations': List<Map<String, dynamic>>.generate(
-            9,
-            (_) => {'lon': 1.0, 'lat': 44.0, 'z': 200.0, 'acc': 1.0},
-          ),
+    test(
+      'POST JSON avec coordonnées délimitées + ressource RGE ALTI',
+      () async {
+        Request? captured;
+        final client = MockClient((request) async {
+          captured = request;
+          final body = jsonEncode({
+            'elevations': List<Map<String, dynamic>>.generate(
+              9,
+              (_) => {'lon': 1.0, 'lat': 44.0, 'z': 200.0, 'acc': 1.0},
+            ),
+          });
+          return Response(
+            body,
+            200,
+            headers: {'content-type': 'application/json'},
+          );
         });
-        return Response(
-          body,
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      });
 
-      final svc = IgnOpenElevationTerrainService(client: client);
-      await svc.getTerrainData(lat: 44.0, lng: 1.0);
+        final svc = IgnOpenElevationTerrainService(client: client);
+        await svc.getTerrainData(lat: 44.0, lng: 1.0);
 
-      final req = captured!;
-      expect(req.method, 'POST');
-      expect(req.url.host, 'data.geopf.fr');
-      final parsed = jsonDecode(req.body) as Map<String, dynamic>;
-      expect(parsed['resource'], 'ign_rge_alti5');
-      expect(parsed['lon'] is List, isTrue);
-      expect(parsed['lat'] is List, isTrue);
-      expect((parsed['lon'] as List).length, 9);
-      expect((parsed['lat'] as List).length, 9);
-    });
+        final req = captured!;
+        expect(req.method, 'POST');
+        expect(req.url.host, 'data.geopf.fr');
+        final parsed = jsonDecode(req.body) as Map<String, dynamic>;
+        expect(parsed['resource'], 'ign_rge_alti_wld');
+        expect(parsed['delimiter'], '|');
+        expect((parsed['lon'] as String).split('|').length, 9);
+        expect((parsed['lat'] as String).split('|').length, 9);
+      },
+    );
   });
 
   group('getElevation wrapper', () {
@@ -344,6 +383,39 @@ Client _mockIgnFixedVals(List<double?> vals) {
     }
     return Response('{}', 500);
   });
+}
+
+IgnOpenElevationTerrainService _serviceWithIgnNoData({
+  double? srtmCenter,
+  bool srtmFails = false,
+}) {
+  final client = MockClient((request) async {
+    if (request.url.host == 'data.geopf.fr') {
+      final body = jsonEncode({
+        'elevations': List<Map<String, dynamic>>.generate(
+          9,
+          (i) => {'lon': 1.0, 'lat': 44.0, 'z': i == 4 ? -99999 : 300},
+        ),
+      });
+      return Response(body, 200, headers: {'content-type': 'application/json'});
+    }
+    if (request.url.host == 'api.open-elevation.com') {
+      if (srtmFails) return Response('{}', 503);
+      final body = jsonEncode({
+        'results': List<Map<String, dynamic>>.generate(
+          9,
+          (i) => {
+            'latitude': 44.0,
+            'longitude': 1.0,
+            'elevation': i == 4 ? srtmCenter : 901 + i,
+          },
+        ),
+      });
+      return Response(body, 200, headers: {'content-type': 'application/json'});
+    }
+    return Response('{}', 500);
+  });
+  return IgnOpenElevationTerrainService(client: client);
 }
 
 Future<dynamic> _terrainFromVals(List<double?> vals) async {

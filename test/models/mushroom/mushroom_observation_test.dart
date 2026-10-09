@@ -34,6 +34,10 @@ void main() {
         hydricGate: 0.4,
         wetStreak: 2,
         dryBefore: 18,
+        soilMoisture7To28Min60dPercent: 8,
+        soilMoisture7To28Median60dPercent: 24.5,
+        soilMoisture7To28Max60dPercent: 41,
+        soilMoisture7To28Percentile60d: 80,
         shockRainMm: 22,
         shockTempDropC: 4,
         temperatureSource: 'air',
@@ -61,6 +65,10 @@ void main() {
       expect(decoded.forecastSnapshot?.hydricGate, 0.4);
       expect(decoded.forecastSnapshot?.wetStreak, 2);
       expect(decoded.forecastSnapshot?.shockRainMm, 22);
+      expect(decoded.forecastSnapshot?.soilMoisture7To28Min60dPercent, 8);
+      expect(decoded.forecastSnapshot?.soilMoisture7To28Median60dPercent, 24.5);
+      expect(decoded.forecastSnapshot?.soilMoisture7To28Max60dPercent, 41);
+      expect(decoded.forecastSnapshot?.soilMoisture7To28Percentile60d, 80);
       expect(decoded.forecastSnapshot?.dataSources['weather'], 'Open-Meteo');
     });
 

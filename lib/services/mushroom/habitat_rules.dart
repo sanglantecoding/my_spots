@@ -8,16 +8,16 @@ class HabitatRules {
   static ({HabitatStatus status, String reason})? evaluateTerrain(
     TerrainData terrain,
   ) {
+    if (terrain.noElevationData) {
+      return (
+        status: HabitatStatus.excluded,
+        reason: 'Pas d’altitude IGN ni SRTM : mer probable',
+      );
+    }
     if (terrain.elevation != null && terrain.elevation! <= 0) {
       return (
         status: HabitatStatus.excluded,
         reason: 'Niveau de la mer ou en dessous',
-      );
-    }
-    if (terrain.noElevationData) {
-      return (
-        status: HabitatStatus.excluded,
-        reason: 'Pas d’altitude IGN : mer probable',
       );
     }
 

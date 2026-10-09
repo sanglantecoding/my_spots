@@ -389,6 +389,8 @@ class OverpassForestService implements ForestService {
     final point = _Coordinate(lat, lng);
     var forest = false;
     String? forestType;
+    var forestAreasInTile = 0;
+    double? nearestForestDistanceMeters;
     final coversAtPoint = <String>{};
     var urbanAtPoint = false;
 
@@ -396,6 +398,16 @@ class OverpassForestService implements ForestService {
       final cover = _landCover(area.tags);
       final isForestArea = _isForest(area.tags);
       final contains = area.polygons.any((polygon) => polygon.contains(point));
+      if (isForestArea) {
+        forestAreasInTile += area.polygons.length;
+        for (final polygon in area.polygons) {
+          final distance = polygon.distanceToBoundaryMeters(point);
+          if (nearestForestDistanceMeters == null ||
+              distance < nearestForestDistanceMeters) {
+            nearestForestDistanceMeters = distance;
+          }
+        }
+      }
       if (cover != null && cover != 'urban' && contains) {
         coversAtPoint.add(cover);
       }
@@ -431,11 +443,14 @@ class OverpassForestService implements ForestService {
     return ForestData(
       latitude: lat,
       longitude: lng,
-      isForest: forest,
+      // OSM n'est pas exhaustif : on n'en tire que des preuves positives.
+      isForest: forest ? true : null,
       forestType: forestType,
       treeDensity: null,
       canopyCover: null,
       landCover: prioritizedCover ?? (urbanAtPoint && !forest ? 'urban' : null),
+      forestAreasInTile: forestAreasInTile,
+      nearestForestDistanceMeters: nearestForestDistanceMeters,
       source: 'osm_overpass',
     );
   }
@@ -527,6 +542,14 @@ class _Polygon {
   bool nearOuterEdge(_Coordinate point, double toleranceMeters) {
     if (holes.any((hole) => _insideRing(point, hole))) return false;
     return _distanceToRingMeters(point, outer) <= toleranceMeters;
+  }
+
+  double distanceToBoundaryMeters(_Coordinate point) {
+    var distance = _distanceToRingMeters(point, outer);
+    for (final hole in holes) {
+      distance = math.min(distance, _distanceToRingMeters(point, hole));
+    }
+    return distance;
   }
 }
 

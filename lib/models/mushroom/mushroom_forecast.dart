@@ -19,6 +19,10 @@ class MushroomForecast {
   final bool soilMoistureAvailable;
   final double? soilMoisture0To7Percent;
   final double? soilMoisture7To28Percent;
+  final double? soilMoisture7To28Min60dPercent;
+  final double? soilMoisture7To28Median60dPercent;
+  final double? soilMoisture7To28Max60dPercent;
+  final double? soilMoisture7To28Percentile60d;
   final double? soilTemperature0To7C;
 
   /// Porte hydrique appliquée à l'indice, entre 0 et 1.
@@ -44,6 +48,10 @@ class MushroomForecast {
     this.soilMoistureAvailable = false,
     this.soilMoisture0To7Percent,
     this.soilMoisture7To28Percent,
+    this.soilMoisture7To28Min60dPercent,
+    this.soilMoisture7To28Median60dPercent,
+    this.soilMoisture7To28Max60dPercent,
+    this.soilMoisture7To28Percentile60d,
     this.soilTemperature0To7C,
     this.hydricGate,
     this.shockDate,
@@ -67,6 +75,10 @@ class MushroomForecast {
     bool soilMoistureAvailable = false,
     double? soilMoisture0To7Percent,
     double? soilMoisture7To28Percent,
+    double? soilMoisture7To28Min60dPercent,
+    double? soilMoisture7To28Median60dPercent,
+    double? soilMoisture7To28Max60dPercent,
+    double? soilMoisture7To28Percentile60d,
     double? soilTemperature0To7C,
     double? hydricGate,
     DateTime? shockDate,
@@ -88,6 +100,10 @@ class MushroomForecast {
       soilMoistureAvailable: soilMoistureAvailable,
       soilMoisture0To7Percent: soilMoisture0To7Percent,
       soilMoisture7To28Percent: soilMoisture7To28Percent,
+      soilMoisture7To28Min60dPercent: soilMoisture7To28Min60dPercent,
+      soilMoisture7To28Median60dPercent: soilMoisture7To28Median60dPercent,
+      soilMoisture7To28Max60dPercent: soilMoisture7To28Max60dPercent,
+      soilMoisture7To28Percentile60d: soilMoisture7To28Percentile60d,
       soilTemperature0To7C: soilTemperature0To7C,
       hydricGate: hydricGate,
       shockDate: shockDate,

@@ -43,6 +43,10 @@ class MushroomForecastSnapshot {
   final bool soilMoistureAvailable;
   final double? soilMoisture0To7Percent;
   final double? soilMoisture7To28Percent;
+  final double? soilMoisture7To28Min60dPercent;
+  final double? soilMoisture7To28Median60dPercent;
+  final double? soilMoisture7To28Max60dPercent;
+  final double? soilMoisture7To28Percentile60d;
   final double? soilTemperature0To7C;
   final DateTime? shockDate;
   final double? shockRainMm;
@@ -62,6 +66,10 @@ class MushroomForecastSnapshot {
     this.soilMoistureAvailable = false,
     this.soilMoisture0To7Percent,
     this.soilMoisture7To28Percent,
+    this.soilMoisture7To28Min60dPercent,
+    this.soilMoisture7To28Median60dPercent,
+    this.soilMoisture7To28Max60dPercent,
+    this.soilMoisture7To28Percentile60d,
     this.soilTemperature0To7C,
     this.shockDate,
     this.shockRainMm,
@@ -90,6 +98,11 @@ class MushroomForecastSnapshot {
         soilMoistureAvailable: forecast.soilMoistureAvailable,
         soilMoisture0To7Percent: forecast.soilMoisture0To7Percent,
         soilMoisture7To28Percent: forecast.soilMoisture7To28Percent,
+        soilMoisture7To28Min60dPercent: forecast.soilMoisture7To28Min60dPercent,
+        soilMoisture7To28Median60dPercent:
+            forecast.soilMoisture7To28Median60dPercent,
+        soilMoisture7To28Max60dPercent: forecast.soilMoisture7To28Max60dPercent,
+        soilMoisture7To28Percentile60d: forecast.soilMoisture7To28Percentile60d,
         soilTemperature0To7C: forecast.soilTemperature0To7C,
         shockDate: forecast.shockDate,
         shockRainMm: forecast.shockRainMm,
@@ -110,6 +123,10 @@ class MushroomForecastSnapshot {
     'soilMoistureAvailable': soilMoistureAvailable,
     'soilMoisture0To7Percent': soilMoisture0To7Percent,
     'soilMoisture7To28Percent': soilMoisture7To28Percent,
+    'soilMoisture7To28Min60dPercent': soilMoisture7To28Min60dPercent,
+    'soilMoisture7To28Median60dPercent': soilMoisture7To28Median60dPercent,
+    'soilMoisture7To28Max60dPercent': soilMoisture7To28Max60dPercent,
+    'soilMoisture7To28Percentile60d': soilMoisture7To28Percentile60d,
     'soilTemperature0To7C': soilTemperature0To7C,
     'shockDate': shockDate?.toIso8601String(),
     'shockRainMm': shockRainMm,
@@ -143,6 +160,14 @@ class MushroomForecastSnapshot {
           ?.toDouble(),
       soilMoisture7To28Percent: (json['soilMoisture7To28Percent'] as num?)
           ?.toDouble(),
+      soilMoisture7To28Min60dPercent:
+          (json['soilMoisture7To28Min60dPercent'] as num?)?.toDouble(),
+      soilMoisture7To28Median60dPercent:
+          (json['soilMoisture7To28Median60dPercent'] as num?)?.toDouble(),
+      soilMoisture7To28Max60dPercent:
+          (json['soilMoisture7To28Max60dPercent'] as num?)?.toDouble(),
+      soilMoisture7To28Percentile60d:
+          (json['soilMoisture7To28Percentile60d'] as num?)?.toDouble(),
       soilTemperature0To7C: (json['soilTemperature0To7C'] as num?)?.toDouble(),
       shockDate: json['shockDate'] == null
           ? null

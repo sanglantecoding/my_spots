@@ -10,6 +10,12 @@ class ForestData {
   /// Occupation du sol connue : water, beach, desert, glacier,
   /// bare_rock ou urban. Null tant qu'aucune source ne la renseigne.
   final String? landCover;
+
+  /// Nombre de polygones forestiers de la tuile connue ; null si tuile inconnue.
+  final int? forestAreasInTile;
+
+  /// Distance du point au bord forestier le plus proche, en mètres.
+  final double? nearestForestDistanceMeters;
   final String?
   source; // Source des données (ex: "ign", "corine", si disponible)
 
@@ -21,6 +27,8 @@ class ForestData {
     this.treeDensity,
     this.canopyCover,
     this.landCover,
+    this.forestAreasInTile,
+    this.nearestForestDistanceMeters,
     this.source,
   });
 
@@ -33,6 +41,8 @@ class ForestData {
     double? treeDensity,
     double? canopyCover,
     String? landCover,
+    int? forestAreasInTile,
+    double? nearestForestDistanceMeters,
     String? source,
   }) {
     return ForestData(
@@ -43,6 +53,8 @@ class ForestData {
       treeDensity: treeDensity,
       canopyCover: canopyCover,
       landCover: landCover,
+      forestAreasInTile: forestAreasInTile,
+      nearestForestDistanceMeters: nearestForestDistanceMeters,
       source: source,
     );
   }

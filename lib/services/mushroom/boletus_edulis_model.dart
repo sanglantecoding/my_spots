@@ -48,6 +48,49 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     return null;
   }
 
+  ({double? min, double? median, double? max, double? percentile})
+  _soilMoistureStats60d(List<SoilMoistureData> layers, DateTime targetDate) {
+    final startDate = targetDate.subtract(const Duration(days: 60));
+    final values =
+        layers
+            .where(
+              (soil) =>
+                  soil.depthStart == 7 &&
+                  soil.depthEnd == 28 &&
+                  soil.soilMoisture != null &&
+                  !_stripTime(soil.date).isBefore(startDate) &&
+                  !_stripTime(soil.date).isAfter(targetDate),
+            )
+            .map((soil) => soil.soilMoisture!)
+            .toList()
+          ..sort();
+    if (values.isEmpty) {
+      return (min: null, median: null, max: null, percentile: null);
+    }
+    final currentValue = _soilValueAt(
+      layers,
+      targetDate,
+      depth: (7, 28),
+      select: (soil) => soil.soilMoisture,
+    );
+    final middle = values.length ~/ 2;
+    final median = values.length.isOdd
+        ? values[middle]
+        : (values[middle - 1] + values[middle]) / 2;
+    // Inclusive percentile rank: share of available values <= today's value.
+    final percentile = currentValue == null
+        ? null
+        : values.where((value) => value <= currentValue).length /
+              values.length *
+              100;
+    return (
+      min: values.first,
+      median: median,
+      max: values.last,
+      percentile: percentile,
+    );
+  }
+
   /// Ordonne une liste de jours météo en antéchronologique :
   /// du PLUS RÉCENT (index 0) au PLUS ANCIEN.
   static List<WeatherDay> _sortDesc(List<WeatherDay> days) {
@@ -88,6 +131,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       tDay,
     );
     final waterFactor = hydric.factor;
+    final soilMoistureStats = _soilMoistureStats60d(soilMoistureLayers, tDay);
 
     // 4. Température du sol si connue, sinon température de l'air.
     final temperature = _calculateTemperatureFactor(
@@ -171,6 +215,10 @@ class BoletusEdulisModel implements MushroomForecastEngine {
         depth: (7, 28),
         select: (soil) => soil.soilMoisture,
       ),
+      soilMoisture7To28Min60dPercent: soilMoistureStats.min,
+      soilMoisture7To28Median60dPercent: soilMoistureStats.median,
+      soilMoisture7To28Max60dPercent: soilMoistureStats.max,
+      soilMoisture7To28Percentile60d: soilMoistureStats.percentile,
       soilTemperature0To7C: _soilValueAt(
         soilMoistureLayers,
         tDay,
@@ -185,6 +233,10 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       dataSources: {
         'terrain': terrain.source,
         'forest': forest.source,
+        'forestAreasInTile': forest.forestAreasInTile?.toString(),
+        'nearestForestDistanceMeters': forest.nearestForestDistanceMeters
+            ?.toString(),
+        'forestTileKnown': forest.isForest == null ? null : 'true',
         'temperature': temperature.source,
         'soil': soilSource,
       },
