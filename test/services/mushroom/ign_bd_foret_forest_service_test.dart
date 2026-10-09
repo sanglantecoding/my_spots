@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/forest_data.dart';
 import 'package:my_spots/services/mushroom/ign_bd_foret_forest_service.dart';
@@ -150,24 +152,46 @@ void main() {
   test(
     'OSM positive forest and landcover take the composite priority',
     () async {
+      final fakeService = _FakeForestService();
       final composite = CompositeForestService(
         bdForet: _StubForest(
           ForestData.mock(isForest: false, source: 'ign_bdforet_v2'),
         ),
-        overpass: _StubForest(
-          ForestData.mock(
-            isForest: true,
-            landCover: 'water',
-            source: 'osm_overpass',
-          ),
-        ),
+        overpass: fakeService,
       );
       final data = await composite.getForestData(lat: 0, lng: 0);
       expect(data.isForest, isTrue);
       expect(data.landCover, 'water');
-      expect(data.source, 'ign_bdforet_v2+osm_overpass');
+      expect(data.source, 'ign_bdforet_v2+fake');
     },
   );
+}
+
+class _FakeForestService implements ForestService {
+  @override
+  Future<ForestData> getForestData({
+    required double lat,
+    required double lng,
+  }) async {
+    return ForestData(
+      latitude: lat,
+      longitude: lng,
+      isForest: true,
+      forestType: 'feuillu',
+      canopyClass: 'fermée',
+      treeDensity: null,
+      canopyCover: null,
+      source: 'fake',
+    );
+  }
+
+  @override
+  Future<Map<String, ForestData>> getForestBatch(
+    LatLngBounds bounds,
+    List<LatLng> centers,
+  ) async {
+    return {};
+  }
 }
 
 class _StubForest implements ForestService {
@@ -177,5 +201,15 @@ class _StubForest implements ForestService {
   Future<ForestData> getForestData({
     required double lat,
     required double lng,
-  }) async => value;
+  }) async {
+    return value;
+  }
+
+  @override
+  Future<Map<String, ForestData>> getForestBatch(
+    LatLngBounds bounds,
+    List<LatLng> centers,
+  ) async {
+    return {};
+  }
 }

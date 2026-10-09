@@ -13,7 +13,8 @@ import 'package:my_spots/services/mushroom/habitat_rules.dart';
 import 'package:my_spots/services/mushroom/mushroom_forecast_engine.dart';
 
 const mushroomViewportMinimumZoom = 11.0;
-const mushroomViewportMaximumCells = 400;
+const mushroomViewportMaximumCells = 150;
+const mushroomViewportDefaultCellsPerSide = 12;
 const mushroomViewportAltitudePointLimit = 5000;
 const mushroomViewportMaximumParallelRequests = 4;
 
@@ -28,12 +29,14 @@ class MushroomViewportForecastResult {
     this.cells = const [],
     this.cellSizeMeters,
     this.message,
+    this.failedCellCount = 0,
   });
 
   final MushroomViewportStatus status;
   final List<MushroomGridCell> cells;
   final int? cellSizeMeters;
   final String? message;
+  final int failedCellCount;
 }
 
 /// Token de validité : le batch source peut vérifier l'annulation entre lots.
@@ -130,6 +133,7 @@ class MushroomViewportForecastService {
     final targetStart = _day(startDate ?? DateTime.now());
     final centers = cells.map((cell) => cell.bounds.center).toList();
     Map<String, TerrainData> terrains;
+    var failedCellCount = 0;
     try {
       terrains = await _source.loadTerrainBatch(centers, cancellation);
     } catch (_) {
@@ -142,6 +146,9 @@ class MushroomViewportForecastService {
     for (final cell in cells) {
       final key = mushroomViewportPointKey(cell.center);
       final terrain = terrains[key] ?? _unknownTerrain(cell.center);
+      if (terrain.elevation == null) {
+        failedCellCount++;
+      }
       final habitat = HabitatRules.evaluateTerrain(terrain);
       if (habitat != null) {
         excluded[key] = _excludedForecasts(terrain, habitat, targetStart).first;
@@ -206,6 +213,7 @@ class MushroomViewportForecastService {
       status: MushroomViewportStatus.ready,
       cells: results,
       cellSizeMeters: geometry.cellSizeMeters,
+      failedCellCount: failedCellCount,
     );
   }
 

@@ -107,6 +107,7 @@ class _MapScreenState extends State<MapScreen> {
   List<MushroomGridCell> _mushroomCells = const [];
   MushroomViewportStatus? _mushroomStatus;
   String? _mushroomMessage;
+  int _mushroomFailedCellCount = 0;
   bool _mushroomLoading = false;
   int _mushroomDateIndex = 0;
   DateTime _mushroomStartDate = DateTime.now();
@@ -229,6 +230,7 @@ class _MapScreenState extends State<MapScreen> {
       _mushroomStatus = result.status;
       _mushroomCells = result.cells;
       _mushroomMessage = result.message;
+      _mushroomFailedCellCount = result.failedCellCount;
       if (_mushroomDateIndex >= 8) _mushroomDateIndex = 0;
     });
   }
@@ -1070,16 +1072,48 @@ class _MapScreenState extends State<MapScreen> {
                                 size: 16,
                               ),
                               const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  _mushroomMessage ??
-                                      'Zoomez pour afficher la prévision',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: Colors.black87,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                              Text(
+                                _mushroomMessage ??
+                                    'Zone trop large : zoomez pour calculer la prévision.',
+                                style: const TextStyle(
+                                  color: Colors.black87,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (!_mushroomLoading &&
+                      _mushroomStatus == MushroomViewportStatus.ready &&
+                      _mushroomFailedCellCount > 0)
+                    Positioned(
+                      top: 10,
+                      left: 50,
+                      right: 50,
+                      child: Material(
+                        color: Colors.grey.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.warning_amber_outlined,
+                                color: Colors.white70,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '$_mushroomFailedCellCount cellules sans données (limite de requêtes ou réseau)',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
                                 ),
                               ),
                             ],

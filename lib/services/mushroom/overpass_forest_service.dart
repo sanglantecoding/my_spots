@@ -4,7 +4,9 @@ import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/forest_data.dart';
 import 'package:my_spots/services/mushroom/forest_service.dart';
@@ -69,6 +71,14 @@ class OverpassForestService implements ForestService {
     } catch (_) {
       return _unknown(lat, lng);
     }
+  }
+
+  @override
+  Future<Map<String, ForestData>> getForestBatch(
+    LatLngBounds bounds,
+    List<LatLng> centers,
+  ) async {
+    return {};
   }
 
   Future<_TileRecord?> _loadTile(_Tile tile) async {

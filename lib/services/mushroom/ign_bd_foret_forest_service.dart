@@ -2,10 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/forest_data.dart';
 import 'package:my_spots/services/mushroom/forest_service.dart';
+import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Interroge la couche formations végétales de la BD Forêt V2 de l'IGN.
@@ -21,6 +24,7 @@ class IgnBdForetForestService implements ForestService {
 
   static const layerName = 'LANDCOVER.FORESTINVENTORY.V2:formation_vegetale';
   static const cacheTtl = Duration(days: 90);
+  static const _tileSizeDeg = 0.05;
   static final Uri defaultEndpoint = Uri.https('data.geopf.fr', '/wfs/ows');
 
   final http.Client _client;
@@ -48,6 +52,200 @@ class IgnBdForetForestService implements ForestService {
     } finally {
       if (identical(_inFlight[key], request)) _inFlight.remove(key);
     }
+  }
+
+  /// Charge les données de forêt pour plusieurs centres de cellules en batch.
+  ///
+  /// Une requête WFS par tuile de 0.05° couvrant la zone, cache disque par tuile
+  /// (TTL 90 jours), puis point-in-polygon local pour chaque cellule.
+  @override
+  Future<Map<String, ForestData>> getForestBatch(
+    LatLngBounds bounds,
+    List<LatLng> centers,
+  ) async {
+    final result = <String, ForestData>{};
+    final tiles = _tilesForBounds(bounds);
+    final tileFeatures = <String, List<Map<String, dynamic>>>{};
+
+    for (final tileKey in tiles) {
+      final cached = await _readTileCache(tileKey);
+      if (cached != null) {
+        tileFeatures[tileKey] = cached;
+      } else if (!AppSettings.offlineModeEnabled) {
+        try {
+          final features = await _fetchTile(tileKey);
+          tileFeatures[tileKey] = features;
+          await _writeTileCache(tileKey, features);
+        } catch (_) {
+          tileFeatures[tileKey] = [];
+        }
+      } else {
+        tileFeatures[tileKey] = [];
+      }
+    }
+
+    for (final center in centers) {
+      final tileKey = _tileKey(center.latitude, center.longitude);
+      final features = tileFeatures[tileKey] ?? [];
+      final data = _pointInPolygon(center.latitude, center.longitude, features);
+      result[mushroomViewportPointKey(center)] = data;
+    }
+
+    return result;
+  }
+
+  List<String> _tilesForBounds(LatLngBounds bounds) {
+    final tiles = <String>{};
+    final minLat = (bounds.south / _tileSizeDeg).floor() * _tileSizeDeg;
+    final maxLat = (bounds.north / _tileSizeDeg).ceil() * _tileSizeDeg;
+    final minLng = (bounds.west / _tileSizeDeg).floor() * _tileSizeDeg;
+    final maxLng = (bounds.east / _tileSizeDeg).ceil() * _tileSizeDeg;
+
+    for (var lat = minLat; lat < maxLat; lat += _tileSizeDeg) {
+      for (var lng = minLng; lng < maxLng; lng += _tileSizeDeg) {
+        tiles.add(_tileKey(lat, lng));
+      }
+    }
+    return tiles.toList();
+  }
+
+  String _tileKey(double lat, double lng) {
+    final tileLat = (lat / _tileSizeDeg).floor() * _tileSizeDeg;
+    final tileLng = (lng / _tileSizeDeg).floor() * _tileSizeDeg;
+    return 'tile_${tileLat.toStringAsFixed(3)}_${tileLng.toStringAsFixed(3)}';
+  }
+
+  Future<List<Map<String, dynamic>>?> _readTileCache(String tileKey) async {
+    try {
+      final directory = await _directory();
+      final file = File(
+        '${directory.path}${Platform.pathSeparator}$tileKey.json',
+      );
+      if (!await file.exists()) return null;
+      final modified = await file.lastModified();
+      if (DateTime.now().difference(modified) > cacheTtl) {
+        await file.delete();
+        return null;
+      }
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! List) return null;
+      return decoded as List<Map<String, dynamic>>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeTileCache(
+    String tileKey,
+    List<Map<String, dynamic>> features,
+  ) async {
+    try {
+      final directory = await _directory();
+      final file = File(
+        '${directory.path}${Platform.pathSeparator}$tileKey.json',
+      );
+      final temp = File('${file.path}.tmp');
+      await temp.writeAsString(jsonEncode(features), flush: true);
+      if (await file.exists()) await file.delete();
+      await temp.rename(file.path);
+    } catch (_) {}
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchTile(String tileKey) async {
+    final parts = tileKey.split('_');
+    final tileLat = double.parse(parts[1]);
+    final tileLng = double.parse(parts[2]);
+    final bbox = LatLngBounds(
+      LatLng(tileLat, tileLng),
+      LatLng(tileLat + _tileSizeDeg, tileLng + _tileSizeDeg),
+    );
+    final response = await _client.get(_bboxQuery(bbox)).timeout(timeout);
+    if (response.statusCode != 200) return [];
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic> || decoded['features'] is! List) {
+      return [];
+    }
+    final rawFeatures = decoded['features'] as List;
+    final features = <Map<String, dynamic>>[];
+    for (final raw in rawFeatures) {
+      if (raw is Map) features.add(raw as Map<String, dynamic>);
+    }
+    return features;
+  }
+
+  Uri _bboxQuery(LatLngBounds bbox) {
+    final filter =
+        '<fes:Filter xmlns:fes="http://www.opengis.net/fes/2.0" '
+        'xmlns:gml="http://www.opengis.net/gml/3.2"><fes:BBOX>'
+        '<fes:ValueReference>geom</fes:ValueReference><gml:Envelope '
+        'srsName="urn:ogc:def:crs:EPSG::4326"><gml:lowerCorner>${bbox.south} ${bbox.west}</gml:lowerCorner>'
+        '<gml:upperCorner>${bbox.north} ${bbox.east}</gml:upperCorner></gml:Envelope>'
+        '</fes:BBOX></fes:Filter>';
+    return endpoint.replace(
+      queryParameters: {
+        'SERVICE': 'WFS',
+        'VERSION': '2.0.0',
+        'REQUEST': 'GetFeature',
+        'TYPENAMES': layerName,
+        'OUTPUTFORMAT': 'application/json',
+        'SRSNAME': 'urn:ogc:def:crs:EPSG::4326',
+        'COUNT': '1000',
+        'FILTER': filter,
+      },
+    );
+  }
+
+  ForestData _pointInPolygon(
+    double lat,
+    double lng,
+    List<Map<String, dynamic>> features,
+  ) {
+    for (final feature in features) {
+      final geometry = feature['geometry'];
+      if (geometry is! Map) continue;
+      final type = geometry['type'];
+      if (type != 'Polygon') continue;
+      final coordinates = geometry['coordinates'];
+      if (coordinates is! List || coordinates.isEmpty) continue;
+      final ring = coordinates[0];
+      if (ring is! List) continue;
+      if (_isPointInPolygon(lat, lng, ring)) {
+        final properties = feature['properties'];
+        if (properties is! Map<String, dynamic>) continue;
+        final classified = _classify(properties);
+        if (classified != null && classified.isForest) {
+          return ForestData(
+            latitude: lat,
+            longitude: lng,
+            isForest: true,
+            forestType: classified.forestType,
+            canopyClass: classified.canopyClass,
+            treeDensity: null,
+            canopyCover: null,
+            source: 'ign_bdforet_v2',
+          );
+        }
+      }
+    }
+    return _unknown(lat, lng);
+  }
+
+  bool _isPointInPolygon(double lat, double lng, List ring) {
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      final vertexI = ring[i];
+      final vertexJ = ring[j];
+      if (vertexI is! List || vertexJ is! List) continue;
+      final xi = vertexI[0] as double;
+      final yi = vertexI[1] as double;
+      final xj = vertexJ[0] as double;
+      final yj = vertexJ[1] as double;
+      if (((yi > lng) != (yj > lng)) &&
+          (lng < (xj - xi) * (lng - yi) / (yj - yi) + xi)) {
+        inside = !inside;
+      }
+    }
+    return inside;
   }
 
   Future<ForestData?> _readCache(String key, double lat, double lng) async {
@@ -294,6 +492,14 @@ class CompositeForestService implements ForestService {
       nearestForestDistanceMeters: osm.nearestForestDistanceMeters,
       source: source.isEmpty ? null : source.join('+'),
     );
+  }
+
+  @override
+  Future<Map<String, ForestData>> getForestBatch(
+    LatLngBounds bounds,
+    List<LatLng> centers,
+  ) async {
+    return await bdForet.getForestBatch(bounds, centers);
   }
 }
 

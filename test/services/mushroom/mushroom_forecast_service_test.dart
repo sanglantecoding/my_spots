@@ -88,6 +88,14 @@ class MockTerrainService implements TerrainService {
   }) async {
     return elevation ?? 0.0;
   }
+
+  @override
+  Future<Map<String, TerrainData>> getTerrainBatch(
+    List<LatLng> centers,
+    double spacingMetres,
+  ) async {
+    return {};
+  }
 }
 
 class MockForestService implements ForestService {
@@ -99,11 +107,24 @@ class MockForestService implements ForestService {
     required double lng,
   }) async {
     getForestDataCallCount++;
-    return ForestData.mock(
+    return ForestData(
+      latitude: lat,
+      longitude: lng,
       isForest: true,
       forestType: 'feuillu',
-      treeDensity: 60.0,
+      canopyClass: 'fermée',
+      treeDensity: null,
+      canopyCover: null,
+      source: 'mock',
     );
+  }
+
+  @override
+  Future<Map<String, ForestData>> getForestBatch(
+    LatLngBounds bounds,
+    List<LatLng> centers,
+  ) async {
+    return {};
   }
 }
 

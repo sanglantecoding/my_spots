@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -64,11 +64,19 @@ void main() {
 
       test('Ignore un waypoint corrompu parmi des valides', () async {
         final waypointJson = jsonEncode([
-          {'name': 'Valide', 'latitude': 43.5, 'longitude': 3.9,
-            'createdAt': '2024-01-15T10:30:00.000Z'},
+          {
+            'name': 'Valide',
+            'latitude': 43.5,
+            'longitude': 3.9,
+            'createdAt': '2024-01-15T10:30:00.000Z',
+          },
           'invalid waypoint entry',
-          {'name': 'Autre valide', 'latitude': 44.0, 'longitude': 4.0,
-            'createdAt': '2024-02-20T14:00:00.000Z'},
+          {
+            'name': 'Autre valide',
+            'latitude': 44.0,
+            'longitude': 4.0,
+            'createdAt': '2024-02-20T14:00:00.000Z',
+          },
         ]);
 
         SharedPreferences.setMockInitialValues({'waypoints': waypointJson});
@@ -80,8 +88,12 @@ void main() {
 
       test('Charge avec valeurs par defaut pour champs manquants', () async {
         final waypointJson = jsonEncode([
-          {'name': 'Minimal', 'latitude': 43.5, 'longitude': 3.9,
-            'createdAt': '2024-01-15T10:30:00.000Z'},
+          {
+            'name': 'Minimal',
+            'latitude': 43.5,
+            'longitude': 3.9,
+            'createdAt': '2024-01-15T10:30:00.000Z',
+          },
         ]);
 
         SharedPreferences.setMockInitialValues({'waypoints': waypointJson});
@@ -96,12 +108,14 @@ void main() {
 
     group('save - Sauvegarde vers SharedPreferences', () {
       test('Sauvegarde une liste de waypoints', () async {
-        WaypointStore.waypoints.add(Waypoint(
-          name: 'Test Save',
-          latitude: 45.0,
-          longitude: 5.0,
-          createdAt: DateTime(2024, 3, 1),
-        ));
+        WaypointStore.waypoints.add(
+          Waypoint(
+            name: 'Test Save',
+            latitude: 45.0,
+            longitude: 5.0,
+            createdAt: DateTime(2024, 3, 1),
+          ),
+        );
 
         await WaypointStore.save();
 
@@ -118,15 +132,27 @@ void main() {
 
       test('Sauvegarde plusieurs waypoints', () async {
         WaypointStore.waypoints.addAll([
-          Waypoint(name: 'WP1', latitude: 43.0, longitude: 3.0,
-              createdAt: DateTime(2024, 1, 1),
-              category: WaypointCategory.fishing),
-          Waypoint(name: 'WP2', latitude: 44.0, longitude: 4.0,
-              createdAt: DateTime(2024, 2, 2),
-              category: WaypointCategory.mushrooms),
-          Waypoint(name: 'WP3', latitude: 45.0, longitude: 5.0,
-              createdAt: DateTime(2024, 3, 3),
-              category: WaypointCategory.other),
+          Waypoint(
+            name: 'WP1',
+            latitude: 43.0,
+            longitude: 3.0,
+            createdAt: DateTime(2024, 1, 1),
+            category: WaypointCategory.fishing,
+          ),
+          Waypoint(
+            name: 'WP2',
+            latitude: 44.0,
+            longitude: 4.0,
+            createdAt: DateTime(2024, 2, 2),
+            category: WaypointCategory.mushrooms,
+          ),
+          Waypoint(
+            name: 'WP3',
+            latitude: 45.0,
+            longitude: 5.0,
+            createdAt: DateTime(2024, 3, 3),
+            category: WaypointCategory.other,
+          ),
         ]);
 
         await WaypointStore.save();
@@ -155,22 +181,32 @@ void main() {
 
     group('Cycle de vie add/remove', () {
       test('Ajout d un waypoint', () {
-        WaypointStore.waypoints.add(Waypoint(
-          name: 'New Spot',
-          latitude: 43.5,
-          longitude: 3.9,
-          createdAt: DateTime.now(),
-        ));
+        WaypointStore.waypoints.add(
+          Waypoint(
+            name: 'New Spot',
+            latitude: 43.5,
+            longitude: 3.9,
+            createdAt: DateTime.now(),
+          ),
+        );
 
         expect(WaypointStore.waypoints.length, 1);
         expect(WaypointStore.waypoints[0].name, 'New Spot');
       });
 
       test('Suppression d un waypoint', () {
-        final wp1 = Waypoint(name: 'To Keep', latitude: 43.5,
-            longitude: 3.9, createdAt: DateTime.now());
-        final wp2 = Waypoint(name: 'To Remove', latitude: 44.0,
-            longitude: 4.0, createdAt: DateTime.now());
+        final wp1 = Waypoint(
+          name: 'To Keep',
+          latitude: 43.5,
+          longitude: 3.9,
+          createdAt: DateTime.now(),
+        );
+        final wp2 = Waypoint(
+          name: 'To Remove',
+          latitude: 44.0,
+          longitude: 4.0,
+          createdAt: DateTime.now(),
+        );
 
         WaypointStore.waypoints.addAll([wp1, wp2]);
         WaypointStore.waypoints.remove(wp2);
@@ -181,10 +217,18 @@ void main() {
 
       test('Vider la liste', () {
         WaypointStore.waypoints.addAll([
-          Waypoint(name: 'WP1', latitude: 43.0, longitude: 3.0,
-              createdAt: DateTime.now()),
-          Waypoint(name: 'WP2', latitude: 44.0, longitude: 4.0,
-              createdAt: DateTime.now()),
+          Waypoint(
+            name: 'WP1',
+            latitude: 43.0,
+            longitude: 3.0,
+            createdAt: DateTime.now(),
+          ),
+          Waypoint(
+            name: 'WP2',
+            latitude: 44.0,
+            longitude: 4.0,
+            createdAt: DateTime.now(),
+          ),
         ]);
 
         WaypointStore.waypoints.clear();
@@ -196,11 +240,19 @@ void main() {
     group('Round-trip save/load', () {
       test('Sauvegarde puis chargement retourne memes donnees', () async {
         final original = [
-          Waypoint(name: 'Spot A', latitude: 43.5, longitude: 3.9,
-              createdAt: DateTime(2024, 1, 1)),
-          Waypoint(name: 'Spot B', latitude: 44.0, longitude: 4.0,
-              createdAt: DateTime(2024, 2, 2),
-              category: WaypointCategory.mushrooms),
+          Waypoint(
+            name: 'Spot A',
+            latitude: 43.5,
+            longitude: 3.9,
+            createdAt: DateTime(2024, 1, 1),
+          ),
+          Waypoint(
+            name: 'Spot B',
+            latitude: 44.0,
+            longitude: 4.0,
+            createdAt: DateTime(2024, 2, 2),
+            category: WaypointCategory.mushrooms,
+          ),
         ];
 
         WaypointStore.waypoints.addAll(original);

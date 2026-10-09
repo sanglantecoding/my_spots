@@ -12,7 +12,6 @@ import 'package:my_spots/services/mushroom/ign_bd_foret_forest_service.dart';
 import 'package:my_spots/services/mushroom/ign_open_elevation_terrain_service.dart';
 import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
 import 'package:my_spots/services/mushroom/open_meteo_weather_service.dart';
-import 'package:my_spots/services/mushroom/overpass_forest_service.dart';
 import 'package:my_spots/services/mushroom/terrain_service.dart';
 import 'package:my_spots/services/mushroom/weather_service.dart';
 
@@ -23,12 +22,7 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
     ForestService? forest,
   }) : terrainService = terrain ?? IgnOpenElevationTerrainService(),
        weatherService = weather ?? OpenMeteoWeatherService(),
-       forestService =
-           forest ??
-           CompositeForestService(
-             bdForet: IgnBdForetForestService(),
-             overpass: OverpassForestService(),
-           );
+       forestService = forest ?? IgnBdForetForestService();
 
   final TerrainService terrainService;
   final WeatherService weatherService;
@@ -40,21 +34,19 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
     List<LatLng> cellCenters,
     MushroomViewportCancellationToken cancellation,
   ) async {
-    final result = <String, TerrainData>{};
-    await _runBatched(
-      items: cellCenters,
-      concurrency: _batchConcurrency,
-      cancellation: cancellation,
-      action: (center) async {
-        final key = mushroomViewportPointKey(center);
-        TerrainData data;
+    if (cancellation.isCancelled) return {};
+    if (AppSettings.offlineModeEnabled) {
+      final result = <String, TerrainData>{};
+      for (final center in cellCenters) {
+        if (cancellation.isCancelled) return result;
         try {
-          data = await terrainService.getTerrainData(
+          final data = await terrainService.getTerrainData(
             lat: center.latitude,
             lng: center.longitude,
           );
+          result[mushroomViewportPointKey(center)] = data;
         } catch (_) {
-          data = TerrainData(
+          result[mushroomViewportPointKey(center)] = TerrainData(
             latitude: center.latitude,
             longitude: center.longitude,
             elevation: null,
@@ -64,10 +56,12 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
             source: null,
           );
         }
-        result[key] = data;
-      },
-    );
-    return result;
+      }
+      return result;
+    }
+
+    final spacingMetres = 100.0;
+    return await terrainService.getTerrainBatch(cellCenters, spacingMetres);
   }
 
   @override
@@ -129,21 +123,19 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
     List<LatLng> eligibleCellCenters,
     MushroomViewportCancellationToken cancellation,
   ) async {
-    final result = <String, ForestData>{};
-    await _runBatched(
-      items: eligibleCellCenters,
-      concurrency: _batchConcurrency,
-      cancellation: cancellation,
-      action: (center) async {
-        final key = mushroomViewportPointKey(center);
-        ForestData data;
+    if (cancellation.isCancelled) return {};
+    if (AppSettings.offlineModeEnabled) {
+      final result = <String, ForestData>{};
+      for (final center in eligibleCellCenters) {
+        if (cancellation.isCancelled) return result;
         try {
-          data = await forestService.getForestData(
+          final data = await forestService.getForestData(
             lat: center.latitude,
             lng: center.longitude,
           );
+          result[mushroomViewportPointKey(center)] = data;
         } catch (_) {
-          data = ForestData(
+          result[mushroomViewportPointKey(center)] = ForestData(
             latitude: center.latitude,
             longitude: center.longitude,
             isForest: null,
@@ -154,10 +146,11 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
             source: null,
           );
         }
-        result[key] = data;
-      },
-    );
-    return result;
+      }
+      return result;
+    }
+
+    return await forestService.getForestBatch(bounds, eligibleCellCenters);
   }
 
   Future<void> _runBatched<T>({

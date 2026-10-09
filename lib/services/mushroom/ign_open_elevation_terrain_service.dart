@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/mushroom/terrain_data.dart';
 import 'package:my_spots/services/mushroom/terrain_service.dart';
 
@@ -48,8 +49,12 @@ class IgnOpenElevationTerrainService implements TerrainService {
 
   static const _cacheTtl = Duration(days: 30);
   static const _coordPrecision = 4; // ~11 m
+  static const _maxPointsPerRequest = 5000;
+  static const _maxRequestsPerSecond = 4;
+  static const _requestDelayMs = 1000 ~/ _maxRequestsPerSecond;
 
   final Map<String, _CachedTerrain> _cache = {};
+  DateTime? _lastRequestTime;
 
   String _cacheKey(double lat, double lng) {
     final latR = lat.toStringAsFixed(_coordPrecision);
@@ -158,6 +163,124 @@ class IgnOpenElevationTerrainService implements TerrainService {
       throw StateError('Elevation unavailable at ($lat, $lng)');
     }
     return e;
+  }
+
+  /// Charge les données de terrain pour plusieurs centres de cellules en batch.
+  ///
+  /// Construit tous les patchs 3×3, envoie des requêtes POST groupées (max 5000 points),
+  /// respecte la limite de 4 requêtes/s, calcule pente/exposition localement, utilise
+  /// le cache existant, et retente une fois les échecs via Open-Elevation.
+  @override
+  Future<Map<String, TerrainData>> getTerrainBatch(
+    List<LatLng> centers,
+    double spacingMetres,
+  ) async {
+    final result = <String, TerrainData>{};
+    final uncached = <LatLng>[];
+    final now = DateTime.now();
+
+    for (final center in centers) {
+      final key = _cacheKey(center.latitude, center.longitude);
+      final cached = _cache[key];
+      if (cached != null && now.difference(cached.fetchedAt) < _cacheTtl) {
+        result[key] = cached.data;
+      } else {
+        uncached.add(center);
+      }
+    }
+
+    if (uncached.isEmpty) return result;
+
+    final allPoints = <(double lat, double lng)>[];
+    final pointToCenter = <(double lat, double lng), LatLng>{};
+
+    for (final center in uncached) {
+      final patch = patch3x3(center.latitude, center.longitude);
+      for (final point in patch) {
+        allPoints.add(point);
+        pointToCenter[point] = center;
+      }
+    }
+
+    final batches = <List<(double lat, double lng)>>[];
+    var currentBatch = <(double lat, double lng)>[];
+    for (final point in allPoints) {
+      currentBatch.add(point);
+      if (currentBatch.length >= _maxPointsPerRequest) {
+        batches.add(currentBatch);
+        currentBatch = [];
+      }
+    }
+    if (currentBatch.isNotEmpty) batches.add(currentBatch);
+
+    final elevationsByPoint = <(double lat, double lng), double?>{};
+
+    for (final batch in batches) {
+      await _enforceRateLimit();
+      try {
+        final lats = batch.map((p) => p.$1).toList();
+        final lngs = batch.map((p) => p.$2).toList();
+        final ign = await _fetchIgn(lats, lngs);
+        for (var i = 0; i < batch.length; i++) {
+          elevationsByPoint[batch[i]] = ign.elevations[i];
+        }
+      } on _ProviderUnavailableException {
+        final failedPoints = batch
+            .where((p) => !elevationsByPoint.containsKey(p))
+            .toList();
+        if (failedPoints.isNotEmpty) {
+          await _enforceRateLimit();
+          try {
+            final lats = failedPoints.map((p) => p.$1).toList();
+            final lngs = failedPoints.map((p) => p.$2).toList();
+            final srtm = await _fetchOpenElevation(lats, lngs);
+            for (var i = 0; i < failedPoints.length; i++) {
+              elevationsByPoint[failedPoints[i]] = srtm[i];
+            }
+          } catch (_) {
+            for (final p in failedPoints) {
+              elevationsByPoint.putIfAbsent(p, () => null);
+            }
+          }
+        }
+      }
+    }
+
+    for (final center in uncached) {
+      final patch = patch3x3(center.latitude, center.longitude);
+      final elevations9 = patch.map((p) => elevationsByPoint[p]).toList();
+      final centralElevation = elevations9[4];
+      final derived = _deriveSlopeAspect(
+        elevations9: elevations9,
+        centerLat: center.latitude,
+      );
+      final data = TerrainData(
+        latitude: center.latitude,
+        longitude: center.longitude,
+        elevation: centralElevation,
+        noElevationData: false,
+        slope: derived.slopeDeg,
+        aspect: derived.aspectDeg,
+        source: 'ign_rge_alti_wld',
+      );
+      final key = _cacheKey(center.latitude, center.longitude);
+      _cache[key] = _CachedTerrain(fetchedAt: now, data: data);
+      result[key] = data;
+    }
+
+    return result;
+  }
+
+  Future<void> _enforceRateLimit() async {
+    if (_lastRequestTime != null) {
+      final elapsed = DateTime.now().difference(_lastRequestTime!);
+      if (elapsed.inMilliseconds < _requestDelayMs) {
+        await Future.delayed(
+          Duration(milliseconds: _requestDelayMs - elapsed.inMilliseconds),
+        );
+      }
+    }
+    _lastRequestTime = DateTime.now();
   }
 
   // ────────────────── Appels HTTP ──────────────────
