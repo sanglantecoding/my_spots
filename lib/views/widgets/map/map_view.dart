@@ -29,6 +29,11 @@ class MapView extends StatefulWidget {
   final List<Waypoint> waypoints;
   final bool bathymetryEnabled;
   final double bathymetryOpacity;
+  final bool mushroomEnabled;
+  final double mushroomOpacity;
+  final List<Polygon>? mushroomPolygons;
+  final void Function(LatLng)? onMushroomPolygonTapCenter;
+  final void Function(LatLng tapPosition)? onMapBackgroundTap;
   final void Function(LatLng) onLongPress;
   final void Function(Waypoint) onTap;
   final void Function(double) onZoomChanged;
@@ -50,6 +55,11 @@ class MapView extends StatefulWidget {
     required this.waypoints,
     required this.bathymetryEnabled,
     required this.bathymetryOpacity,
+    required this.mushroomEnabled,
+    required this.mushroomOpacity,
+    required this.mushroomPolygons,
+    required this.onMushroomPolygonTapCenter,
+    this.onMapBackgroundTap,
     required this.onLongPress,
     required this.onTap,
     required this.onZoomChanged,
@@ -109,6 +119,13 @@ class _MapViewState extends State<MapView> {
     // Bathymétrie
     if (widget.bathymetryEnabled != oldWidget.bathymetryEnabled) return true;
     if (widget.bathymetryOpacity != oldWidget.bathymetryOpacity) return true;
+
+    // Superposition champignons
+    if (widget.mushroomEnabled != oldWidget.mushroomEnabled) return true;
+    if (widget.mushroomOpacity != oldWidget.mushroomOpacity) return true;
+    if (widget.mushroomPolygons?.length != oldWidget.mushroomPolygons?.length) {
+      return true;
+    }
 
     // Zoom pour carte marine (seuils de couches)
     if (widget.mapType == MapType.marine &&
@@ -206,6 +223,9 @@ class _MapViewState extends State<MapView> {
         onLongPress: (tapPosition, latLng) {
           widget.onLongPress(latLng);
         },
+        onTap: (tapPosition, latLng) {
+          widget.onMapBackgroundTap?.call(latLng);
+        },
       ),
       children: [
         if (_tilesReady) ..._getTileLayers(),
@@ -258,6 +278,12 @@ class _MapViewState extends State<MapView> {
                   .map(_buildWaypointMarker),
           ],
         ),
+        if (widget.mushroomEnabled && widget.mushroomPolygons != null)
+          PolygonLayer(
+            polygons: widget.mushroomPolygons!,
+            polygonLabels: false,
+            drawLabelsLast: false,
+          ),
       ],
     );
   }

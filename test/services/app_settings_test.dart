@@ -1,4 +1,4 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:my_spots/app_settings.dart';
 
@@ -30,6 +30,8 @@ void main() {
       AppSettings.energySavingMode = false;
       AppSettings.bathymetryOverlayEnabled = false;
       AppSettings.bathymetryOverlayOpacity = 0.7;
+      AppSettings.mushroomOverlayEnabled = false;
+      AppSettings.mushroomOverlayOpacity = 0.6;
       AppSettings.favoritePorts = [];
     });
 
@@ -40,6 +42,8 @@ void main() {
         expect(AppSettings.selectedPortKey, 'palavas_les_flots');
         expect(AppSettings.speedUnit, SpeedUnit.kmh);
         expect(AppSettings.mapType, MapType.marine);
+        expect(AppSettings.mushroomOverlayEnabled, isFalse);
+        expect(AppSettings.mushroomOverlayOpacity, closeTo(0.6, 0.001));
       });
 
       test('Valeurs chargees depuis SharedPreferences', () async {
@@ -50,12 +54,16 @@ void main() {
           'distance_unit': DistanceUnit.nautical.index,
           'waypoints_visible': false,
           'proximity_alarm_enabled': true,
+          'mushroom_overlay_enabled': true,
+          'mushroom_overlay_opacity': 0.8,
         });
         await AppSettings.loadSettings();
         expect(AppSettings.selectedPortKey, 'sete');
         expect(AppSettings.speedUnit, SpeedUnit.knots);
         expect(AppSettings.mapType, MapType.marine);
         expect(AppSettings.distanceUnit, DistanceUnit.nautical);
+        expect(AppSettings.mushroomOverlayEnabled, isTrue);
+        expect(AppSettings.mushroomOverlayOpacity, closeTo(0.8, 0.001));
       });
 
       test('Valeurs invalides utilisent les defauts', () async {
@@ -101,6 +109,27 @@ void main() {
         expect(AppSettings.bathymetryOverlayOpacity, 0.0);
         await AppSettings.saveBathymetryOverlayOpacity(1.5);
         expect(AppSettings.bathymetryOverlayOpacity, 1.0);
+      });
+
+      test('saveMushroomOverlayEnabled persiste la valeur', () async {
+        await AppSettings.saveMushroomOverlayEnabled(true);
+        expect(AppSettings.mushroomOverlayEnabled, isTrue);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getBool('mushroom_overlay_enabled'), isTrue);
+      });
+
+      test('saveMushroomOverlayOpacity clamp 0..1', () async {
+        await AppSettings.saveMushroomOverlayOpacity(-0.3);
+        expect(AppSettings.mushroomOverlayOpacity, 0.0);
+        await AppSettings.saveMushroomOverlayOpacity(1.9);
+        expect(AppSettings.mushroomOverlayOpacity, 1.0);
+        await AppSettings.saveMushroomOverlayOpacity(0.45);
+        expect(AppSettings.mushroomOverlayOpacity, closeTo(0.45, 0.001));
+        final prefs = await SharedPreferences.getInstance();
+        expect(
+          prefs.getDouble('mushroom_overlay_opacity'),
+          closeTo(0.45, 0.001),
+        );
       });
     });
 

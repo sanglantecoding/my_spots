@@ -19,12 +19,21 @@ import 'package:my_spots/views/dialogs/offline_mode_blocking_dialog.dart';
 import 'package:my_spots/views/dialogs/waypoint_editor_sheet.dart';
 import 'package:my_spots/views/helpers/offline_zones_loader.dart';
 import 'package:my_spots/views/offline_maps_screen.dart';
+import 'package:my_spots/models/mushroom/habitat_status.dart';
+import 'package:my_spots/models/mushroom/mushroom_grid_cell.dart';
+import 'package:my_spots/services/mushroom/app_mushroom_viewport_source.dart';
+import 'package:my_spots/services/mushroom/boletus_edulis_model.dart';
+import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
 import 'package:my_spots/views/widgets/map/bathymetry_controls_widget.dart';
 import 'package:my_spots/views/widgets/map/distance_measurement_overlay.dart';
 import 'package:my_spots/views/widgets/map/map_context_menu.dart';
 import 'package:my_spots/views/widgets/map/map_controls_widget.dart';
 import 'package:my_spots/views/widgets/map/map_view.dart';
+import 'package:my_spots/views/widgets/map/mushroom_color_utils.dart';
+import 'package:my_spots/views/widgets/map/mushroom_controls_widget.dart';
+import 'package:my_spots/views/widgets/map/mushroom_date_slider.dart';
 import 'package:my_spots/views/widgets/map/mushroom_forecast_sheet.dart';
+import 'package:my_spots/views/widgets/map/mushroom_legend_widget.dart';
 import 'package:my_spots/views/widgets/map/selected_waypoint_panel.dart';
 import 'package:my_spots/views/widgets/offline_maps/new_zone_sheet.dart';
 import 'package:my_spots/views/widgets/offline_maps/zone_editor_overlay.dart';
@@ -93,6 +102,16 @@ class _MapScreenState extends State<MapScreen> {
   /// instead of the normal navigation view.
   bool _zoneEditMode = false;
 
+  // ── Prévision champignons ──
+  MushroomViewportForecastService? _mushroomService;
+  List<MushroomGridCell> _mushroomCells = const [];
+  MushroomViewportStatus? _mushroomStatus;
+  String? _mushroomMessage;
+  bool _mushroomLoading = false;
+  int _mushroomDateIndex = 0;
+  DateTime _mushroomStartDate = DateTime.now();
+  Timer? _mushroomDebounce;
+
   /// Configuration (name + layers) collected from NewZoneSheet before
   /// entering _zoneEditMode.
   ZoneConfig? _pendingZoneConfig;
@@ -137,6 +156,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _onMapCameraChanged() {
+    _scheduleMushroomRecalc();
     // Évite les rebuilds trop fréquents
     if (_mapCameraUpdateDebounce?.isActive ?? false) return;
     _mapCameraUpdateDebounce = Timer(const Duration(milliseconds: 150), () {
@@ -169,9 +189,150 @@ class _MapScreenState extends State<MapScreen> {
         (a.west - b.west).abs() < epsilon;
   }
 
+  // ── Prévision champignons : helpers ──
+
+  void _resetMushroomStartDate() {
+    final n = DateTime.now();
+    _mushroomStartDate = DateTime(n.year, n.month, n.day);
+  }
+
+  List<DateTime> get _mushroomDates =>
+      List.generate(8, (i) => _mushroomStartDate.add(Duration(days: i)));
+
+  void _scheduleMushroomRecalc() {
+    if (!AppSettings.mushroomOverlayEnabled) return;
+    if (AppSettings.mapType == MapType.marine) return;
+    _mushroomDebounce?.cancel();
+    _mushroomDebounce = Timer(const Duration(milliseconds: 600), () {
+      if (mounted) _recalculateMushroomForecast();
+    });
+  }
+
+  Future<void> _recalculateMushroomForecast() async {
+    final service = _mushroomService;
+    if (service == null || !mounted) return;
+    final bounds = _mapVisibleBounds ?? _mapController.camera.visibleBounds;
+    final zoom = _mapController.camera.zoom;
+    setState(() {
+      _mushroomLoading = true;
+      _mushroomMessage = null;
+    });
+    final result = await service.calculate(
+      bounds: bounds,
+      zoom: zoom,
+      startDate: _mushroomStartDate,
+    );
+    if (!mounted) return;
+    if (result.status == MushroomViewportStatus.cancelled) return;
+    setState(() {
+      _mushroomLoading = false;
+      _mushroomStatus = result.status;
+      _mushroomCells = result.cells;
+      _mushroomMessage = result.message;
+      if (_mushroomDateIndex >= 8) _mushroomDateIndex = 0;
+    });
+  }
+
+  bool get _mushroomOfflineNoCache {
+    if (!AppSettings.offlineModeEnabled) return false;
+    if (_mushroomCells.isEmpty) return true;
+    return _mushroomCells.every(
+      (c) => c.forecasts.every(
+        (f) =>
+            f.habitat == HabitatStatus.unknown &&
+            (f.dataSources['terrain'] == null ||
+                f.dataSources['forest'] == null),
+      ),
+    );
+  }
+
+  List<Polygon> _buildMushroomPolygons() {
+    if (_mushroomStatus != MushroomViewportStatus.ready) return const [];
+    if (_mushroomDateIndex >= 8) return const [];
+    final opacity = AppSettings.mushroomOverlayOpacity;
+    final out = <Polygon>[];
+    for (final cell in _mushroomCells) {
+      if (_mushroomDateIndex >= cell.forecasts.length) continue;
+      final forecast = cell.forecasts[_mushroomDateIndex];
+      final display = cellDisplayColors(
+        forecast: forecast,
+        overlayOpacity: opacity,
+      );
+      final points = [
+        cell.bounds.northWest,
+        cell.bounds.northEast,
+        cell.bounds.southEast,
+        cell.bounds.southWest,
+      ];
+      out.add(
+        Polygon(
+          points: points,
+          color: display.fill,
+          borderColor: display.border,
+          borderStrokeWidth: 0.4,
+        ),
+      );
+    }
+    return out;
+  }
+
+  void _onMapBackgroundTap(LatLng point) {
+    if (!AppSettings.mushroomOverlayEnabled ||
+        AppSettings.mapType == MapType.marine) {
+      return;
+    }
+    for (final cell in _mushroomCells) {
+      if (cell.bounds.contains(point)) {
+        unawaited(showMushroomForecastIfAllowed(context, cell.center));
+        return;
+      }
+    }
+  }
+
+  String get _mushroomBestDayLabel {
+    if (_mushroomStatus != MushroomViewportStatus.ready ||
+        _mushroomCells.isEmpty) {
+      return '';
+    }
+    final byDay = <int, List<int>>{};
+    for (var d = 0; d < 8; d++) {
+      byDay[d] = <int>[];
+    }
+    for (final cell in _mushroomCells) {
+      for (var d = 0; d < cell.forecasts.length && d < 8; d++) {
+        final f = cell.forecasts[d];
+        if (f.habitat != HabitatStatus.excluded) {
+          byDay[d]!.add(f.index);
+        }
+      }
+    }
+    int? bestDay;
+    double bestMean = -1;
+    for (final entry in byDay.entries) {
+      if (entry.value.isEmpty) continue;
+      final mean = entry.value.reduce((a, b) => a + b) / entry.value.length;
+      if (mean > bestMean) {
+        bestMean = mean;
+        bestDay = entry.key;
+      }
+    }
+    if (bestDay == null) return 'Habitat non favorable sur la zone';
+    final d = _mushroomDates[bestDay];
+    final dateLabel =
+        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
+    return bestDay == 0
+        ? 'Aujourd\'hui ($dateLabel, indice ${bestMean.round()})'
+        : 'J+$bestDay ($dateLabel, indice ${bestMean.round()})';
+  }
+
   @override
   void initState() {
     super.initState();
+    _mushroomService = MushroomViewportForecastService(
+      source: AppMushroomViewportSource(),
+      engine: BoletusEdulisModel(),
+    );
+    _resetMushroomStartDate();
     // Initialiser le service d'alarme
     unawaited(AlarmService.initialize());
     // S'abonner au flux broadcast d'événements d'alarme
@@ -209,6 +370,7 @@ class _MapScreenState extends State<MapScreen> {
     _alarmSubscription?.cancel();
     _waypointNameController.dispose();
     _mapCameraUpdateDebounce?.cancel();
+    _mushroomDebounce?.cancel();
     super.dispose();
   }
 
@@ -617,6 +779,17 @@ class _MapScreenState extends State<MapScreen> {
                   waypoints: WaypointStore.waypoints,
                   bathymetryEnabled: AppSettings.bathymetryOverlayEnabled,
                   bathymetryOpacity: AppSettings.bathymetryOverlayOpacity,
+                  mushroomEnabled:
+                      AppSettings.mushroomOverlayEnabled &&
+                      AppSettings.mapType != MapType.marine,
+                  mushroomOpacity: AppSettings.mushroomOverlayOpacity,
+                  mushroomPolygons:
+                      AppSettings.mushroomOverlayEnabled &&
+                          AppSettings.mapType != MapType.marine
+                      ? _buildMushroomPolygons()
+                      : const [],
+                  onMushroomPolygonTapCenter: null,
+                  onMapBackgroundTap: _onMapBackgroundTap,
                   onLongPress: (latLng) {
                     if (_zoneEditMode) {
                       _onMapLongPress(latLng);
@@ -685,6 +858,26 @@ class _MapScreenState extends State<MapScreen> {
                               () {},
                             ); // rebuild MapView avec les nouvelles props
                           }
+                        },
+                      ),
+                    ),
+                  if (AppSettings.mapType != MapType.marine)
+                    Positioned(
+                      left: 6,
+                      top: 10,
+                      child: MushroomControlsWidget(
+                        onChanged: () {
+                          if (!mounted) return;
+                          if (AppSettings.mushroomOverlayEnabled) {
+                            _scheduleMushroomRecalc();
+                          } else {
+                            setState(() {
+                              _mushroomCells = const [];
+                              _mushroomStatus = null;
+                              _mushroomMessage = null;
+                            });
+                          }
+                          setState(() {});
                         },
                       ),
                     ),
@@ -807,6 +1000,152 @@ class _MapScreenState extends State<MapScreen> {
                       },
                     ),
                   ),
+                // ── UI couche champignons ──
+                if (AppSettings.mapType != MapType.marine &&
+                    AppSettings.mushroomOverlayEnabled &&
+                    !_zoneEditMode) ...[
+                  if (_mushroomLoading)
+                    Positioned(
+                      top: 10,
+                      left: 80,
+                      right: 80,
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.8),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.tealAccent.withValues(
+                                    alpha: 0.9,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              const Flexible(
+                                child: Text(
+                                  'Calcul de la prévision...',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (!_mushroomLoading &&
+                      _mushroomStatus == MushroomViewportStatus.tooWide)
+                    Positioned(
+                      top: 10,
+                      left: 50,
+                      right: 50,
+                      child: Material(
+                        color: Colors.orangeAccent.withValues(alpha: 0.92),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.zoom_in,
+                                color: Colors.black87,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  _mushroomMessage ??
+                                      'Zoomez pour afficher la prévision',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.black87,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (!_mushroomLoading &&
+                      AppSettings.offlineModeEnabled &&
+                      _mushroomOfflineNoCache)
+                    Positioned(
+                      top: 10,
+                      left: 50,
+                      right: 50,
+                      child: Material(
+                        color: Colors.redAccent.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.wifi_off,
+                                color: Colors.white,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 6),
+                              const Flexible(
+                                child: Text(
+                                  'Hors-ligne : données non disponibles en cache pour cette zone',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  Positioned(
+                    right: 6,
+                    top: 60,
+                    child: const MushroomLegendWidget(),
+                  ),
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 96,
+                    child: MushroomDateSlider(
+                      currentIndex: _mushroomDateIndex,
+                      dates: _mushroomDates,
+                      bestDayLabel: _mushroomBestDayLabel,
+                      onChanged: (i) {
+                        setState(() => _mushroomDateIndex = i);
+                      },
+                    ),
+                  ),
+                ],
                 // 🛡️ Indicateur de zoom : widget feuille auto-abonné
                 Positioned(
                   right: 16,

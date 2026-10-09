@@ -82,6 +82,10 @@ class AppSettings {
   static bool bathymetryOverlayEnabled = false;
   static double bathymetryOverlayOpacity = 0.7;
 
+  // Superposition prévision champignons (contrôles sur la carte terrestre)
+  static bool mushroomOverlayEnabled = false;
+  static double mushroomOverlayOpacity = 0.6;
+
   static const String defaultWeatherUrl =
       'https://meteofrance.com/meteo-marine';
 
@@ -154,6 +158,12 @@ class AppSettings {
         prefs.getBool('bathymetry_overlay_enabled') ?? false;
     bathymetryOverlayOpacity =
         (prefs.getDouble('bathymetry_overlay_opacity') ?? 0.7)
+            .clamp(0.0, 1.0)
+            .toDouble();
+
+    mushroomOverlayEnabled = prefs.getBool('mushroom_overlay_enabled') ?? false;
+    mushroomOverlayOpacity =
+        (prefs.getDouble('mushroom_overlay_opacity') ?? 0.6)
             .clamp(0.0, 1.0)
             .toDouble();
 
@@ -282,6 +292,19 @@ class AppSettings {
     final clamped = opacity.clamp(0.0, 1.0).toDouble();
     await prefs.setDouble('bathymetry_overlay_opacity', clamped);
     bathymetryOverlayOpacity = clamped;
+  }
+
+  static Future<void> saveMushroomOverlayEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('mushroom_overlay_enabled', enabled);
+    mushroomOverlayEnabled = enabled;
+  }
+
+  static Future<void> saveMushroomOverlayOpacity(double opacity) async {
+    final prefs = await SharedPreferences.getInstance();
+    final clamped = opacity.clamp(0.0, 1.0).toDouble();
+    await prefs.setDouble('mushroom_overlay_opacity', clamped);
+    mushroomOverlayOpacity = clamped;
   }
 
   static Future<void> saveSpeedOnMap(bool show) async {
