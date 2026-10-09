@@ -71,21 +71,25 @@ void showMapContextMenu(
               unawaited(callbacks.onAddWaypoint(point));
             },
           ),
-          ListTile(
-            leading: const Icon(Icons.park, color: Color(0xFF80CBC4)),
-            title: const Text(
-              'Prévision cèpe ici',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+          if (!isMarine)
+            ListTile(
+              leading: const Icon(Icons.park, color: Color(0xFF80CBC4)),
+              title: const Text(
+                'Prévision cèpe ici',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              subtitle: const Text(
+                'Prévision de J+0 à J+7',
+                style: TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                unawaited(callbacks.onShowMushroomForecast(point));
+              },
             ),
-            subtitle: const Text(
-              'Prévision de J+0 à J+7',
-              style: TextStyle(color: Colors.white38, fontSize: 12),
-            ),
-            onTap: () {
-              Navigator.pop(ctx);
-              unawaited(callbacks.onShowMushroomForecast(point));
-            },
-          ),
           ListTile(
             leading: Icon(
               Icons.crop_free,
@@ -118,7 +122,9 @@ void showMapContextMenu(
                 : () {
                     Navigator.pop(ctx);
                     if (isOffline) {
-                      unawaited(callbacks.onShowOfflineModeBlockingDialog(point));
+                      unawaited(
+                        callbacks.onShowOfflineModeBlockingDialog(point),
+                      );
                     } else {
                       unawaited(callbacks.onOpenOfflineZone(point));
                     }

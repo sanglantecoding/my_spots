@@ -8,6 +8,11 @@ import 'package:my_spots/views/mushroom/mushroom_observation_form.dart';
 import 'package:my_spots/views/mushroom/mushroom_observations_screen.dart';
 
 const _observationActionBarHeight = 56.0;
+const mushroomConfidenceExplanation =
+    'Ce pourcentage mesure la complétude des sources, pas la fiabilité du modèle.';
+
+String mushroomDataAvailabilityLabel(double confidence) =>
+    'Données disponibles : ${(confidence * 100).round()} %';
 
 Future<void> showMushroomForecastSheet(BuildContext context, LatLng point) =>
     showModalBottomSheet<void>(
@@ -204,6 +209,14 @@ class _MushroomForecastSheetState extends State<MushroomForecastSheet> {
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white54, fontSize: 12),
               ),
+              const Padding(
+                padding: EdgeInsets.only(top: 3),
+                child: Text(
+                  mushroomConfidenceExplanation,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white38, fontSize: 10),
+                ),
+              ),
               if (_forecasts != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
@@ -237,9 +250,16 @@ String _sourcesSummary(MushroomForecast forecast) {
       ? 'Forêt OSM : aucune zone forestière dans la tuile'
       : 'Forêt OSM : $areaCount zones dans la tuile, la plus proche à '
             '${distance == null ? 'n/d' : '${distance.toStringAsFixed(0)} m'}';
+  final forestDetails = <String>[
+    if (sources['forestType'] != null) 'type ${sources['forestType']}',
+    if (sources['canopyClass'] != null) 'couvert ${sources['canopyClass']}',
+  ];
+  final forestInfo = forestDetails.isEmpty
+      ? ''
+      : ' (${forestDetails.join(', ')})';
   return 'Sources : météo ${sources['weather'] ?? 'inconnue'} '
       '(sol : $soilStatus) · altitude ${sources['terrain'] ?? 'inconnue'} · '
-      'forêt ${sources['forest'] ?? 'inconnue'} · $forestOsm';
+      'forêt ${sources['forest'] ?? 'inconnue'}$forestInfo · $forestOsm';
 }
 
 class _ForecastDayExpansion extends StatelessWidget {
@@ -324,8 +344,7 @@ class _ForecastDayExpansion extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: Text(
               'Hors habitat : ${forecast.habitatReason ?? 'raison inconnue'} · '
-              'Confiance : '
-              '${(forecast.confidence * 100).round()} %',
+              '${mushroomDataAvailabilityLabel(forecast.confidence)}',
               style: const TextStyle(color: Colors.white70),
             ),
           )
@@ -333,8 +352,8 @@ class _ForecastDayExpansion extends StatelessWidget {
           Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              'Indice : ${forecast.index}/100 · Confiance : '
-              '${(forecast.confidence * 100).round()} %',
+              'Indice : ${forecast.index}/100 · '
+              '${mushroomDataAvailabilityLabel(forecast.confidence)}',
               style: const TextStyle(color: Colors.white70),
             ),
           ),

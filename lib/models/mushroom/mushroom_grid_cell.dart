@@ -6,13 +6,17 @@ import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 class MushroomGridCell {
   final LatLngBounds bounds;
   final MushroomForecast forecast;
+
+  /// Prévisions pré-calculées J+0 à J+7 ; [forecast] reste J+0 pour compatibilité.
+  final List<MushroomForecast> forecasts;
   final DateTime calculationDate;
 
   MushroomGridCell({
     required this.bounds,
     required this.forecast,
+    List<MushroomForecast>? forecasts,
     required this.calculationDate,
-  });
+  }) : forecasts = forecasts ?? [forecast];
 
   /// Centre de la cellule.
   LatLng get center => bounds.center;

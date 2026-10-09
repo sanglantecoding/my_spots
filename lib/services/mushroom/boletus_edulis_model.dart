@@ -233,10 +233,12 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       dataSources: {
         'terrain': terrain.source,
         'forest': forest.source,
+        'forestType': forest.forestType,
+        'canopyClass': forest.canopyClass,
         'forestAreasInTile': forest.forestAreasInTile?.toString(),
         'nearestForestDistanceMeters': forest.nearestForestDistanceMeters
             ?.toString(),
-        'forestTileKnown': forest.isForest == null ? null : 'true',
+        'forestTileKnown': forest.forestAreasInTile == null ? null : 'true',
         'temperature': temperature.source,
         'soil': soilSource,
       },

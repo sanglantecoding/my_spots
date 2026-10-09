@@ -1,9 +1,8 @@
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
-import 'package:my_spots/models/mushroom/forest_data.dart';
 import 'package:my_spots/models/mushroom/mushroom_species.dart';
 import 'package:my_spots/services/mushroom/boletus_edulis_model.dart';
-import 'package:my_spots/services/mushroom/forest_service.dart';
+import 'package:my_spots/services/mushroom/ign_bd_foret_forest_service.dart';
 import 'package:my_spots/services/mushroom/ign_open_elevation_terrain_service.dart';
 import 'package:my_spots/services/mushroom/mushroom_forecast_service.dart';
 import 'package:my_spots/services/mushroom/open_meteo_weather_service.dart';
@@ -24,9 +23,9 @@ class MushroomForecastProvider {
     final service = MushroomForecastService(
       weatherService: OpenMeteoWeatherService(),
       terrainService: IgnOpenElevationTerrainService(),
-      forestService: _ForestServiceWithFallback(
-        OverpassForestService(),
-        NeutralForestService(),
+      forestService: CompositeForestService(
+        bdForet: IgnBdForetForestService(),
+        overpass: OverpassForestService(),
       ),
     );
     service.registerEngine(BoletusEdulisModel());
@@ -78,24 +77,5 @@ class MushroomForecastProvider {
     );
     _forecastCache[key] = forecast;
     return forecast;
-  }
-}
-
-class _ForestServiceWithFallback implements ForestService {
-  const _ForestServiceWithFallback(this.primary, this.fallback);
-
-  final ForestService primary;
-  final ForestService fallback;
-
-  @override
-  Future<ForestData> getForestData({
-    required double lat,
-    required double lng,
-  }) async {
-    try {
-      return await primary.getForestData(lat: lat, lng: lng);
-    } catch (_) {
-      return fallback.getForestData(lat: lat, lng: lng);
-    }
   }
 }

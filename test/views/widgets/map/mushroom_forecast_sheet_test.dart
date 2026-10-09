@@ -1,8 +1,40 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 import 'package:my_spots/views/widgets/map/mushroom_forecast_sheet.dart';
 
 void main() {
+  test('la confiance est libellée comme complétude des données', () {
+    expect(mushroomDataAvailabilityLabel(0.83), 'Données disponibles : 83 %');
+    expect(
+      mushroomConfidenceExplanation,
+      'Ce pourcentage mesure la complétude des sources, pas la fiabilité du modèle.',
+    );
+  });
+
+  testWidgets('la fiche affiche la précision sous l’avertissement', (
+    tester,
+  ) async {
+    AppSettings.offlineModeEnabled = true;
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: MushroomForecastSheet(point: LatLng(43.5, 2.7))),
+      ),
+    );
+
+    expect(find.text(mushroomConfidenceExplanation), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(find.text(mushroomConfidenceExplanation))
+          .style
+          ?.fontSize,
+      10,
+    );
+    AppSettings.offlineModeEnabled = false;
+  });
+
   test('le facteur eau signale l’absence de mesure du sol', () {
     expect(mushroomWaterFactorLabel(false), 'Eau (sans mesure du sol)');
     expect(mushroomWaterFactorLabel(true), 'Eau');

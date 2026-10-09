@@ -31,6 +31,15 @@ import 'package:my_spots/views/widgets/offline_maps/zone_editor_overlay.dart';
 import 'package:my_spots/widgets/navigation_overlay.dart';
 import 'package:my_spots/widgets/gps_accuracy_dialog.dart';
 
+/// Ouvre la prévision uniquement avec une carte terrestre.
+Future<void> showMushroomForecastIfAllowed(
+  BuildContext context,
+  LatLng point,
+) async {
+  if (AppSettings.mapType == MapType.marine) return;
+  await showMushroomForecastSheet(context, point);
+}
+
 class MapScreen extends StatefulWidget {
   final Waypoint? centerOn;
 
@@ -269,7 +278,7 @@ class _MapScreenState extends State<MapScreen> {
         onShowOfflineModeBlockingDialog: _showOfflineModeBlockingDialog,
         onStartDistanceMeasurement: _startDistanceMeasurement,
         onShowMushroomForecast: (point) =>
-            showMushroomForecastSheet(context, point),
+            showMushroomForecastIfAllowed(context, point),
       ),
     );
   }
@@ -751,7 +760,7 @@ class _MapScreenState extends State<MapScreen> {
                             }
                           },
                           onShowMushroomForecast: () =>
-                              showMushroomForecastSheet(
+                              showMushroomForecastIfAllowed(
                                 context,
                                 LatLng(
                                   _selectedWaypoint!.latitude,

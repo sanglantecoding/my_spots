@@ -11,6 +11,10 @@ class ForestData {
   /// bare_rock ou urban. Null tant qu'aucune source ne la renseigne.
   final String? landCover;
 
+  /// Classe de couvert issue de la BD Forêt : "fermée" ou "ouverte".
+  /// Ce champ décrit une classe, jamais un pourcentage estimé.
+  final String? canopyClass;
+
   /// Nombre de polygones forestiers de la tuile connue ; null si tuile inconnue.
   final int? forestAreasInTile;
 
@@ -27,6 +31,7 @@ class ForestData {
     this.treeDensity,
     this.canopyCover,
     this.landCover,
+    this.canopyClass,
     this.forestAreasInTile,
     this.nearestForestDistanceMeters,
     this.source,
@@ -41,6 +46,7 @@ class ForestData {
     double? treeDensity,
     double? canopyCover,
     String? landCover,
+    String? canopyClass,
     int? forestAreasInTile,
     double? nearestForestDistanceMeters,
     String? source,
@@ -53,6 +59,7 @@ class ForestData {
       treeDensity: treeDensity,
       canopyCover: canopyCover,
       landCover: landCover,
+      canopyClass: canopyClass,
       forestAreasInTile: forestAreasInTile,
       nearestForestDistanceMeters: nearestForestDistanceMeters,
       source: source,

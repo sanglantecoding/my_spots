@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/services/gps_service.dart';
 import 'package:my_spots/views/dialogs/waypoint_editor_sheet.dart';
@@ -176,12 +177,15 @@ class SelectedWaypointPanel extends StatelessWidget {
               child: Wrap(
                 spacing: 4,
                 children: [
-                  TextButton.icon(
-                    onPressed: onShowMushroomForecast,
-                    icon: const Icon(Icons.park, size: 18),
-                    label: const Text('Prévision cèpe ici'),
-                    style: TextButton.styleFrom(foregroundColor: Colors.green),
-                  ),
+                  if (AppSettings.mapType != MapType.marine)
+                    TextButton.icon(
+                      onPressed: onShowMushroomForecast,
+                      icon: const Icon(Icons.park, size: 18),
+                      label: const Text('Prévision cèpe ici'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.green,
+                      ),
+                    ),
                   TextButton.icon(
                     onPressed: () async {
                       await showMushroomObservationForm(
