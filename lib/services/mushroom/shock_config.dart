@@ -1,5 +1,9 @@
-/// HYPOTHÈSES issues d'un rapport non sourcé, à calibrer avec les observations.
-/// Tous les seuils et poids de l'événement choc sont provisoires.
+/// Configuration du choc déclencheur pour le modèle BoletusEdulisModel.
+///
+/// Sources : préprint Brejon Lamartinière & Hoffman (hêtraie allemande, 2015-2024, non relu par des pairs)
+/// À recalibrer avec mes observations (Haut-Languedoc).
+///
+/// Ces valeurs sont des HYPOTHÈSES à calibrer, aucune donnée inventée.
 class ShockConfig {
   ShockConfig._();
 
@@ -37,10 +41,10 @@ class ShockConfig {
   static const double soilTemperatureModeratePart = 0.5;
 
   /// Poids provisoires des facteurs globaux (à renormaliser si inconnus).
-  static const double waterWeight = 0.25;
-  static const double airOrSoilTemperatureWeight = 0.15;
+  static const double waterWeight = 0.30;
+  static const double airOrSoilTemperatureWeight = 0.20;
   static const double dryingWeight = 0.10;
-  static const double shockWeight = 0.20;
+  static const double shockWeight = 0.10;
   static const double terrainWeight = 0.15;
   static const double forestWeight = 0.15;
 }

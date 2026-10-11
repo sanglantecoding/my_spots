@@ -397,9 +397,9 @@ void main() {
         );
         expect(
           calculate(
-            ForestData.mock(isForest: true, treeDensity: 30),
+            ForestData.mock(isForest: true, forestType: 'conifère'),
           ).factors.forestFactor,
-          closeTo(0.7, 0.0001),
+          closeTo(0.9, 0.0001),
         );
         expect(
           calculate(
@@ -464,7 +464,7 @@ void main() {
             ],
           );
 
-          expect(rainOnly.factors.waterFactor, closeTo(0.083333, 0.00001));
+          expect(rainOnly.factors.waterFactor, closeTo(0.1, 0.00001));
           expect(moistureOnly.factors.waterFactor, closeTo(0.2, 0.00001));
           expect(noWaterData.factors.waterFactor, isNull);
           expect(noWaterData.index, greaterThan(knownZeroWater.index));
@@ -485,14 +485,19 @@ void main() {
               );
 
           final partial = calculate([
-            WeatherDay.mock(date: DateTime(2026, 9, 1), tempMean: 16),
-            WeatherDay.mock(date: DateTime(2026, 8, 31)),
+            for (var i = 0; i < 20; i++)
+              WeatherDay.mock(
+                date: DateTime(2026, 9, 1).subtract(Duration(days: i)),
+                tempMean: i < 17 ? 13 : null,
+              ),
           ]);
           final missing = calculate([
             WeatherDay.mock(date: DateTime(2026, 9, 1), precip: 4),
           ]);
 
-          expect(partial.factors.temperatureFactor, 1.0);
+          // 17 mesures connues sur 20 (au moins 16) : moyenne 13 °C -> 1.0
+          expect(partial.factors.temperatureFactor, closeTo(1.0, 1e-9));
+          // Moins de 16 jours de mesure : facteur inconnu
           expect(missing.factors.temperatureFactor, isNull);
         },
       );

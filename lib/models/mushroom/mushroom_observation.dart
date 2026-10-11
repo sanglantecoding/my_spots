@@ -48,6 +48,11 @@ class MushroomForecastSnapshot {
   final double? soilMoisture7To28Max60dPercent;
   final double? soilMoisture7To28Percentile60d;
   final double? soilTemperature0To7C;
+
+  final double? rain26;
+  final double? tmean20;
+  final bool? hasRecentFrost;
+  final bool? isInSeason;
   final DateTime? shockDate;
   final double? shockRainMm;
   final double? shockTempDropC;
@@ -71,6 +76,10 @@ class MushroomForecastSnapshot {
     this.soilMoisture7To28Max60dPercent,
     this.soilMoisture7To28Percentile60d,
     this.soilTemperature0To7C,
+    this.rain26,
+    this.tmean20,
+    this.hasRecentFrost,
+    this.isInSeason,
     this.shockDate,
     this.shockRainMm,
     this.shockTempDropC,
@@ -104,6 +113,10 @@ class MushroomForecastSnapshot {
         soilMoisture7To28Max60dPercent: forecast.soilMoisture7To28Max60dPercent,
         soilMoisture7To28Percentile60d: forecast.soilMoisture7To28Percentile60d,
         soilTemperature0To7C: forecast.soilTemperature0To7C,
+        rain26: forecast.rain26,
+        tmean20: forecast.tmean20,
+        hasRecentFrost: forecast.hasRecentFrost,
+        isInSeason: forecast.isInSeason,
         shockDate: forecast.shockDate,
         shockRainMm: forecast.shockRainMm,
         shockTempDropC: forecast.shockTempDropC,
@@ -128,6 +141,10 @@ class MushroomForecastSnapshot {
     'soilMoisture7To28Max60dPercent': soilMoisture7To28Max60dPercent,
     'soilMoisture7To28Percentile60d': soilMoisture7To28Percentile60d,
     'soilTemperature0To7C': soilTemperature0To7C,
+    'rain26': rain26,
+    'tmean20': tmean20,
+    'hasRecentFrost': hasRecentFrost,
+    'isInSeason': isInSeason,
     'shockDate': shockDate?.toIso8601String(),
     'shockRainMm': shockRainMm,
     'shockTempDropC': shockTempDropC,
@@ -169,6 +186,10 @@ class MushroomForecastSnapshot {
       soilMoisture7To28Percentile60d:
           (json['soilMoisture7To28Percentile60d'] as num?)?.toDouble(),
       soilTemperature0To7C: (json['soilTemperature0To7C'] as num?)?.toDouble(),
+      rain26: (json['rain26'] as num?)?.toDouble(),
+      tmean20: (json['tmean20'] as num?)?.toDouble(),
+      hasRecentFrost: (json['hasRecentFrost'] as bool?),
+      isInSeason: (json['isInSeason'] as bool?),
       shockDate: json['shockDate'] == null
           ? null
           : DateTime.tryParse(json['shockDate'].toString()),

@@ -10,16 +10,19 @@ void main() {
   final model = BoletusEdulisModel();
   final baseDate = DateTime.utc(2026, 9, 30);
 
-  List<WeatherDay> rainSeries(List<double?> rain, {List<double?>? et0}) =>
-      List<WeatherDay>.generate(rain.length, (index) {
-        final date = baseDate.subtract(Duration(days: rain.length - index - 1));
-        return WeatherDay(
-          date: date,
-          precipitation: rain[index],
-          et0: et0?[index],
-          temperatureMean: 17,
-        );
-      });
+  List<WeatherDay> rainSeries(
+    List<double?> rain, {
+    List<double?>? et0,
+    double temperatureMean = 13,
+  }) => List<WeatherDay>.generate(rain.length, (index) {
+    final date = baseDate.subtract(Duration(days: rain.length - index - 1));
+    return WeatherDay(
+      date: date,
+      precipitation: rain[index],
+      et0: et0?[index],
+      temperatureMean: temperatureMean,
+    );
+  });
 
   List<SoilMoistureData> moistureSeries(
     List<double?> values, {
@@ -261,7 +264,7 @@ void main() {
         targetDate: baseDate,
       );
 
-      expect(forecast.factors.temperatureFactor, 1.0);
+      expect(forecast.factors.temperatureFactor, closeTo(1.0, 1e-09));
       expect(forecast.factors.waterFactor, lessThanOrEqualTo(0.3));
       expect(forecast.hydricGate, lessThanOrEqualTo(0.6));
       expect(forecast.index, lessThanOrEqualTo(40));
@@ -315,10 +318,10 @@ void main() {
       );
       final factors = forecast.factors;
       final preGateIndex =
-          ((factors.waterFactor! * 0.25 +
-                      factors.temperatureFactor! * 0.15 +
+          ((factors.waterFactor! * 0.30 +
+                      factors.temperatureFactor! * 0.20 +
                       factors.dryingFactor * 0.10 +
-                      factors.shockFactor! * 0.20 +
+                      factors.shockFactor! * 0.10 +
                       factors.terrainFactor! * 0.15 +
                       factors.forestFactor! * 0.15) *
                   100)

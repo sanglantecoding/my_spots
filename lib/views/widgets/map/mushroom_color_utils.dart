@@ -25,6 +25,19 @@ Color indexToGradientColor(int index, {double opacityMultiplier = 1.0}) {
 }) {
   final excluded = forecast.habitat == HabitatStatus.excluded;
   final unknown = forecast.habitat == HabitatStatus.unknown;
+
+  // Check if terrain data is missing (source null means no terrain data available)
+  final hasTerrain = forecast.dataSources['terrain'] != null;
+
+  // Unknown altitude (no terrain data) -> gray dotted, no gradient
+  if (!hasTerrain) {
+    return (
+      fill: Colors.grey.withValues(alpha: 0.3 * overlayOpacity),
+      border: Colors.grey.withValues(alpha: 0.5 * overlayOpacity),
+      hatch: true,
+    );
+  }
+
   if (excluded) {
     return (
       fill: Colors.grey.withValues(alpha: 0.18 * overlayOpacity),

@@ -150,24 +150,57 @@ void main() {
   });
 
   test(
-    'OSM positive forest and landcover take the composite priority',
+    'une forêt OSM prime sur un "non forêt" explicite de la BD Forêt',
     () async {
-      final fakeService = _FakeForestService();
       final composite = CompositeForestService(
         bdForet: _StubForest(
           ForestData.mock(isForest: false, source: 'ign_bdforet_v2'),
         ),
-        overpass: fakeService,
+        overpass: _FakeForestService(),
+      );
+      final data = await composite.getForestData(lat: 0, lng: 0);
+      expect(data.isForest, isTrue);
+      expect(data.source, 'ign_bdforet_v2+fake');
+    },
+  );
+
+  test(
+    'le landCover OSM est conservé même si la BD Forêt voit une forêt',
+    () async {
+      final composite = CompositeForestService(
+        bdForet: _StubForest(
+          ForestData.mock(
+            isForest: true,
+            forestType: 'conifère',
+            source: 'ign_bdforet_v2',
+          ),
+        ),
+        overpass: _FakeForestService(isForest: null, landCover: 'water'),
       );
       final data = await composite.getForestData(lat: 0, lng: 0);
       expect(data.isForest, isTrue);
       expect(data.landCover, 'water');
-      expect(data.source, 'ign_bdforet_v2+fake');
     },
   );
+
+  test('un "non forêt" BD Forêt reste faux si OSM ne trouve rien', () async {
+    final composite = CompositeForestService(
+      bdForet: _StubForest(
+        ForestData.mock(isForest: false, source: 'ign_bdforet_v2'),
+      ),
+      overpass: _FakeForestService(isForest: null),
+    );
+    final data = await composite.getForestData(lat: 0, lng: 0);
+    expect(data.isForest, isFalse);
+  });
 }
 
 class _FakeForestService implements ForestService {
+  _FakeForestService({this.isForest = true, this.landCover});
+
+  final bool? isForest;
+  final String? landCover;
+
   @override
   Future<ForestData> getForestData({
     required double lat,
@@ -176,11 +209,12 @@ class _FakeForestService implements ForestService {
     return ForestData(
       latitude: lat,
       longitude: lng,
-      isForest: true,
-      forestType: 'feuillu',
-      canopyClass: 'fermée',
+      isForest: isForest,
+      forestType: isForest == true ? 'feuillu' : null,
+      canopyClass: isForest == true ? 'fermée' : null,
       treeDensity: null,
       canopyCover: null,
+      landCover: landCover,
       source: 'fake',
     );
   }
@@ -189,9 +223,7 @@ class _FakeForestService implements ForestService {
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
     List<LatLng> centers,
-  ) async {
-    return {};
-  }
+  ) async => {};
 }
 
 class _StubForest implements ForestService {

@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/services/mushroom/overpass_forest_service.dart';
+import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
 
 void main() {
   late Directory cacheDirectory;
@@ -335,6 +338,147 @@ void main() {
 
     test('la fixture reste un JSON Overpass valide', () {
       expect(jsonDecode(fixture), isA<Map<String, dynamic>>());
+    });
+
+    group('getForestBatch', () {
+      final bounds = LatLngBounds(
+        const LatLng(45.0, 3.0),
+        const LatLng(45.05, 3.05),
+      );
+
+      test(
+        'une seule requête pour plusieurs centres d’une même tuile 0.05°',
+        () async {
+          var calls = 0;
+          final client = MockClient((request) async {
+            calls++;
+            return http.Response(fixture, 200);
+          });
+          final svc = service(client);
+
+          // 4 centres tous dans la tuile [45.01,3.01)
+          final centers = [
+            const LatLng(45.012, 3.012),
+            const LatLng(45.025, 3.025),
+            const LatLng(45.030, 3.030),
+            const LatLng(45.040, 3.040),
+          ];
+
+          final result = await svc.getForestBatch(bounds, centers);
+          expect(result, hasLength(4));
+          // Les clés correspondent à celles de la BD Forêt
+          for (final center in centers) {
+            final key = mushroomViewportPointKey(center);
+            expect(result.containsKey(key), isTrue);
+          }
+          // Une seule requête Overpass pour toute la tuile
+          expect(calls, 1);
+        },
+      );
+
+      test(
+        'landCover water : un lac prime sur la présence de forêt dans la tuile',
+        () async {
+          // Le lac (way 200) couvre lat 45.002-45.006, lon 3.002-3.006.
+          // Le point (45.004, 3.004) est à l’intérieur du lac.
+          final result = await service(
+            fixtureClient(),
+          ).getForestBatch(bounds, [const LatLng(45.004, 3.004)]);
+          final key = mushroomViewportPointKey(const LatLng(45.004, 3.004));
+          final data = result[key]!;
+          expect(data.isForest, isNull, reason: 'aucune forêt à ce point');
+          expect(
+            data.landCover,
+            'water',
+            reason: 'le lac est conservé dans le lot',
+          );
+        },
+      );
+
+      test('landCover beach : une plage est conservée dans le lot', () async {
+        // La plage (way 300) couvre lat 45.002-45.006, lon 3.01-3.014.
+        final result = await service(
+          fixtureClient(),
+        ).getForestBatch(bounds, [const LatLng(45.004, 3.012)]);
+        final key = mushroomViewportPointKey(const LatLng(45.004, 3.012));
+        final data = result[key]!;
+        expect(data.isForest, isNull, reason: 'aucune forêt à ce point');
+        expect(
+          data.landCover,
+          'beach',
+          reason: 'la plage est conservée dans le lot',
+        );
+      });
+
+      test(
+        'landCover urban : une zone résidentielle est conservée dans le lot',
+        () async {
+          // La zone résidentielle (way 400) couvre lat 45.011-45.013, lon 3.011-3.013.
+          final result = await service(
+            fixtureClient(),
+          ).getForestBatch(bounds, [const LatLng(45.012, 3.012)]);
+          final key = mushroomViewportPointKey(const LatLng(45.012, 3.012));
+          final data = result[key]!;
+          expect(data.isForest, isTrue, reason: 'la forêt couvre ce point');
+          expect(
+            data.landCover,
+            isNull,
+            reason: 'l’urbain ne prime pas sur la forêt',
+          );
+        },
+      );
+
+      test(
+        'le batch et getForestData sont cohérents sur le même point',
+        () async {
+          final svc = service(fixtureClient());
+          final centers = [
+            const LatLng(45.012, 3.012),
+            const LatLng(45.045, 3.045),
+          ];
+          final batch = await svc.getForestBatch(bounds, centers);
+          for (final center in centers) {
+            final pointData = await svc.getForestData(
+              lat: center.latitude,
+              lng: center.longitude,
+            );
+            final batchData = batch[mushroomViewportPointKey(center)]!;
+            expect(pointData.isForest, batchData.isForest);
+            expect(pointData.forestType, batchData.forestType);
+            expect(pointData.landCover, batchData.landCover);
+            expect(pointData.forestAreasInTile, batchData.forestAreasInTile);
+            expect(
+              pointData.nearestForestDistanceMeters,
+              batchData.nearestForestDistanceMeters,
+            );
+            expect(pointData.source, batchData.source);
+          }
+        },
+      );
+
+      test(
+        'centre hors des zones connues renvoie inconnu sans erreur',
+        () async {
+          final result = await service(
+            fixtureClient(),
+          ).getForestBatch(bounds, [const LatLng(45.09, 3.09)]);
+          final key = mushroomViewportPointKey(const LatLng(45.09, 3.09));
+          final data = result[key]!;
+          expect(data.isForest, isNull);
+          expect(data.landCover, isNull);
+          // forestAreasInTile compte les polygones forestiers connus de la tuile
+          expect(data.forestAreasInTile, 1);
+          // cohérence avec getForestData sur ce point
+          final pointData = await service(
+            fixtureClient(),
+          ).getForestData(lat: 45.09, lng: 3.09);
+          expect(pointData.forestAreasInTile, data.forestAreasInTile);
+          expect(
+            pointData.nearestForestDistanceMeters,
+            data.nearestForestDistanceMeters,
+          );
+        },
+      );
     });
   });
 }

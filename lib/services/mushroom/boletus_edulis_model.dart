@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:my_spots/models/mushroom/forest_data.dart';
 import 'package:my_spots/models/mushroom/habitat_status.dart';
 import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
@@ -9,6 +11,8 @@ import 'package:my_spots/services/mushroom/mushroom_forecast_engine.dart';
 import 'package:my_spots/services/mushroom/hydric_config.dart';
 import 'package:my_spots/services/mushroom/shock_config.dart';
 import 'package:my_spots/services/mushroom/habitat_rules.dart';
+import 'package:my_spots/services/mushroom/season_config.dart';
+import 'package:my_spots/services/mushroom/frost_config.dart';
 
 /// Moteur de prévision pour le Cèpe de Bordeaux (Boletus edulis).
 ///
@@ -168,9 +172,14 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     final hydricGate = waterFactor == null
         ? 1.0
         : (waterFactor / HydricConfig.gateFullAt).clamp(0.0, 1.0).toDouble();
+
+    // Multiplicateurs saison et gel
+    final seasonMult = SeasonConfig.seasonMultiplier(tDay);
+    final frostMult = FrostConfig.frostMultiplier(tDay, upToTarget);
+
     final index = habitat.status == HabitatStatus.excluded
         ? 0
-        : (aggregatedIndex * hydricGate).round();
+        : (aggregatedIndex * hydricGate * seasonMult * frostMult).round();
 
     // 10. Calcul de la confiance (basée sur la disponibilité des données)
     final confidence = _calculateConfidence(
@@ -230,6 +239,10 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       shockRainMm: shock.rain48h,
       shockTempDropC: shock.tempDrop,
       temperatureSource: temperature.source,
+      rain26: hydric.rain26,
+      tmean20: temperature.tmean20,
+      hasRecentFrost: FrostConfig.hasRecentFrost(targetDate, weatherSeriesDesc),
+      isInSeason: SeasonConfig.seasonMultiplier(targetDate) >= 1,
       dataSources: {
         'terrain': terrain.source,
         'forest': forest.source,
@@ -286,7 +299,13 @@ class BoletusEdulisModel implements MushroomForecastEngine {
   }
 
   /// Persistance hydrique. Les seuils de [HydricConfig] sont des placeholders.
-  ({double? factor, int? wetStreak, int? dryBefore, bool hasSoilMoisture})
+  ({
+    double? factor,
+    int? wetStreak,
+    int? dryBefore,
+    bool hasSoilMoisture,
+    double? rain26,
+  })
   _calculateHydricMetrics(
     List<WeatherDay> weatherSeriesDesc,
     List<SoilMoistureData> soilLayers,
@@ -339,6 +358,18 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       wetStreak = streak;
     }
 
+    // rain26: cumul sur 26 jours, null si moins de 21 jours de données
+    final rain26Window = weatherSeriesDesc
+        .take(HydricConfig.rain26Window)
+        .toList();
+    final rain26Known = rain26Window
+        .map((d) => d.precipitation)
+        .whereType<double>();
+    double? rain26;
+    if (rain26Known.length >= HydricConfig.rain26MinDays) {
+      rain26 = rain26Known.fold<double>(0, (sum, value) => sum + value);
+    }
+
     final recent = weatherSeriesDesc.take(HydricConfig.window).toList();
     final knownRain = recent.map((d) => d.precipitation).whereType<double>();
     final rainValues = knownRain.toList();
@@ -387,18 +418,37 @@ class BoletusEdulisModel implements MushroomForecastEngine {
         ? null
         : prior.where((d) => d.precipitation! < HydricConfig.rainDayMm).length;
 
+    // Nouvelle pondération interne du facteur eau
     final terms = <(double, double)>[];
     if (wetStreak != null) {
-      terms.add(((wetStreak / HydricConfig.wetMinDays).clamp(0.0, 1.0), 0.40));
+      terms.add((
+        (wetStreak / HydricConfig.wetMinDays).clamp(0.0, 1.0),
+        HydricConfig.wetStreakWeight,
+      ));
+    }
+    if (rain26 != null) {
+      terms.add((
+        (rain26 / HydricConfig.rain26ReferenceMm).clamp(0.0, 1.0),
+        HydricConfig.rain26Weight,
+      ));
     }
     if (rainDays14 != null) {
-      terms.add(((rainDays14 / 6).clamp(0.0, 1.0), 0.20));
+      terms.add((
+        (rainDays14 / 6).clamp(0.0, 1.0),
+        HydricConfig.rainyDays14Weight,
+      ));
     }
     if (rainConcentration != null) {
-      terms.add((1 - ((rainConcentration - 0.4) / 0.4).clamp(0.0, 1.0), 0.20));
+      terms.add((
+        1 - ((rainConcentration - 0.4) / 0.4).clamp(0.0, 1.0),
+        HydricConfig.rainConcentrationWeight,
+      ));
     }
     if (balance14 != null) {
-      terms.add(((balance14 / 40).clamp(0.0, 1.0), 0.20));
+      terms.add((
+        (balance14 / 40).clamp(0.0, 1.0),
+        HydricConfig.rainEt0BalanceWeight,
+      ));
     }
 
     double? factor;
@@ -407,6 +457,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       factor =
           terms.fold<double>(0, (sum, term) => sum + term.$1 * term.$2) /
           weightSum;
+      // Pas de plafond ni de pénalité d'excès
       if (wetStreak != null &&
           wetStreak < 2 &&
           dryBefore != null &&
@@ -419,14 +470,39 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       wetStreak: wetStreak,
       dryBefore: dryBefore,
       hasSoilMoisture: hasSoilMoisture,
+      rain26: rain26,
     );
   }
 
-  ({double? factor, String source}) _calculateTemperatureFactor(
+  ({double? factor, String source, double? tmean20})
+  _calculateTemperatureFactor(
     List<WeatherDay> weatherSeriesDesc,
     List<SoilMoistureData> soilLayers,
     DateTime targetDate,
   ) {
+    // tmean20: moyenne des températures moyennes d'air sur 20 jours, null si moins de 16 jours
+    const tmean20Window = 20;
+    const tmean20MinDays = 16;
+    const tmean20OptimalC = 13.0;
+    const tmean20StdDevC = 3.5;
+
+    final tmean20Data = weatherSeriesDesc.take(tmean20Window).toList();
+    final tmean20Known = tmean20Data
+        .map((d) => d.temperatureMean)
+        .whereType<double>();
+    double? tmean20;
+    if (tmean20Known.length >= tmean20MinDays) {
+      tmean20 = tmean20Known.reduce((a, b) => a + b) / tmean20Known.length;
+    }
+
+    if (tmean20 != null) {
+      // Formule gaussienne: exp(-((tmean20 - optimal) / stdDev)^2)
+      final normalized = (tmean20 - tmean20OptimalC) / tmean20StdDevC;
+      final factor = exp(-(normalized * normalized));
+      return (factor: factor, source: 'air_tmean20', tmean20: tmean20);
+    }
+
+    // Fallback: température du sol si disponible (affichage seulement)
     final soilTemps =
         soilLayers
             .where(
@@ -439,37 +515,10 @@ class BoletusEdulisModel implements MushroomForecastEngine {
             .toList()
           ..sort((a, b) => b.date.compareTo(a.date));
     if (soilTemps.isNotEmpty) {
-      final temperature = soilTemps.first.soilTemperature!;
-      if (temperature >= ShockConfig.soilTemperatureOptimalLowC &&
-          temperature <= ShockConfig.soilTemperatureOptimalHighC) {
-        return (factor: 1.0, source: 'soil_0_7cm');
-      }
-      if ((temperature >= ShockConfig.soilTemperatureLowC &&
-              temperature < ShockConfig.soilTemperatureOptimalLowC) ||
-          (temperature > ShockConfig.soilTemperatureOptimalHighC &&
-              temperature <= ShockConfig.soilTemperatureHighC)) {
-        return (
-          factor: ShockConfig.soilTemperatureModeratePart,
-          source: 'soil_0_7cm',
-        );
-      }
-      return (factor: 0.0, source: 'soil_0_7cm');
+      return (factor: null, source: 'soil_0_7cm_display_only', tmean20: null);
     }
 
-    final meanTemp = WeatherDay.meanTemperature(
-      weatherSeriesDesc.take(14).toList(),
-    ).value;
-    if (meanTemp == null) return (factor: null, source: 'air');
-    // Formule existante pour la température de l'air, conservée en repli.
-    if (meanTemp >= 15 && meanTemp <= 20) {
-      return (factor: 1.0, source: 'air');
-    } else if (meanTemp >= 10 && meanTemp < 15) {
-      return (factor: 0.7, source: 'air');
-    } else if (meanTemp > 20 && meanTemp <= 25) {
-      return (factor: 0.6, source: 'air');
-    } else {
-      return (factor: 0.3, source: 'air');
-    }
+    return (factor: null, source: 'air', tmean20: null);
   }
 
   ({double? factor, DateTime? date, double? rain48h, double? tempDrop})
@@ -497,10 +546,14 @@ class BoletusEdulisModel implements MushroomForecastEngine {
         continue;
       }
       final rain48h = eventDay!.precipitation! + previousDay!.precipitation!;
-      final tempDrop = _temperatureDrop(byDate, date);
+      final tempDrop = _temperatureDrop(
+        byDate,
+        date,
+      ); // Pour affichage seulement
+      // Score basé uniquement sur la pluie
       final score = rain48h < ShockConfig.rainTriggerMm
           ? 0.0
-          : _shockScore(rain48h, tempDrop);
+          : _shockScore(rain48h);
       if (bestFactor == null || score > bestFactor) {
         bestFactor = score;
         bestDate = date;
@@ -516,19 +569,13 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     );
   }
 
-  double _shockScore(double rain48h, double? tempDrop) {
-    final rainPart = rain48h >= ShockConfig.rainHighMm
+  double _shockScore(double rain48h) {
+    // Score basé uniquement sur la pluie (tempDrop pour affichage seulement)
+    return rain48h >= ShockConfig.rainHighMm
         ? ShockConfig.rainHighPart
         : rain48h >= ShockConfig.rainMediumMm
         ? ShockConfig.rainMediumPart
         : ShockConfig.rainLowPart;
-    if (tempDrop == null) return rainPart;
-    final tempPart = tempDrop >= ShockConfig.temperatureDropHighC
-        ? ShockConfig.temperatureDropHighPart
-        : tempDrop >= ShockConfig.temperatureDropMediumC
-        ? ShockConfig.temperatureDropMediumPart
-        : ShockConfig.temperatureDropNoPart;
-    return (rainPart + tempPart) / 2;
   }
 
   double? _temperatureDrop(Map<DateTime, WeatherDay> byDate, DateTime date) {
@@ -649,12 +696,14 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     if (forest.isForest == null) return null;
     if (!forest.isForest!) return 0.0;
 
-    // Type de forêt : feuillu et mixte favorables
+    // Type de forêt : feuillu et mixte favorables, conifère 0.9
     final typeScore = forest.forestType == null
         ? null
         : (forest.forestType!.toLowerCase().contains('feuillu') ||
                   forest.forestType!.toLowerCase().contains('mixte')
               ? 1.0
+              : forest.forestType!.toLowerCase().contains('conifère')
+              ? 0.9
               : 0.6);
 
     // Densité : 40-80% optimale

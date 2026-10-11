@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/mushroom/forest_data.dart';
+import 'package:my_spots/models/mushroom/habitat_status.dart';
 import 'package:my_spots/models/mushroom/soil_moisture_data.dart';
 import 'package:my_spots/models/mushroom/terrain_data.dart';
 import 'package:my_spots/models/mushroom/weather_day.dart';
@@ -10,6 +11,7 @@ import 'package:my_spots/services/mushroom/forest_service.dart';
 import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
 import 'package:my_spots/services/mushroom/terrain_service.dart';
 import 'package:my_spots/services/mushroom/weather_service.dart';
+import 'package:my_spots/services/mushroom/habitat_rules.dart';
 
 class FakeTerrainService implements TerrainService {
   int callCount = 0;
@@ -236,4 +238,59 @@ void main() {
     expect(result.isEmpty, true);
     expect(fakeTerrain.callCount, 0);
   });
+
+  test('grid and point consistency for different terrain types', () async {
+    // Sea point (elevation 0, noElevationData true)
+    final seaPoint = LatLng(43.3, 3.0);
+    final seaTerrain = TerrainData(
+      latitude: seaPoint.latitude,
+      longitude: seaPoint.longitude,
+      elevation: 0.0,
+      noElevationData: true,
+      slope: null,
+      aspect: null,
+      source: 'srtm_open_elevation_30m',
+    );
+    final seaExclusion = HabitatRules.evaluateTerrain(seaTerrain);
+    expect(seaExclusion?.status, HabitatStatus.excluded);
+    expect(seaExclusion?.reason, contains('mer'));
+
+    // Land point (elevation 500, forest)
+    final landPoint = LatLng(43.5, 2.7);
+    final landTerrain = TerrainData(
+      latitude: landPoint.latitude,
+      longitude: landPoint.longitude,
+      elevation: 500.0,
+      noElevationData: false,
+      slope: 5.0,
+      aspect: 180.0,
+      source: 'ign_rge_alti_wld',
+    );
+    final landExclusion = HabitatRules.evaluateTerrain(landTerrain);
+    expect(landExclusion, isNull);
+
+    // Unknown altitude point
+    final unknownPoint = LatLng(43.4, 2.8);
+    final unknownTerrain = TerrainData(
+      latitude: unknownPoint.latitude,
+      longitude: unknownPoint.longitude,
+      elevation: null,
+      noElevationData: false,
+      slope: null,
+      aspect: null,
+      source: null,
+    );
+    final unknownExclusion = HabitatRules.evaluateTerrain(unknownTerrain);
+    expect(unknownExclusion, isNull);
+  });
 }
+
+// Manual test for Agde grid (ignored by default)
+// Uncomment to run: test('agde grid manual test', () async { ... });
+/*
+test('agde grid manual test', () async {
+  // This test is ignored by default. Uncomment to run manually.
+  // It tests a grid of ~100 cells covering Agde (sea south, city, Mont Saint-Loup).
+  // Displays: land cells, sea excluded cells, unknown cells, IGN requests, SRTM requests, duration.
+}, skip: 'Manual test - uncomment to run');
+*/

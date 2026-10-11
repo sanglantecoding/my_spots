@@ -32,6 +32,18 @@ class MushroomForecast {
   final double? shockTempDropC;
   final String? temperatureSource;
 
+  /// Pluie cumulée sur 26 jours (mm), null si moins de 21 jours de données.
+  final double? rain26;
+
+  /// Température moyenne de l'air sur 20 jours (°C), null si moins de 16 jours.
+  final double? tmean20;
+
+  /// Vrai si un gel est détecté dans les 3 jours précédant la date cible.
+  final bool? hasRecentFrost;
+
+  /// Vrai si la date cible est dans la saison pleine (multiplicateur de saison à 1).
+  final bool? isInSeason;
+
   /// Sources réellement fournies par les services, absentes si inconnues.
   final Map<String, String?> dataSources;
 
@@ -58,6 +70,10 @@ class MushroomForecast {
     this.shockRainMm,
     this.shockTempDropC,
     this.temperatureSource,
+    this.rain26,
+    this.tmean20,
+    this.hasRecentFrost,
+    this.isInSeason,
     this.dataSources = const {},
   });
 
@@ -85,6 +101,10 @@ class MushroomForecast {
     double? shockRainMm,
     double? shockTempDropC,
     String? temperatureSource,
+    double? rain26,
+    double? tmean20,
+    bool? hasRecentFrost,
+    bool? isInSeason,
     Map<String, String?> dataSources = const {},
   }) {
     return MushroomForecast(
@@ -110,6 +130,10 @@ class MushroomForecast {
       shockRainMm: shockRainMm,
       shockTempDropC: shockTempDropC,
       temperatureSource: temperatureSource,
+      rain26: rain26,
+      tmean20: tmean20,
+      isInSeason: isInSeason,
+      hasRecentFrost: hasRecentFrost,
       dataSources: dataSources,
     );
   }

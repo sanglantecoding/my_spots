@@ -132,20 +132,25 @@ void main() {
       expect(forecasts[3].index, greaterThan(forecasts[0].index));
     });
 
-    test('température du sol 0–7 cm remplace celle de l’air', () {
-      final result = calculate(
-        weatherSeries(),
-        soil: soilSeries(
-          firstDay: 0,
-          lastDay: 0,
-          moisture: 30,
-          soilTemperature: 10,
-          depthStart: 0,
-          depthEnd: 7,
-        ),
-      );
-      expect(result.temperatureSource, 'soil_0_7cm');
-      expect(result.factors.temperatureFactor, 0.5);
-    });
+    test(
+      'la température du sol est affichée mais ne remplace plus celle de l’air',
+      () {
+        final result = calculate(
+          weatherSeries(),
+          soil: soilSeries(
+            firstDay: 0,
+            lastDay: 0,
+            moisture: 30,
+            soilTemperature: 10,
+            depthStart: 0,
+            depthEnd: 7,
+          ),
+        );
+        expect(result.temperatureSource, 'air_tmean20');
+        expect(result.soilTemperature0To7C, 10);
+        // 17 °C d'air sur 20 jours : exp(-((17 - 13) / 3,5)^2) = 0,2709
+        expect(result.factors.temperatureFactor, closeTo(0.2709, 0.001));
+      },
+    );
   });
 }

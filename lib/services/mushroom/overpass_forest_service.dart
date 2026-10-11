@@ -10,6 +10,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/forest_data.dart';
 import 'package:my_spots/services/mushroom/forest_service.dart';
+import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Données OSM par tuile, sans extrapoler les attributs forestiers absents.
@@ -78,7 +79,34 @@ class OverpassForestService implements ForestService {
     LatLngBounds bounds,
     List<LatLng> centers,
   ) async {
-    return {};
+    // Determine which 0.05° tiles cover the centers
+    final tilePoints = <_Tile>{};
+    for (final center in centers) {
+      tilePoints.add(_Tile.forPoint(center.latitude, center.longitude));
+    }
+
+    // Load each tile once (using existing cache / one request per tile)
+    final tileAreas = <String, List<_Area>>{};
+    for (final tile in tilePoints) {
+      final record = await _loadTile(tile);
+      if (record != null) {
+        final key = tile.key;
+        if (tileAreas[key] == null) {
+          tileAreas[key] = _parseTile(record.body);
+        }
+      }
+    }
+
+    // Resolve each center locally from the parsed tile data
+    final result = <String, ForestData>{};
+    for (final center in centers) {
+      final tile = _Tile.forPoint(center.latitude, center.longitude);
+      final key = mushroomViewportPointKey(center);
+      final areas = tileAreas[tile.key] ?? [];
+      result[key] = _resolvePoint(center.latitude, center.longitude, areas);
+    }
+
+    return result;
   }
 
   Future<_TileRecord?> _loadTile(_Tile tile) async {

@@ -499,7 +499,61 @@ class CompositeForestService implements ForestService {
     LatLngBounds bounds,
     List<LatLng> centers,
   ) async {
-    return await bdForet.getForestBatch(bounds, centers);
+    // Call both services in parallel
+    final bdForetFuture = bdForet.getForestBatch(bounds, centers);
+    final overpassFuture = overpass.getForestBatch(bounds, centers);
+
+    // Wait for both, handling errors so one failure doesn't lose the other
+    final results = await Future.wait<dynamic>([bdForetFuture, overpassFuture]);
+
+    // Extract results or empty maps if there were errors
+    final bdForetResult = results[0] is Map<String, ForestData>
+        ? results[0] as Map<String, ForestData>
+        : <String, ForestData>{};
+    final overpassResult = results[1] is Map<String, ForestData>
+        ? results[1] as Map<String, ForestData>
+        : <String, ForestData>{};
+
+    // Merge results by key with the same logic as getForestData
+    final merged = <String, ForestData>{};
+    final allKeys = {...bdForetResult.keys, ...overpassResult.keys};
+
+    for (final key in allKeys) {
+      final bdForetData = bdForetResult[key];
+      final overpassData = overpassResult[key];
+
+      // Apply the same logic as getForestData (lines 458-494)
+      final isForest =
+          bdForetData?.isForest == true || overpassData?.isForest == true
+          ? true
+          : bdForetData?.isForest == false && overpassData?.isForest != true
+          ? false
+          : null;
+
+      final source = <String>{};
+      if (bdForetData?.source != null && bdForetData?.source != 'unknown') {
+        source.add(bdForetData!.source!);
+      }
+      if (overpassData?.source != null && overpassData?.source != 'unknown') {
+        source.add(overpassData!.source!);
+      }
+
+      merged[key] = ForestData(
+        latitude: bdForetData?.latitude ?? overpassData?.latitude ?? 0.0,
+        longitude: bdForetData?.longitude ?? overpassData?.longitude ?? 0.0,
+        isForest: isForest,
+        forestType:
+            bdForetData?.forestType ??
+            (overpassData?.isForest == true ? overpassData?.forestType : null),
+        canopyClass: bdForetData?.canopyClass,
+        treeDensity: null,
+        canopyCover: null,
+        landCover: overpassData?.landCover, // landCover from OSM
+        source: source.isEmpty ? null : source.join('+'),
+      );
+    }
+
+    return merged;
   }
 }
 

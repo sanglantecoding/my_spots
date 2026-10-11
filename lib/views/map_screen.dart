@@ -1089,7 +1089,7 @@ class _MapScreenState extends State<MapScreen> {
                       _mushroomStatus == MushroomViewportStatus.ready &&
                       _mushroomFailedCellCount > 0)
                     Positioned(
-                      top: 10,
+                      top: 60,
                       left: 50,
                       right: 50,
                       child: Material(
@@ -1162,7 +1162,7 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                     ),
                   Positioned(
-                    right: 6,
+                    left: 6,
                     top: 60,
                     child: const MushroomLegendWidget(),
                   ),

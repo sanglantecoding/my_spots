@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -368,4 +368,63 @@ class MushroomViewportForecastService {
     canopyCover: null,
     source: null,
   );
+  Future<List<List<MushroomForecast>>> calculateForPoints(List<LatLng> points) async {
+    if (points.isEmpty) return [];
+    if (points.length > 50) throw ArgumentError('Maximum 50 points');
+    final cancellation = MushroomViewportCancellationToken();
+    // Load terrain
+    final terrains = await _source.loadTerrainBatch(points, cancellation);
+    if (cancellation.isCancelled) return [];
+    // Determine eligible points (habitat not excluded)
+    final eligible = <LatLng>[];
+    for (final point in points) {
+      final terrain = terrains[mushroomViewportPointKey(point)] ?? _unknownTerrain(point);
+      final habitat = HabitatRules.evaluateTerrain(terrain);
+      if (habitat == null) {
+        eligible.add(point);
+      }
+    }
+    // Compute unique model grid centers from all points (weather needed for all)
+    final modelCenters = <String, LatLng>{};
+    for (final point in points) {
+      final center = _modelGridCenter(point);
+      modelCenters.putIfAbsent(mushroomViewportPointKey(center), () => center);
+    }
+    // Load weather
+    final weatherFuture = modelCenters.isEmpty
+        ? Future.value(const <String, MushroomViewportWeather>{})
+        : _source.loadWeatherByGrid(modelCenters.values.toList(), cancellation);
+    // Load forest for zone (bounds of all points) using eligible points
+    final bounds = LatLngBounds.fromPoints(points);
+    final forestFuture = eligible.isEmpty
+        ? Future.value(const <String, ForestData>{})
+        : _source.loadForestForZone(bounds, eligible, cancellation);
+    final results = await Future.wait([weatherFuture, forestFuture]);
+    if (cancellation.isCancelled) return [];
+    final weatherByGrid = results[0] as Map<String, MushroomViewportWeather>;
+    final forests = results[1] as Map<String, ForestData>;
+    // Compute forecasts for each point
+    final forecasts = <List<MushroomForecast>>[];
+    final today = DateTime.now();
+    for (final point in points) {
+      final terrainKey = mushroomViewportPointKey(point);
+      final terrain = terrains[terrainKey] ?? _unknownTerrain(point);
+      final gridKey = mushroomViewportPointKey(_modelGridCenter(point));
+      final weather = weatherByGrid[gridKey] ?? const MushroomViewportWeather(history: [], forecast: [], soil: []);
+      final forest = forests[mushroomViewportPointKey(point)] ?? _unknownForest(point);
+      final List<MushroomForecast> pointForecasts = List.generate(8, (i) {
+        final targetDate = today.add(Duration(days: i));
+        return _engine.calculate(
+          weatherHistory: weather.history,
+          weatherForecast: weather.forecast,
+          soilMoistureLayers: weather.soil,
+          terrain: terrain,
+          forest: forest,
+          targetDate: targetDate,
+        );
+      });
+      forecasts.add(pointForecasts);
+    }
+    return forecasts;
+  }
 }

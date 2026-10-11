@@ -26,7 +26,7 @@ void main() {
     final model = BoletusEdulisModel();
 
     // Dates racines : historique 60 j, prévisions 8 j
-    final today = DateTime.utc(2026, 8, 1);
+    final today = DateTime.utc(2026, 10, 1);
     final j0 = today; // J+0
     final j7 = today.add(const Duration(days: 7));
 
@@ -75,11 +75,10 @@ void main() {
     }) {
       final layers = <SoilMoistureData>[];
       final layerSpecs = const <(double s, double e)>[
-        (0, 1),
-        (1, 3),
-        (3, 9),
-        (9, 27),
-        (27, 81),
+        (0, 7),
+        (7, 28),
+        (28, 100),
+        (100, 255),
       ];
       for (var i = days - 1; i >= 0; i--) {
         final d = today.subtract(Duration(days: i));

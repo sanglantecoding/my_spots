@@ -92,6 +92,12 @@ class _MushroomLegendWidgetState extends State<MushroomLegendWidget> {
                   label: 'Habitat non vérifié',
                   attenuated: true,
                 ),
+                const SizedBox(height: 3),
+                _LegendRow(
+                  color: Colors.grey.withValues(alpha: 0.3),
+                  label: 'Données manquantes',
+                  hatch: true,
+                ),
               ],
             ],
           ),

@@ -49,6 +49,7 @@ void main() {
       final f = MushroomForecast.mock(
         index: 80,
         habitat: HabitatStatus.excluded,
+        dataSources: {'terrain': 'ign_rge_alti_wld'},
       );
       final colors = cellDisplayColors(forecast: f, overlayOpacity: 1.0);
       expect(colors.hatch, isTrue);
@@ -61,6 +62,7 @@ void main() {
       final f = MushroomForecast.mock(
         index: 60,
         habitat: HabitatStatus.suitable,
+        dataSources: {'terrain': 'ign_rge_alti_wld'},
       );
       final colors = cellDisplayColors(forecast: f, overlayOpacity: 1.0);
       expect(colors.hatch, isFalse);
@@ -71,10 +73,12 @@ void main() {
       final suitable = MushroomForecast.mock(
         index: 60,
         habitat: HabitatStatus.suitable,
+        dataSources: {'terrain': 'ign_rge_alti_wld'},
       );
       final unknown = MushroomForecast.mock(
         index: 60,
         habitat: HabitatStatus.unknown,
+        dataSources: {'terrain': 'ign_rge_alti_wld'},
       );
       final s = cellDisplayColors(forecast: suitable, overlayOpacity: 1.0);
       final u = cellDisplayColors(forecast: unknown, overlayOpacity: 1.0);
@@ -82,8 +86,24 @@ void main() {
       expect(u.hatch, isFalse);
     });
 
+    test('Missing terrain data -> gray dotted', () {
+      final f = MushroomForecast.mock(
+        index: 60,
+        habitat: HabitatStatus.suitable,
+        dataSources: {}, // No terrain data
+      );
+      final colors = cellDisplayColors(forecast: f, overlayOpacity: 1.0);
+      expect(colors.hatch, isTrue);
+      expect(_byte(colors.fill.r), equals(158));
+      expect(_byte(colors.fill.g), equals(158));
+      expect(_byte(colors.fill.b), equals(158));
+    });
+
     test('overlayOpacity appique sur toutes les branches', () {
-      final excluded = MushroomForecast.mock(habitat: HabitatStatus.excluded);
+      final excluded = MushroomForecast.mock(
+        habitat: HabitatStatus.excluded,
+        dataSources: {'terrain': 'ign_rge_alti_wld'},
+      );
       final c1 = cellDisplayColors(forecast: excluded, overlayOpacity: 1.0);
       final c2 = cellDisplayColors(forecast: excluded, overlayOpacity: 0.2);
       expect(_byte(c2.fill.a), closeTo((_byte(c1.fill.a) * 0.2).round(), 1));
@@ -91,6 +111,7 @@ void main() {
       final suitable = MushroomForecast.mock(
         index: 50,
         habitat: HabitatStatus.suitable,
+        dataSources: {'terrain': 'ign_rge_alti_wld'},
       );
       final s1 = cellDisplayColors(forecast: suitable, overlayOpacity: 1.0);
       final s2 = cellDisplayColors(forecast: suitable, overlayOpacity: 0.3);

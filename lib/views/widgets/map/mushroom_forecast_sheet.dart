@@ -385,6 +385,29 @@ class _ForecastDayExpansion extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(top: 8),
           child: Text(
+            'Pluie 26 j : ${forecast.rain26?.toStringAsFixed(0) ?? 'n/d'} mm · Température moyenne 20 j : ${forecast.tmean20?.toStringAsFixed(1) ?? 'n/d'} °C',
+            style: const TextStyle(color: Colors.white38, fontSize: 10),
+          ),
+        ),
+        if (forecast.hasRecentFrost == true)
+          const Padding(
+            padding: EdgeInsets.only(top: 3),
+            child: Text(
+              'Gel récent',
+              style: TextStyle(color: Colors.white38, fontSize: 10),
+            ),
+          ),
+        if (forecast.isInSeason == false)
+          const Padding(
+            padding: EdgeInsets.only(top: 3),
+            child: Text(
+              'Hors saison',
+              style: TextStyle(color: Colors.white38, fontSize: 10),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
             mushroomSoilValuesLabel(forecast),
             style: const TextStyle(color: Colors.white38, fontSize: 10),
           ),

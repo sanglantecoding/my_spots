@@ -26,6 +26,22 @@ class _MushroomControlsWidgetState extends State<MushroomControlsWidget> {
     widget.onChanged?.call();
   }
 
+  void _showWaypointPanel(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Où aller ?'),
+        content: const Text('Functionality to be implemented.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Fermer'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Material(
@@ -65,6 +81,15 @@ class _MushroomControlsWidgetState extends State<MushroomControlsWidget> {
                     style: TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: () => _showWaypointPanel(context),
+                  child: const Icon(
+                    Icons.explore,
+                    color: Colors.tealAccent,
+                    size: 20,
+                  ),
+                ),
               ],
             ),
             if (AppSettings.mushroomOverlayEnabled) ...[
@@ -84,8 +109,7 @@ class _MushroomControlsWidgetState extends State<MushroomControlsWidget> {
                     min: 0,
                     max: 1,
                     divisions: 20,
-                    label:
-                        '${(AppSettings.mushroomOverlayOpacity * 100).round()}%',
+                    label: 'Transparence',
                     onChanged: _setOpacity,
                   ),
                 ),

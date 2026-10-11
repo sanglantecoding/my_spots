@@ -170,6 +170,8 @@ class IgnOpenElevationTerrainService implements TerrainService {
   /// Construit tous les patchs 3×3, envoie des requêtes POST groupées (max 5000 points),
   /// respecte la limite de 4 requêtes/s, calcule pente/exposition localement, utilise
   /// le cache existant, et retente une fois les échecs via Open-Elevation.
+  /// Pour les cellules où le point central n'a pas de données (code -99999),
+  /// confirme avec SRTM en lot.
   @override
   Future<Map<String, TerrainData>> getTerrainBatch(
     List<LatLng> centers,
@@ -193,8 +195,11 @@ class IgnOpenElevationTerrainService implements TerrainService {
 
     final allPoints = <(double lat, double lng)>[];
     final pointToCenter = <(double lat, double lng), LatLng>{};
+    final centerToPatchIndex = <LatLng, int>{};
 
-    for (final center in uncached) {
+    for (var i = 0; i < uncached.length; i++) {
+      final center = uncached[i];
+      centerToPatchIndex[center] = i;
       final patch = patch3x3(center.latitude, center.longitude);
       for (final point in patch) {
         allPoints.add(point);
@@ -214,6 +219,7 @@ class IgnOpenElevationTerrainService implements TerrainService {
     if (currentBatch.isNotEmpty) batches.add(currentBatch);
 
     final elevationsByPoint = <(double lat, double lng), double?>{};
+    final noDataByPoint = <(double lat, double lng), bool>{};
 
     for (final batch in batches) {
       await _enforceRateLimit();
@@ -223,6 +229,7 @@ class IgnOpenElevationTerrainService implements TerrainService {
         final ign = await _fetchIgn(lats, lngs);
         for (var i = 0; i < batch.length; i++) {
           elevationsByPoint[batch[i]] = ign.elevations[i];
+          noDataByPoint[batch[i]] = ign.noElevationData[i];
         }
       } on _ProviderUnavailableException {
         final failedPoints = batch
@@ -236,36 +243,126 @@ class IgnOpenElevationTerrainService implements TerrainService {
             final srtm = await _fetchOpenElevation(lats, lngs);
             for (var i = 0; i < failedPoints.length; i++) {
               elevationsByPoint[failedPoints[i]] = srtm[i];
+              noDataByPoint[failedPoints[i]] = false;
             }
           } catch (_) {
             for (final p in failedPoints) {
               elevationsByPoint.putIfAbsent(p, () => null);
+              noDataByPoint.putIfAbsent(p, () => false);
             }
+          }
+        }
+      } catch (_) {
+        for (final p in batch) {
+          elevationsByPoint.putIfAbsent(p, () => null);
+          noDataByPoint.putIfAbsent(p, () => false);
+        }
+      }
+    }
+
+    final centersNeedingSrtm = <LatLng>[];
+    for (final center in uncached) {
+      final patch = patch3x3(center.latitude, center.longitude);
+      final centralPoint = patch[4];
+      final centralNoData = noDataByPoint[centralPoint] ?? false;
+      if (centralNoData || elevationsByPoint[centralPoint] == null) {
+        centersNeedingSrtm.add(center);
+      }
+    }
+
+    if (centersNeedingSrtm.isNotEmpty) {
+      final srtmBatches = <List<LatLng>>[];
+      var currentSrtmBatch = <LatLng>[];
+      for (final center in centersNeedingSrtm) {
+        currentSrtmBatch.add(center);
+        if (currentSrtmBatch.length >= 100) {
+          srtmBatches.add(currentSrtmBatch);
+          currentSrtmBatch = [];
+        }
+      }
+      if (currentSrtmBatch.isNotEmpty) srtmBatches.add(currentSrtmBatch);
+
+      for (final srtmBatch in srtmBatches) {
+        await _enforceRateLimit();
+        try {
+          final lats = srtmBatch.map((c) => c.latitude).toList();
+          final lngs = srtmBatch.map((c) => c.longitude).toList();
+          final srtm = await _fetchOpenElevation(lats, lngs);
+          for (var i = 0; i < srtmBatch.length; i++) {
+            final center = srtmBatch[i];
+            final patch = patch3x3(center.latitude, center.longitude);
+            final centralPoint = patch[4];
+            elevationsByPoint[centralPoint] = srtm[i];
+            noDataByPoint[centralPoint] = false;
+          }
+        } catch (_) {
+          for (final center in srtmBatch) {
+            final patch = patch3x3(center.latitude, center.longitude);
+            final centralPoint = patch[4];
+            elevationsByPoint.putIfAbsent(centralPoint, () => null);
+            noDataByPoint.putIfAbsent(centralPoint, () => false);
           }
         }
       }
     }
 
     for (final center in uncached) {
-      final patch = patch3x3(center.latitude, center.longitude);
-      final elevations9 = patch.map((p) => elevationsByPoint[p]).toList();
-      final centralElevation = elevations9[4];
-      final derived = _deriveSlopeAspect(
-        elevations9: elevations9,
-        centerLat: center.latitude,
-      );
-      final data = TerrainData(
-        latitude: center.latitude,
-        longitude: center.longitude,
-        elevation: centralElevation,
-        noElevationData: false,
-        slope: derived.slopeDeg,
-        aspect: derived.aspectDeg,
-        source: 'ign_rge_alti_wld',
-      );
-      final key = _cacheKey(center.latitude, center.longitude);
-      _cache[key] = _CachedTerrain(fetchedAt: now, data: data);
-      result[key] = data;
+      try {
+        final patch = patch3x3(center.latitude, center.longitude);
+        final elevations9 = patch.map((p) => elevationsByPoint[p]).toList();
+        final centralPoint = patch[4];
+        final centralElevation = elevations9[4];
+        final centralNoData = noDataByPoint[centralPoint] ?? false;
+        final derived = _deriveSlopeAspect(
+          elevations9: elevations9,
+          centerLat: center.latitude,
+        );
+
+        String? source;
+        bool noElevationData;
+
+        if (centralElevation == null) {
+          source = null;
+          noElevationData = false;
+        } else if (centralNoData) {
+          if (centralElevation <= 0) {
+            source = 'srtm_open_elevation_30m';
+            noElevationData = true;
+          } else {
+            source = 'srtm_open_elevation_30m';
+            noElevationData = false;
+          }
+        } else {
+          source = 'ign_rge_alti_wld';
+          noElevationData = false;
+        }
+
+        final data = TerrainData(
+          latitude: center.latitude,
+          longitude: center.longitude,
+          elevation: centralElevation,
+          noElevationData: noElevationData,
+          slope: derived.slopeDeg,
+          aspect: derived.aspectDeg,
+          source: source,
+        );
+        final key = _cacheKey(center.latitude, center.longitude);
+        _cache[key] = _CachedTerrain(fetchedAt: now, data: data);
+        result[key] = data;
+      } catch (_) {
+        final key = _cacheKey(center.latitude, center.longitude);
+        final data = TerrainData(
+          latitude: center.latitude,
+          longitude: center.longitude,
+          elevation: null,
+          noElevationData: false,
+          slope: null,
+          aspect: null,
+          source: null,
+        );
+        _cache[key] = _CachedTerrain(fetchedAt: now, data: data);
+        result[key] = data;
+      }
     }
 
     return result;
@@ -285,7 +382,7 @@ class IgnOpenElevationTerrainService implements TerrainService {
 
   // ────────────────── Appels HTTP ──────────────────
 
-  /// Retourne 9 altitudes [double?] correspondant à l'ordre du patch 3×3,
+  /// Retourne N altitudes [double?] correspondant à l'ordre des points,
   /// dans le même ordre que [lats]/[lngs].
   /// Lève [_ProviderUnavailableException] si le provider est indisponible
   /// (HTTP 4xx/5xx, timeout, parsing impossible).
@@ -293,7 +390,6 @@ class IgnOpenElevationTerrainService implements TerrainService {
     List<double> lats,
     List<double> lngs,
   ) async {
-    assert(lats.length == 9 && lngs.length == 9);
     final uri = Uri.parse(_ignBaseUrl);
     final body = jsonEncode(<String, dynamic>{
       'lon': lngs.join('|'),
@@ -313,17 +409,16 @@ class IgnOpenElevationTerrainService implements TerrainService {
     if (response.statusCode != 200) {
       throw const _ProviderUnavailableException();
     }
-    return _parseIgnResponseDetails(response.body, expectedPoints: 9);
+    return _parseIgnResponseDetails(response.body, expectedPoints: lats.length);
   }
 
   Future<List<double?>> _fetchOpenElevation(
     List<double> lats,
     List<double> lngs,
   ) async {
-    assert(lats.length == 9 && lngs.length == 9);
     final uri = Uri.parse(_openElevationUrl);
     final locations = List<Map<String, double>>.generate(
-      9,
+      lats.length,
       (i) => {'latitude': lats[i], 'longitude': lngs[i]},
     );
     final body = jsonEncode(<String, dynamic>{'locations': locations});
@@ -344,7 +439,10 @@ class IgnOpenElevationTerrainService implements TerrainService {
         ),
       );
     }
-    return parseOpenElevationResponse(response.body, expectedPoints: 9);
+    return parseOpenElevationResponse(
+      response.body,
+      expectedPoints: lats.length,
+    );
   }
 
   // ────────────────── Parsers publics (testables) ──────────────────

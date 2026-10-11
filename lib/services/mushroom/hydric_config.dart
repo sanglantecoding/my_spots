@@ -1,5 +1,9 @@
-/// Placeholder hydrique unique, à calibrer avec des observations réelles.
-/// Ces valeurs de développement ne sont pas des seuils mycologiques validés.
+/// Configuration hydrique pour le modèle BoletusEdulisModel.
+///
+/// Sources : préprint Brejon Lamartinière & Hoffman (hêtraie allemande, 2015-2024, non relu par des pairs)
+/// À recalibrer avec mes observations (Haut-Languedoc).
+///
+/// Ces valeurs sont des HYPOTHÈSES à calibrer, aucune donnée inventée.
 class HydricConfig {
   HydricConfig._();
 
@@ -11,6 +15,15 @@ class HydricConfig {
 
   /// Pluie journalière minimale comptée comme jour pluvieux (mm).
   static const double rainDayMm = 2;
+
+  /// Fenêtre de pluie pour le terme rain26 (jours).
+  static const int rain26Window = 26;
+
+  /// Nombre minimum de jours requis pour rain26 (sinon null).
+  static const int rain26MinDays = 21;
+
+  /// Pluie de référence pour normalisation du terme rain26 (mm).
+  static const double rain26ReferenceMm = 100;
 
   /// Fenêtre récente de pluie et bilan hydrique (jours).
   static const int window = 14;
@@ -26,4 +39,11 @@ class HydricConfig {
 
   /// Seuil placeholder à partir duquel la porte hydrique cesse de limiter l'indice.
   static const double gateFullAt = 0.5;
+
+  /// Poids internes du facteur eau (renormalisés si un terme est inconnu).
+  static const double wetStreakWeight = 0.30;
+  static const double rain26Weight = 0.30;
+  static const double rainyDays14Weight = 0.15;
+  static const double rainConcentrationWeight = 0.10;
+  static const double rainEt0BalanceWeight = 0.15;
 }
