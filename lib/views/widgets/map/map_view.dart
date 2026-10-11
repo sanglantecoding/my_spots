@@ -4,11 +4,14 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/controllers/gps_controller.dart';
+import 'package:my_spots/models/mushroom/habitat_status.dart';
+import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/services/marine_map_service.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/views/widgets/map/gps_marker_widget.dart';
+import 'package:my_spots/views/widgets/map/mushroom_color_utils.dart';
 
 /// Widget isolé contenant FlutterMap et ses couches.
 ///
@@ -32,6 +35,8 @@ class MapView extends StatefulWidget {
   final bool mushroomEnabled;
   final double mushroomOpacity;
   final List<Polygon>? mushroomPolygons;
+  final List<List<MushroomForecast>>? mushroomWaypointForecasts;
+  final int mushroomWaypointSelectedDay;
   final void Function(LatLng)? onMushroomPolygonTapCenter;
   final void Function(LatLng tapPosition)? onMapBackgroundTap;
   final void Function(LatLng) onLongPress;
@@ -57,7 +62,9 @@ class MapView extends StatefulWidget {
     required this.bathymetryOpacity,
     required this.mushroomEnabled,
     required this.mushroomOpacity,
-    required this.mushroomPolygons,
+    this.mushroomPolygons,
+    this.mushroomWaypointForecasts,
+    this.mushroomWaypointSelectedDay = 0,
     required this.onMushroomPolygonTapCenter,
     this.onMapBackgroundTap,
     required this.onLongPress,
@@ -413,7 +420,28 @@ class _MapViewState extends State<MapView> {
     final dateStr =
         '${waypoint.createdAt.day.toString().padLeft(2, '0')}/${waypoint.createdAt.month.toString().padLeft(2, '0')}/${waypoint.createdAt.year}';
 
-    // 👇 Réglages de taille : modifie ici si tu veux plus grand/plus petit.
+    // Pour les waypoints champignons avec prévisions, utiliser la pastille colorée
+    if (waypoint.category == WaypointCategory.mushrooms &&
+        widget.mushroomWaypointForecasts != null &&
+        widget.mapType != MapType.marine) {
+      final waypointIndex = widget.waypoints.indexOf(waypoint);
+      if (waypointIndex >= 0 &&
+          waypointIndex < widget.mushroomWaypointForecasts!.length) {
+        final dayForecasts = widget.mushroomWaypointForecasts![waypointIndex];
+        if (widget.mushroomWaypointSelectedDay < dayForecasts.length) {
+          final forecast = dayForecasts[widget.mushroomWaypointSelectedDay];
+          return _buildMushroomWaypointMarker(
+            waypoint,
+            forecast,
+            hasLabel,
+            dateStr,
+            fontSize,
+          );
+        }
+      }
+    }
+
+    // Marqueur standard pour les autres cas
     const double circleSize = 30.0; // diamètre du rond
     const double iconSize = 16.0; // taille de l'icône dans le rond
 
@@ -466,10 +494,11 @@ class _MapViewState extends State<MapView> {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.55),
-                    borderRadius: BorderRadius.circular(6),
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(4),
                   ),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (showName)
@@ -478,7 +507,7 @@ class _MapViewState extends State<MapView> {
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: fontSize,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       if (showDate)
@@ -486,7 +515,112 @@ class _MapViewState extends State<MapView> {
                           dateStr,
                           style: TextStyle(
                             color: Colors.white70,
-                            fontSize: fontSize - 3,
+                            fontSize: fontSize - 1,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Marqueur spécial pour les waypoints champignons avec prévision.
+  Marker _buildMushroomWaypointMarker(
+    Waypoint waypoint,
+    MushroomForecast forecast,
+    bool hasLabel,
+    String dateStr,
+    double fontSize,
+  ) {
+    final color = indexToGradientColor(forecast.index);
+    final isExcluded = forecast.habitat == HabitatStatus.excluded;
+    final displayColor = isExcluded ? Colors.grey : color;
+
+    const double circleSize = 24.0; // pastille plus petite
+
+    return Marker(
+      key: ValueKey(
+        'mushroom_wp_${waypoint.latitude}_${waypoint.longitude}_${widget.mushroomWaypointSelectedDay}',
+      ),
+      point: LatLng(waypoint.latitude, waypoint.longitude),
+      width: circleSize,
+      height: circleSize,
+      alignment: Alignment.center,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => widget.onTap(waypoint),
+            child: Container(
+              width: circleSize,
+              height: circleSize,
+              decoration: BoxDecoration(
+                color: displayColor,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: displayColor.withValues(alpha: 0.5),
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 3,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  forecast.index.toString(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (hasLabel)
+            Positioned(
+              bottom: circleSize + 4,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => widget.onTap(waypoint),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (AppSettings.showWaypointNamesOnMap)
+                        Text(
+                          waypoint.name,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: fontSize,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      if (AppSettings.showWaypointDateOnMap)
+                        Text(
+                          dateStr,
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: fontSize - 1,
                           ),
                         ),
                     ],

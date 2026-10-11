@@ -26,7 +26,11 @@ class SeasonConfig {
 
   /// Calcule le multiplicateur saisonnier pour une date donnée.
   static double seasonMultiplier(DateTime date) {
-    final fullStart = DateTime(date.year, fullSeasonStartMonth, fullSeasonStartDay);
+    final fullStart = DateTime(
+      date.year,
+      fullSeasonStartMonth,
+      fullSeasonStartDay,
+    );
     final fullEnd = DateTime(date.year, fullSeasonEndMonth, fullSeasonEndDay);
 
     // Si la date est dans la période pleine
@@ -39,7 +43,8 @@ class SeasonConfig {
     if (date.isAfter(rampStart) && date.isBefore(fullStart)) {
       final daysIntoRamp = date.difference(rampStart).inDays;
       final t = daysIntoRamp / rampDays;
-      return outOfSeasonMultiplier + (fullSeasonMultiplier - outOfSeasonMultiplier) * t;
+      return outOfSeasonMultiplier +
+          (fullSeasonMultiplier - outOfSeasonMultiplier) * t;
     }
 
     // Rampe de sortie (après la fin de la saison pleine)
@@ -47,7 +52,8 @@ class SeasonConfig {
     if (date.isAfter(fullEnd) && date.isBefore(rampEnd)) {
       final daysIntoRamp = date.difference(fullEnd).inDays;
       final t = daysIntoRamp / rampDays;
-      return fullSeasonMultiplier - (fullSeasonMultiplier - outOfSeasonMultiplier) * t;
+      return fullSeasonMultiplier -
+          (fullSeasonMultiplier - outOfSeasonMultiplier) * t;
     }
 
     // Hors saison

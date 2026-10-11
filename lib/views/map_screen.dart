@@ -20,10 +20,12 @@ import 'package:my_spots/views/dialogs/waypoint_editor_sheet.dart';
 import 'package:my_spots/views/helpers/offline_zones_loader.dart';
 import 'package:my_spots/views/offline_maps_screen.dart';
 import 'package:my_spots/models/mushroom/habitat_status.dart';
+import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 import 'package:my_spots/models/mushroom/mushroom_grid_cell.dart';
 import 'package:my_spots/services/mushroom/app_mushroom_viewport_source.dart';
 import 'package:my_spots/services/mushroom/boletus_edulis_model.dart';
 import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
+import 'package:my_spots/services/mushroom/mushroom_waypoint_forecast_service.dart';
 import 'package:my_spots/views/widgets/map/bathymetry_controls_widget.dart';
 import 'package:my_spots/views/widgets/map/distance_measurement_overlay.dart';
 import 'package:my_spots/views/widgets/map/map_context_menu.dart';
@@ -104,6 +106,7 @@ class _MapScreenState extends State<MapScreen> {
 
   // ── Prévision champignons ──
   MushroomViewportForecastService? _mushroomService;
+  MushroomWaypointForecastService? _mushroomWaypointService;
   List<MushroomGridCell> _mushroomCells = const [];
   MushroomViewportStatus? _mushroomStatus;
   String? _mushroomMessage;
@@ -112,6 +115,8 @@ class _MapScreenState extends State<MapScreen> {
   int _mushroomDateIndex = 0;
   DateTime _mushroomStartDate = DateTime.now();
   Timer? _mushroomDebounce;
+  List<List<MushroomForecast>>? _mushroomWaypointForecasts;
+  int _mushroomWaypointSelectedDay = 0;
 
   /// Configuration (name + layers) collected from NewZoneSheet before
   /// entering _zoneEditMode.
@@ -330,13 +335,30 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    final source = AppMushroomViewportSource();
+    final engine = BoletusEdulisModel();
     _mushroomService = MushroomViewportForecastService(
-      source: AppMushroomViewportSource(),
-      engine: BoletusEdulisModel(),
+      source: source,
+      engine: engine,
     );
+    _mushroomWaypointService = MushroomWaypointForecastService(
+      source: source,
+      engine: engine,
+    );
+    WaypointStore.load().then((_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+    unawaited(AlarmService.initialize());
+    // S'abonner au flux broadcast d'événements d'alarme
+    _alarmSubscription = AlarmService.onAlarmEvent.listen((event) {
+      if (!mounted) return;
+      // On rebuild sur tout changement d'état vu par MapScreen
+      // (icône haut-parleur, etc.) — événement RARE, pas un tick GPS.
+      setState(() {});
+    });
     _resetMushroomStartDate();
     // Initialiser le service d'alarme
-    unawaited(AlarmService.initialize());
     // S'abonner au flux broadcast d'événements d'alarme
     _alarmSubscription = AlarmService.onAlarmEvent.listen((event) {
       if (!mounted) return;
@@ -488,6 +510,8 @@ class _MapScreenState extends State<MapScreen> {
       await WaypointStore.save();
       if (!mounted) return;
       setState(() {});
+      // Invalidate waypoint forecast cache when waypoints change
+      _mushroomWaypointService?.clearCache();
     }
   }
 
@@ -790,6 +814,8 @@ class _MapScreenState extends State<MapScreen> {
                           AppSettings.mapType != MapType.marine
                       ? _buildMushroomPolygons()
                       : const [],
+                  mushroomWaypointForecasts: _mushroomWaypointForecasts,
+                  mushroomWaypointSelectedDay: _mushroomWaypointSelectedDay,
                   onMushroomPolygonTapCenter: null,
                   onMapBackgroundTap: _onMapBackgroundTap,
                   onLongPress: (latLng) {
@@ -868,6 +894,25 @@ class _MapScreenState extends State<MapScreen> {
                       left: 6,
                       top: 10,
                       child: MushroomControlsWidget(
+                        forecastService: _mushroomWaypointService,
+                        onCenterOnWaypoint: (latLng) {
+                          _mapController.move(latLng, 16.0);
+                        },
+                        onOpenSheet: (waypoint) {
+                          setState(() {
+                            _selectedWaypoint = waypoint;
+                          });
+                        },
+                        onDayChanged: (day) {
+                          setState(() {
+                            _mushroomWaypointSelectedDay = day;
+                          });
+                        },
+                        onForecastsLoaded: (forecasts) {
+                          setState(() {
+                            _mushroomWaypointForecasts = forecasts;
+                          });
+                        },
                         onChanged: () {
                           if (!mounted) return;
                           if (AppSettings.mushroomOverlayEnabled) {

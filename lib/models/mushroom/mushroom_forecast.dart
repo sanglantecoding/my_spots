@@ -38,10 +38,10 @@ class MushroomForecast {
   /// Température moyenne de l'air sur 20 jours (°C), null si moins de 16 jours.
   final double? tmean20;
 
-  /// Vrai si un gel est détecté dans les 3 jours précédant la date cible.
+  /// Indique s'il y a un gel récent (multiplicateur < 1.0).
   final bool? hasRecentFrost;
 
-  /// Vrai si la date cible est dans la saison pleine (multiplicateur de saison à 1).
+  /// Indique si la date est hors saison (multiplicateur < 1.0).
   final bool? isInSeason;
 
   /// Sources réellement fournies par les services, absentes si inconnues.

@@ -1,4 +1,4 @@
-import 'dart:math';
+﻿import 'dart:math';
 
 import 'package:my_spots/models/mushroom/forest_data.dart';
 import 'package:my_spots/models/mushroom/habitat_status.dart';
@@ -241,8 +241,8 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       temperatureSource: temperature.source,
       rain26: hydric.rain26,
       tmean20: temperature.tmean20,
-      hasRecentFrost: FrostConfig.hasRecentFrost(targetDate, weatherSeriesDesc),
-      isInSeason: SeasonConfig.seasonMultiplier(targetDate) >= 1,
+      hasRecentFrost: frostMult < 1.0,
+      isInSeason: seasonMult < 1.0,
       dataSources: {
         'terrain': terrain.source,
         'forest': forest.source,
@@ -702,7 +702,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
         : (forest.forestType!.toLowerCase().contains('feuillu') ||
                   forest.forestType!.toLowerCase().contains('mixte')
               ? 1.0
-              : forest.forestType!.toLowerCase().contains('conifère')
+              : forest.forestType!.toLowerCase().contains('conif')
               ? 0.9
               : 0.6);
 

@@ -1,10 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
+import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
+import 'package:my_spots/models/waypoint.dart';
+import 'package:my_spots/services/mushroom/mushroom_waypoint_forecast_service.dart';
+import 'package:my_spots/views/widgets/map/mushroom_waypoint_panel.dart';
 
 class MushroomControlsWidget extends StatefulWidget {
   final VoidCallback? onChanged;
+  final MushroomWaypointForecastService? forecastService;
+  final Function(LatLng)? onCenterOnWaypoint;
+  final Function(Waypoint)? onOpenSheet;
+  final Function(int)? onDayChanged;
+  final Function(List<List<MushroomForecast>>)? onForecastsLoaded;
 
-  const MushroomControlsWidget({super.key, this.onChanged});
+  const MushroomControlsWidget({
+    super.key,
+    this.onChanged,
+    this.forecastService,
+    this.onCenterOnWaypoint,
+    this.onOpenSheet,
+    this.onDayChanged,
+    this.onForecastsLoaded,
+  });
 
   @override
   State<MushroomControlsWidget> createState() => _MushroomControlsWidgetState();
@@ -27,17 +45,33 @@ class _MushroomControlsWidgetState extends State<MushroomControlsWidget> {
   }
 
   void _showWaypointPanel(BuildContext context) {
-    showDialog(
+    if (widget.forecastService == null) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Où aller ?'),
+          content: const Text('Service de prévision non disponible.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Fermer'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Où aller ?'),
-        content: const Text('Functionality to be implemented.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Fermer'),
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => MushroomWaypointPanel(
+        forecastService: widget.forecastService!,
+        onCenterOnWaypoint: widget.onCenterOnWaypoint,
+        onOpenSheet: widget.onOpenSheet,
+        onDayChanged: widget.onDayChanged,
+        onForecastsLoaded: widget.onForecastsLoaded,
       ),
     );
   }

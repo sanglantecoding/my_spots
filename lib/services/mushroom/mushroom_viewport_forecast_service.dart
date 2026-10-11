@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -368,7 +368,9 @@ class MushroomViewportForecastService {
     canopyCover: null,
     source: null,
   );
-  Future<List<List<MushroomForecast>>> calculateForPoints(List<LatLng> points) async {
+  Future<List<List<MushroomForecast>>> calculateForPoints(
+    List<LatLng> points,
+  ) async {
     if (points.isEmpty) return [];
     if (points.length > 50) throw ArgumentError('Maximum 50 points');
     final cancellation = MushroomViewportCancellationToken();
@@ -378,7 +380,8 @@ class MushroomViewportForecastService {
     // Determine eligible points (habitat not excluded)
     final eligible = <LatLng>[];
     for (final point in points) {
-      final terrain = terrains[mushroomViewportPointKey(point)] ?? _unknownTerrain(point);
+      final terrain =
+          terrains[mushroomViewportPointKey(point)] ?? _unknownTerrain(point);
       final habitat = HabitatRules.evaluateTerrain(terrain);
       if (habitat == null) {
         eligible.add(point);
@@ -410,8 +413,11 @@ class MushroomViewportForecastService {
       final terrainKey = mushroomViewportPointKey(point);
       final terrain = terrains[terrainKey] ?? _unknownTerrain(point);
       final gridKey = mushroomViewportPointKey(_modelGridCenter(point));
-      final weather = weatherByGrid[gridKey] ?? const MushroomViewportWeather(history: [], forecast: [], soil: []);
-      final forest = forests[mushroomViewportPointKey(point)] ?? _unknownForest(point);
+      final weather =
+          weatherByGrid[gridKey] ??
+          const MushroomViewportWeather(history: [], forecast: [], soil: []);
+      final forest =
+          forests[mushroomViewportPointKey(point)] ?? _unknownForest(point);
       final List<MushroomForecast> pointForecasts = List.generate(8, (i) {
         final targetDate = today.add(Duration(days: i));
         return _engine.calculate(

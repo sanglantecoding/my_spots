@@ -11,7 +11,7 @@ import 'package:my_spots/services/mushroom/forest_service.dart';
 import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Interroge la couche formations végétales de la BD Forêt V2 de l'IGN.
+/// Interroge la couche formations vÃ©gÃ©tales de la BD ForÃªt V2 de l'IGN.
 class IgnBdForetForestService implements ForestService {
   IgnBdForetForestService({
     http.Client? client,
@@ -54,9 +54,9 @@ class IgnBdForetForestService implements ForestService {
     }
   }
 
-  /// Charge les données de forêt pour plusieurs centres de cellules en batch.
+  /// Charge les donnÃ©es de forÃªt pour plusieurs centres de cellules en batch.
   ///
-  /// Une requête WFS par tuile de 0.05° couvrant la zone, cache disque par tuile
+  /// Une requÃªte WFS par tuile de 0.05Â° couvrant la zone, cache disque par tuile
   /// (TTL 90 jours), puis point-in-polygon local pour chaque cellule.
   @override
   Future<Map<String, ForestData>> getForestBatch(
@@ -292,8 +292,8 @@ class IgnBdForetForestService implements ForestService {
     }
   }
 
-  /// Parse les propriétés GeoJSON. Une collection valide vide reste inconnue:
-  /// la BD Forêt V2 n'est ni exhaustive ni contemporaine partout.
+  /// Parse les propriÃ©tÃ©s GeoJSON. Une collection valide vide reste inconnue:
+  /// la BD ForÃªt V2 n'est ni exhaustive ni contemporaine partout.
   static ForestData parseFeatureCollection(
     Map<String, dynamic> collection, {
     required double lat,
@@ -335,11 +335,11 @@ class IgnBdForetForestService implements ForestService {
     final code = '${properties['code_tfv'] ?? ''}'.trim().toUpperCase();
     final essence = '${properties['essence'] ?? ''}'.trim().toLowerCase();
 
-    // Nomenclature officielle : FF = forêt fermée, FO = forêt ouverte.
-    // LA4/LA6 (landes/herbacées) sont explicitement non forestières. Les
-    // autres catégories, dont les peupleraies, restent inconnues.
-    final closed = code.startsWith('FF') || tfv.startsWith('forêt fermée');
-    final open = code.startsWith('FO') || tfv.startsWith('forêt ouverte');
+    // Nomenclature officielle : FF = forÃªt fermÃ©e, FO = forÃªt ouverte.
+    // LA4/LA6 (landes/herbacÃ©es) sont explicitement non forestiÃ¨res. Les
+    // autres catÃ©gories, dont les peupleraies, restent inconnues.
+    final closed = code.startsWith('FF') || tfv.startsWith('forÃªt fermÃ©e');
+    final open = code.startsWith('FO') || tfv.startsWith('forÃªt ouverte');
     if (closed || open) {
       String? type;
       if (code.startsWith('FF1') ||
@@ -349,18 +349,18 @@ class IgnBdForetForestService implements ForestService {
       } else if (code.startsWith('FF2') ||
           code.startsWith('FO2') ||
           essence.contains('conif')) {
-        type = 'conifère';
+        type = 'conifÃ¨re';
       } else if (code.startsWith('FF3') ||
           code.startsWith('FO3') ||
           essence.contains('mixte')) {
         type = 'mixte';
       }
-      return _Formation(true, type, closed ? 'fermée' : 'ouverte');
+      return _Formation(true, type, closed ? 'fermÃ©e' : 'ouverte');
     }
     if (code.startsWith('LA4') ||
         code.startsWith('LA6') ||
         tfv.contains('lande') ||
-        tfv.contains('formation herbacée')) {
+        tfv.contains('formation herbacÃ©e')) {
       return const _Formation(false, null, null);
     }
     return null;
@@ -398,7 +398,7 @@ class IgnBdForetForestService implements ForestService {
       await temp.rename(file.path);
       _memory[key] = _CacheEntry(data, DateTime.now());
     } catch (_) {
-      // Une indisponibilité du disque ne rend pas la réponse réseau inutilisable.
+      // Une indisponibilitÃ© du disque ne rend pas la rÃ©ponse rÃ©seau inutilisable.
     }
   }
 
@@ -500,8 +500,12 @@ class CompositeForestService implements ForestService {
     List<LatLng> centers,
   ) async {
     // Call both services in parallel
-    final bdForetFuture = bdForet.getForestBatch(bounds, centers);
-    final overpassFuture = overpass.getForestBatch(bounds, centers);
+    final bdForetFuture = bdForet
+        .getForestBatch(bounds, centers)
+        .catchError((_) => <String, ForestData>{});
+    final overpassFuture = overpass
+        .getForestBatch(bounds, centers)
+        .catchError((_) => <String, ForestData>{});
 
     // Wait for both, handling errors so one failure doesn't lose the other
     final results = await Future.wait<dynamic>([bdForetFuture, overpassFuture]);
@@ -549,6 +553,9 @@ class CompositeForestService implements ForestService {
         treeDensity: null,
         canopyCover: null,
         landCover: overpassData?.landCover, // landCover from OSM
+        forestAreasInTile: overpassData?.forestAreasInTile, // Copy from OSM
+        nearestForestDistanceMeters:
+            overpassData?.nearestForestDistanceMeters, // Copy from OSM
         source: source.isEmpty ? null : source.join('+'),
       );
     }
