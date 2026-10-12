@@ -14,7 +14,7 @@ class MushroomWaypointPanel extends StatefulWidget {
   final Function(LatLng)? onCenterOnWaypoint;
   final Function(Waypoint)? onOpenSheet;
   final Function(int)? onDayChanged;
-  final Function(List<List<MushroomForecast>>)? onForecastsLoaded;
+  final Function(Map<String, List<MushroomForecast>>)? onForecastsLoaded;
 
   const MushroomWaypointPanel({
     super.key,
@@ -31,7 +31,7 @@ class MushroomWaypointPanel extends StatefulWidget {
 
 class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
   int _selectedDay = 0; // J+0 to J+7
-  List<List<MushroomForecast>>? _forecasts;
+  Map<String, List<MushroomForecast>>? _forecasts;
   bool _isLoading = false;
   String? _errorMessage;
   bool _sortByDistance = false;
@@ -141,9 +141,11 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
     final results =
         <({Waypoint waypoint, MushroomForecast forecast, int bestDay})>[];
 
-    for (int i = 0; i < mushroomWaypoints.length; i++) {
-      final waypoint = mushroomWaypoints[i];
-      final dayForecasts = _forecasts![i];
+    for (final waypoint in mushroomWaypoints) {
+      final key = '${waypoint.latitude},${waypoint.longitude}';
+      final dayForecasts = _forecasts![key];
+
+      if (dayForecasts == null || dayForecasts.isEmpty) continue;
 
       // Trouver le meilleur jour de la semaine
       final suitableForecasts = dayForecasts

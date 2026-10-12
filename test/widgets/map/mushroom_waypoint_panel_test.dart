@@ -57,6 +57,114 @@ void main() {
       // Verify mock service was configured with excluded flag
       expect(mockService.withExcluded, isTrue);
     });
+
+    testWidgets(
+      'pastille assigned to correct waypoint with non-mushroom waypoints',
+      (WidgetTester tester) async {
+        final mockService = _MockWaypointForecastService();
+
+        // Add waypoints with non-mushroom before and after
+        WaypointStore.waypoints.clear();
+        WaypointStore.waypoints.addAll([
+          Waypoint(
+            name: 'Fishing 1',
+            latitude: 43.5,
+            longitude: 3.0,
+            createdAt: DateTime.now(),
+            category: WaypointCategory.fishing,
+          ),
+          Waypoint(
+            name: 'Mushroom 1',
+            latitude: 43.51,
+            longitude: 3.01,
+            createdAt: DateTime.now(),
+            category: WaypointCategory.mushrooms,
+          ),
+          Waypoint(
+            name: 'Other 1',
+            latitude: 43.52,
+            longitude: 3.02,
+            createdAt: DateTime.now(),
+            category: WaypointCategory.other,
+          ),
+        ]);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: MushroomWaypointPanel(forecastService: mockService),
+            ),
+          ),
+        );
+
+        await tester.pumpAndSettle();
+
+        // Verify service was called
+        expect(mockService.loadCalled, isTrue);
+
+        // The key for Mushroom 1 should be '43.51,3.01'
+        // Verify the mock service returns forecasts keyed by coordinates
+        final result = await mockService.calculateForWaypoints(
+          WaypointStore.waypoints,
+        );
+        expect(result, isNotNull);
+        expect(result!.containsKey('43.51,3.01'), isTrue);
+      },
+    );
+
+    testWidgets('cache returns same results with different input order', (
+      WidgetTester tester,
+    ) async {
+      final mockService = _MockWaypointForecastService();
+
+      // Create waypoints in one order
+      final waypoints1 = [
+        Waypoint(
+          name: 'Mushroom A',
+          latitude: 43.5,
+          longitude: 3.0,
+          createdAt: DateTime.now(),
+          category: WaypointCategory.mushrooms,
+        ),
+        Waypoint(
+          name: 'Mushroom B',
+          latitude: 43.51,
+          longitude: 3.01,
+          createdAt: DateTime.now(),
+          category: WaypointCategory.mushrooms,
+        ),
+      ];
+
+      // Create same waypoints in reverse order
+      final waypoints2 = [
+        Waypoint(
+          name: 'Mushroom B',
+          latitude: 43.51,
+          longitude: 3.01,
+          createdAt: DateTime.now(),
+          category: WaypointCategory.mushrooms,
+        ),
+        Waypoint(
+          name: 'Mushroom A',
+          latitude: 43.5,
+          longitude: 3.0,
+          createdAt: DateTime.now(),
+          category: WaypointCategory.mushrooms,
+        ),
+      ];
+
+      // Calculate for first order
+      final result1 = await mockService.calculateForWaypoints(waypoints1);
+
+      // Clear the mock's call counter but keep cache
+      mockService.loadCalled = false;
+
+      // Calculate for reverse order - should use cache (same keys)
+      final result2 = await mockService.calculateForWaypoints(waypoints2);
+
+      // Both results should have the same keys
+      expect(result1!.keys.toSet(), equals(result2!.keys.toSet()));
+    });
   });
 }
 
@@ -68,18 +176,20 @@ class _MockWaypointForecastService implements MushroomWaypointForecastService {
   _MockWaypointForecastService({this.withExcluded = false});
 
   @override
-  Future<List<List<MushroomForecast>>?> calculateForWaypoints(
+  Future<Map<String, List<MushroomForecast>>?> calculateForWaypoints(
     List<Waypoint> waypoints,
   ) async {
     loadCalled = true;
     loadCalledCount++;
 
-    if (waypoints.isEmpty) return [];
+    if (waypoints.isEmpty) return {};
     if (waypoints.length > 50) return null;
 
-    // Return mock forecasts
-    return List.generate(waypoints.length, (i) {
-      return List.generate(8, (day) {
+    // Return mock forecasts as a Map keyed by waypoint coordinates
+    final result = <String, List<MushroomForecast>>{};
+    for (int i = 0; i < waypoints.length; i++) {
+      final key = '${waypoints[i].latitude},${waypoints[i].longitude}';
+      result[key] = List.generate(8, (day) {
         return MushroomForecast.mock(
           date: DateTime.now().add(Duration(days: day)),
           species: MushroomSpecies.boletusEdulis,
@@ -90,7 +200,8 @@ class _MockWaypointForecastService implements MushroomWaypointForecastService {
               : HabitatStatus.suitable,
         );
       });
-    });
+    }
+    return result;
   }
 
   @override

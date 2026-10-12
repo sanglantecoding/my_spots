@@ -35,7 +35,7 @@ class MapView extends StatefulWidget {
   final bool mushroomEnabled;
   final double mushroomOpacity;
   final List<Polygon>? mushroomPolygons;
-  final List<List<MushroomForecast>>? mushroomWaypointForecasts;
+  final Map<String, List<MushroomForecast>>? mushroomWaypointForecasts;
   final int mushroomWaypointSelectedDay;
   final void Function(LatLng)? onMushroomPolygonTapCenter;
   final void Function(LatLng tapPosition)? onMapBackgroundTap;
@@ -424,20 +424,18 @@ class _MapViewState extends State<MapView> {
     if (waypoint.category == WaypointCategory.mushrooms &&
         widget.mushroomWaypointForecasts != null &&
         widget.mapType != MapType.marine) {
-      final waypointIndex = widget.waypoints.indexOf(waypoint);
-      if (waypointIndex >= 0 &&
-          waypointIndex < widget.mushroomWaypointForecasts!.length) {
-        final dayForecasts = widget.mushroomWaypointForecasts![waypointIndex];
-        if (widget.mushroomWaypointSelectedDay < dayForecasts.length) {
-          final forecast = dayForecasts[widget.mushroomWaypointSelectedDay];
-          return _buildMushroomWaypointMarker(
-            waypoint,
-            forecast,
-            hasLabel,
-            dateStr,
-            fontSize,
-          );
-        }
+      final key = '${waypoint.latitude},${waypoint.longitude}';
+      final dayForecasts = widget.mushroomWaypointForecasts![key];
+      if (dayForecasts != null &&
+          widget.mushroomWaypointSelectedDay < dayForecasts.length) {
+        final forecast = dayForecasts[widget.mushroomWaypointSelectedDay];
+        return _buildMushroomWaypointMarker(
+          waypoint,
+          forecast,
+          hasLabel,
+          dateStr,
+          fontSize,
+        );
       }
     }
 

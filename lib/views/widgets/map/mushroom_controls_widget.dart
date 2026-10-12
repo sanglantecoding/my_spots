@@ -12,7 +12,7 @@ class MushroomControlsWidget extends StatefulWidget {
   final Function(LatLng)? onCenterOnWaypoint;
   final Function(Waypoint)? onOpenSheet;
   final Function(int)? onDayChanged;
-  final Function(List<List<MushroomForecast>>)? onForecastsLoaded;
+  final Function(Map<String, List<MushroomForecast>>)? onForecastsLoaded;
 
   const MushroomControlsWidget({
     super.key,

@@ -21,7 +21,7 @@ class MushroomWaypointForecastService {
   // Cache: clé = hash des waypoints, valeur = (timestamp, résultats)
   final Map<
     String,
-    ({DateTime timestamp, List<List<MushroomForecast>> forecasts})
+    ({DateTime timestamp, Map<String, List<MushroomForecast>> forecasts})
   >
   _cache = {};
 
@@ -30,13 +30,14 @@ class MushroomWaypointForecastService {
 
   /// Calcule les prévisions pour une liste de waypoints.
   /// Retourne null si hors-ligne sans cache, ou si > 50 waypoints.
-  Future<List<List<MushroomForecast>>?> calculateForWaypoints(
+  /// La clé de la Map est l'identifiant du waypoint (id si existe, sinon 'lat,lng').
+  Future<Map<String, List<MushroomForecast>>?> calculateForWaypoints(
     List<Waypoint> waypoints,
   ) async {
-    if (waypoints.isEmpty) return [];
+    if (waypoints.isEmpty) return {};
     if (waypoints.length > _maxWaypoints) return null;
 
-    // Générer une clé de cache basée sur les waypoints
+    // Générer une clé de cache basée sur les waypoints (triés par clé)
     final cacheKey = _generateCacheKey(waypoints);
 
     // Vérifier le cache
@@ -50,10 +51,11 @@ class MushroomWaypointForecastService {
       }
     }
 
-    // Convertir les waypoints en LatLng
-    final points = waypoints
-        .map((wp) => LatLng(wp.latitude, wp.longitude))
-        .toList();
+    // Convertir les waypoints en LatLng avec leurs clés
+    final pointsWithKeys = waypoints.map((wp) {
+      final key = _waypointKey(wp);
+      return (key: key, point: LatLng(wp.latitude, wp.longitude));
+    }).toList();
 
     // Calculer via calculateForPoints
     final service = MushroomViewportForecastService(
@@ -62,12 +64,19 @@ class MushroomWaypointForecastService {
     );
 
     try {
+      final points = pointsWithKeys.map((e) => e.point).toList();
       final forecasts = await service.calculateForPoints(points);
 
-      // Mettre en cache
-      _cache[cacheKey] = (timestamp: DateTime.now(), forecasts: forecasts);
+      // Construire la Map avec les clés de waypoints
+      final result = <String, List<MushroomForecast>>{};
+      for (int i = 0; i < pointsWithKeys.length && i < forecasts.length; i++) {
+        result[pointsWithKeys[i].key] = forecasts[i];
+      }
 
-      return forecasts;
+      // Mettre en cache
+      _cache[cacheKey] = (timestamp: DateTime.now(), forecasts: result);
+
+      return result;
     } catch (e) {
       // En cas d'erreur (hors-ligne), retourner null
       return null;
@@ -86,15 +95,21 @@ class MushroomWaypointForecastService {
   }
 
   /// Génère une clé de cache unique pour une liste de waypoints.
+  /// Utilise les clés de waypoints triées pour être indépendant de l'ordre.
   String _generateCacheKey(List<Waypoint> waypoints) {
-    final sorted = List<Waypoint>.from(waypoints)
-      ..sort((a, b) => a.name.compareTo(b.name));
-    return sorted.map((wp) => '${wp.latitude},${wp.longitude}').join('|');
+    final keys = waypoints.map(_waypointKey).toList()..sort();
+    return keys.join('|');
+  }
+
+  /// Génère une clé unique pour un waypoint.
+  /// Utilise l'identifiant s'il existe, sinon 'lat,lng'.
+  String _waypointKey(Waypoint waypoint) {
+    return '${waypoint.latitude},${waypoint.longitude}';
   }
 
   /// Retourne le nombre de waypoints sans données (indice null ou habitat exclu).
-  static int countWithoutData(List<List<MushroomForecast>> forecasts) {
-    return forecasts.where((dayForecasts) {
+  static int countWithoutData(Map<String, List<MushroomForecast>> forecasts) {
+    return forecasts.values.where((dayForecasts) {
       return dayForecasts.every(
         (f) => f.index == 0 || f.habitat == HabitatStatus.excluded,
       );

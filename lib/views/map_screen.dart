@@ -115,7 +115,7 @@ class _MapScreenState extends State<MapScreen> {
   int _mushroomDateIndex = 0;
   DateTime _mushroomStartDate = DateTime.now();
   Timer? _mushroomDebounce;
-  List<List<MushroomForecast>>? _mushroomWaypointForecasts;
+  Map<String, List<MushroomForecast>>? _mushroomWaypointForecasts;
   int _mushroomWaypointSelectedDay = 0;
 
   /// Configuration (name + layers) collected from NewZoneSheet before
