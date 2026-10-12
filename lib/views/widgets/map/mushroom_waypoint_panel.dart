@@ -130,7 +130,14 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
     }
   }
 
-  List<({Waypoint waypoint, MushroomForecast forecast, int bestDay})>
+  List<
+    ({
+      Waypoint waypoint,
+      MushroomForecast forecast,
+      int bestDay,
+      double? distance,
+    })
+  >
   _getSortedWaypoints() {
     if (_forecasts == null) return [];
 
@@ -139,7 +146,14 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
         .toList();
 
     final results =
-        <({Waypoint waypoint, MushroomForecast forecast, int bestDay})>[];
+        <
+          ({
+            Waypoint waypoint,
+            MushroomForecast forecast,
+            int bestDay,
+            double? distance,
+          })
+        >[];
 
     for (final waypoint in mushroomWaypoints) {
       final key = '${waypoint.latitude},${waypoint.longitude}';
@@ -159,28 +173,30 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
       );
       final bestDay = dayForecasts.indexOf(bestForecast);
 
+      // Calculer la distance si GPS disponible
+      double? distance;
+      if (_currentPosition != null) {
+        distance = Geolocator.distanceBetween(
+          _currentPosition!.latitude,
+          _currentPosition!.longitude,
+          waypoint.latitude,
+          waypoint.longitude,
+        );
+      }
+
       results.add((
         waypoint: waypoint,
         forecast: bestForecast,
         bestDay: bestDay,
+        distance: distance,
       ));
     }
 
     // Tri
     if (_sortByDistance && _currentPosition != null) {
       results.sort((a, b) {
-        final distA = Geolocator.distanceBetween(
-          _currentPosition!.latitude,
-          _currentPosition!.longitude,
-          a.waypoint.latitude,
-          a.waypoint.longitude,
-        );
-        final distB = Geolocator.distanceBetween(
-          _currentPosition!.latitude,
-          _currentPosition!.longitude,
-          b.waypoint.latitude,
-          b.waypoint.longitude,
-        );
+        final distA = a.distance ?? double.infinity;
+        final distB = b.distance ?? double.infinity;
         return distA.compareTo(distB);
       });
     } else {
@@ -334,6 +350,7 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
                     waypoint: item.waypoint,
                     forecast: item.forecast,
                     bestDay: item.bestDay,
+                    distance: item.distance,
                     onTap: () {
                       widget.onCenterOnWaypoint?.call(
                         LatLng(item.waypoint.latitude, item.waypoint.longitude),
@@ -360,6 +377,7 @@ class _WaypointListItem extends StatelessWidget {
   final int bestDay;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final double? distance;
 
   const _WaypointListItem({
     required this.waypoint,
@@ -367,6 +385,7 @@ class _WaypointListItem extends StatelessWidget {
     required this.bestDay,
     required this.onTap,
     required this.onLongPress,
+    this.distance,
   });
 
   @override
@@ -433,10 +452,22 @@ class _WaypointListItem extends StatelessWidget {
               ),
             ),
             // Distance si disponible
-            // TODO: ajouter distance calculée
+            if (distance != null)
+              Text(
+                _formatDistance(distance!),
+                style: const TextStyle(color: Colors.white38, fontSize: 11),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  String _formatDistance(double meters) {
+    if (meters < 1000) {
+      return '${meters.round()} m';
+    } else {
+      return '${(meters / 1000).toStringAsFixed(1).replaceAll('.', ',')} km';
+    }
   }
 }

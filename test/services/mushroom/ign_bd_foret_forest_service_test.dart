@@ -193,6 +193,128 @@ void main() {
     final data = await composite.getForestData(lat: 0, lng: 0);
     expect(data.isForest, isFalse);
   });
+
+  group('CompositeForestService.getForestBatch', () {
+    test(
+      'un lac OSM (landCover water) est conservé quand la BD Forêt voit une forêt',
+      () async {
+        final composite = CompositeForestService(
+          bdForet: _FakeBatchForestService(
+            isForest: true,
+            forestType: 'conifère',
+            source: 'ign_bdforet_v2',
+            landCover: null,
+          ),
+          overpass: _FakeBatchForestService(
+            isForest: null,
+            forestType: null,
+            source: 'fake',
+            landCover: 'water',
+          ),
+        );
+
+        final bounds = LatLngBounds(
+          const LatLng(43.0, 3.0),
+          const LatLng(44.0, 4.0),
+        );
+        final centers = [const LatLng(43.5, 3.5)];
+
+        final result = await composite.getForestBatch(bounds, centers);
+
+        final data = result['43.5,3.5'];
+        expect(data, isNotNull);
+        expect(data!.isForest, isTrue);
+        expect(data.landCover, 'water');
+      },
+    );
+
+    test('si le lot de la BD Forêt échoue, le lot OSM est conservé', () async {
+      final composite = CompositeForestService(
+        bdForet: _FakeBatchForestService(shouldFail: true),
+        overpass: _FakeBatchForestService(
+          isForest: true,
+          forestType: 'feuillu',
+          source: 'fake',
+          landCover: null,
+        ),
+      );
+
+      final bounds = LatLngBounds(
+        const LatLng(43.0, 3.0),
+        const LatLng(44.0, 4.0),
+      );
+      final centers = [const LatLng(43.5, 3.5)];
+
+      final result = await composite.getForestBatch(bounds, centers);
+
+      final data = result['43.5,3.5'];
+      expect(data, isNotNull);
+      expect(data!.isForest, isTrue);
+      expect(data.source, 'fake');
+    });
+
+    test('si le lot OSM échoue, le lot BD Forêt est conservé', () async {
+      final composite = CompositeForestService(
+        bdForet: _FakeBatchForestService(
+          isForest: true,
+          forestType: 'conifère',
+          source: 'ign_bdforet_v2',
+          landCover: null,
+        ),
+        overpass: _FakeBatchForestService(shouldFail: true),
+      );
+
+      final bounds = LatLngBounds(
+        const LatLng(43.0, 3.0),
+        const LatLng(44.0, 4.0),
+      );
+      final centers = [const LatLng(43.5, 3.5)];
+
+      final result = await composite.getForestBatch(bounds, centers);
+
+      final data = result['43.5,3.5'];
+      expect(data, isNotNull);
+      expect(data!.isForest, isTrue);
+      expect(data.source, 'ign_bdforet_v2');
+    });
+
+    test(
+      'le résultat par lot est identique à getForestData pour le même point',
+      () async {
+        final bdForet = _FakeBatchForestService(
+          isForest: true,
+          forestType: 'feuillu',
+          source: 'ign_bdforet_v2',
+          landCover: null,
+        );
+        final overpass = _FakeBatchForestService(
+          isForest: null,
+          forestType: null,
+          source: 'fake',
+          landCover: 'water',
+        );
+
+        final composite = CompositeForestService(
+          bdForet: bdForet,
+          overpass: overpass,
+        );
+
+        final bounds = LatLngBounds(
+          const LatLng(43.0, 3.0),
+          const LatLng(44.0, 4.0),
+        );
+        final centers = [const LatLng(43.5, 3.5)];
+
+        final batchResult = await composite.getForestBatch(bounds, centers);
+        final singleResult = await composite.getForestData(lat: 43.5, lng: 3.5);
+
+        final batchData = batchResult['43.5,3.5'];
+        expect(batchData!.isForest, equals(singleResult.isForest));
+        expect(batchData.forestType, equals(singleResult.forestType));
+        expect(batchData.landCover, equals(singleResult.landCover));
+      },
+    );
+  });
 }
 
 class _FakeForestService implements ForestService {
@@ -243,5 +365,64 @@ class _StubForest implements ForestService {
     List<LatLng> centers,
   ) async {
     return {};
+  }
+}
+
+class _FakeBatchForestService implements ForestService {
+  _FakeBatchForestService({
+    this.shouldFail = false,
+    this.isForest = true,
+    this.forestType,
+    this.source = 'fake',
+    this.landCover,
+  });
+
+  final bool shouldFail;
+  final bool? isForest;
+  final String? forestType;
+  final String? source;
+  final String? landCover;
+
+  @override
+  Future<ForestData> getForestData({
+    required double lat,
+    required double lng,
+  }) async {
+    if (shouldFail) throw Exception('Mock failure');
+    return ForestData(
+      latitude: lat,
+      longitude: lng,
+      isForest: isForest,
+      forestType: forestType,
+      canopyClass: isForest == true ? 'fermée' : null,
+      treeDensity: null,
+      canopyCover: null,
+      landCover: landCover,
+      source: source,
+    );
+  }
+
+  @override
+  Future<Map<String, ForestData>> getForestBatch(
+    LatLngBounds bounds,
+    List<LatLng> centers,
+  ) async {
+    if (shouldFail) throw Exception('Mock failure');
+    final result = <String, ForestData>{};
+    for (final center in centers) {
+      final key = '${center.latitude},${center.longitude}';
+      result[key] = ForestData(
+        latitude: center.latitude,
+        longitude: center.longitude,
+        isForest: isForest,
+        forestType: forestType,
+        canopyClass: isForest == true ? 'fermée' : null,
+        treeDensity: null,
+        canopyCover: null,
+        landCover: landCover,
+        source: source,
+      );
+    }
+    return result;
   }
 }

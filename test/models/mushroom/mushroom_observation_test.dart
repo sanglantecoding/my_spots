@@ -83,5 +83,53 @@ void main() {
       final decoded = MushroomObservation.fromJson(noSnapshot.toJson());
       expect(decoded.forecastSnapshot, isNull);
     });
+
+    test(
+      'ancien JSON sans rain26, tmean20, hasRecentFrost, isInSeason se relit sans erreur',
+      () {
+        final oldJson = '''
+      {
+        "index": 37,
+        "confidence": 0.74,
+        "factors": {
+          "water": 0.2,
+          "temperature": null,
+          "drying": 0.8,
+          "terrain": null,
+          "forest": null,
+          "shock": 0.5
+        },
+        "habitat": "unknown",
+        "habitatReason": "Altitude inconnue",
+        "hydricGate": 0.4,
+        "wetStreak": 2,
+        "dryBefore": 18,
+        "soilMoisture7To28Min60dPercent": 8,
+        "soilMoisture7To28Median60dPercent": 24.5,
+        "soilMoisture7To28Max60dPercent": 41,
+        "soilMoisture7To28Percentile60d": 80,
+        "shockRainMm": 22,
+        "shockTempDropC": 4,
+        "temperatureSource": "air",
+        "dataSources": {"weather": "Open-Meteo"}
+      }
+      ''';
+
+        final jsonMap = jsonDecode(oldJson) as Map<String, dynamic>;
+        final snapshot = MushroomForecastSnapshot.fromJson(jsonMap);
+
+        // New fields should be null
+        expect(snapshot.rain26, isNull);
+        expect(snapshot.tmean20, isNull);
+        expect(snapshot.hasRecentFrost, isNull);
+        expect(snapshot.isInSeason, isNull);
+
+        // Old fields should be preserved
+        expect(snapshot.index, 37);
+        expect(snapshot.confidence, 0.74);
+        expect(snapshot.hydricGate, 0.4);
+        expect(snapshot.wetStreak, 2);
+      },
+    );
   });
 }
