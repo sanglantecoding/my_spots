@@ -12,6 +12,8 @@ enum DistanceUnit { metric, nautical }
 
 enum MapType { marine, standard, relief, hiking }
 
+enum MushroomPalette { classic, contrasted }
+
 class AppSettings {
   static final ValueNotifier<bool> offlineModeNotifier = ValueNotifier<bool>(
     false,
@@ -85,6 +87,7 @@ class AppSettings {
   // Superposition prévision champignons (contrôles sur la carte terrestre)
   static bool mushroomOverlayEnabled = false;
   static double mushroomOverlayOpacity = 0.6;
+  static MushroomPalette mushroomPalette = MushroomPalette.classic;
 
   static const String defaultWeatherUrl =
       'https://meteofrance.com/meteo-marine';
@@ -166,6 +169,11 @@ class AppSettings {
         (prefs.getDouble('mushroom_overlay_opacity') ?? 0.6)
             .clamp(0.0, 1.0)
             .toDouble();
+    mushroomPalette = getEnumFromIndex(
+      MushroomPalette.values,
+      prefs.getInt('mushroom_palette'),
+      MushroomPalette.classic,
+    );
 
     _thunderforestApiKey = prefs.getString('thunderforest_api_key') ?? '';
 
@@ -305,6 +313,12 @@ class AppSettings {
     final clamped = opacity.clamp(0.0, 1.0).toDouble();
     await prefs.setDouble('mushroom_overlay_opacity', clamped);
     mushroomOverlayOpacity = clamped;
+  }
+
+  static Future<void> saveMushroomPalette(MushroomPalette palette) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('mushroom_palette', palette.index);
+    mushroomPalette = palette;
   }
 
   static Future<void> saveSpeedOnMap(bool show) async {

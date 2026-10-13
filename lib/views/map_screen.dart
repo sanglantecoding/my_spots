@@ -297,7 +297,7 @@ class _MapScreenState extends State<MapScreen> {
             points: points,
             color: display.fill,
             borderColor: display.border,
-            borderStrokeWidth: 0.4,
+            borderStrokeWidth: 1.5,
           ),
         );
       }

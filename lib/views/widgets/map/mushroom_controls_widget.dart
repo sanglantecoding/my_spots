@@ -44,6 +44,13 @@ class _MushroomControlsWidgetState extends State<MushroomControlsWidget> {
     widget.onChanged?.call();
   }
 
+  Future<void> _setPalette(MushroomPalette palette) async {
+    await AppSettings.saveMushroomPalette(palette);
+    if (!mounted) return;
+    setState(() {});
+    widget.onChanged?.call();
+  }
+
   void _showWaypointPanel(BuildContext context) {
     if (widget.forecastService == null) {
       showDialog(
@@ -147,6 +154,73 @@ class _MushroomControlsWidgetState extends State<MushroomControlsWidget> {
                     onChanged: _setOpacity,
                   ),
                 ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Palette : ',
+                    style: TextStyle(color: Colors.white70, fontSize: 11),
+                  ),
+                  GestureDetector(
+                    onTap: () => _setPalette(MushroomPalette.classic),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color:
+                            AppSettings.mushroomPalette ==
+                                MushroomPalette.classic
+                            ? Colors.tealAccent.withValues(alpha: 0.3)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'Classique',
+                        style: TextStyle(
+                          color:
+                              AppSettings.mushroomPalette ==
+                                  MushroomPalette.classic
+                              ? Colors.tealAccent
+                              : Colors.white70,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: () => _setPalette(MushroomPalette.contrasted),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color:
+                            AppSettings.mushroomPalette ==
+                                MushroomPalette.contrasted
+                            ? Colors.tealAccent.withValues(alpha: 0.3)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'Contrastée',
+                        style: TextStyle(
+                          color:
+                              AppSettings.mushroomPalette ==
+                                  MushroomPalette.contrasted
+                              ? Colors.tealAccent
+                              : Colors.white70,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ],
