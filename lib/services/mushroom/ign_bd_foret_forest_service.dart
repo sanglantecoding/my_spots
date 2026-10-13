@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
@@ -8,7 +9,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/forest_data.dart';
 import 'package:my_spots/services/mushroom/forest_service.dart';
-import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
+import 'package:my_spots/services/mushroom/point_key.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Interroge la couche formations végétales de la BD Forêt V2 de l'IGN.
@@ -61,26 +62,52 @@ class IgnBdForetForestService implements ForestService {
   @override
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
-    List<LatLng> centers,
-  ) async {
+    List<LatLng> centers, {
+    void Function(String)? onStage,
+  }) async {
     final result = <String, ForestData>{};
-    final tiles = _tilesForBounds(bounds);
+    // Only load tiles that contain at least one center
+    final tileKeys = <String>{
+      for (final center in centers) _tileKey(center.latitude, center.longitude),
+    };
+    final tiles = tileKeys.toList();
     final tileFeatures = <String, List<Map<String, dynamic>>>{};
 
-    for (final tileKey in tiles) {
-      final cached = await _readTileCache(tileKey);
-      if (cached != null) {
-        tileFeatures[tileKey] = cached;
-      } else if (!AppSettings.offlineModeEnabled) {
-        try {
-          final features = await _fetchTile(tileKey);
-          tileFeatures[tileKey] = features;
-          await _writeTileCache(tileKey, features);
-        } catch (_) {
-          tileFeatures[tileKey] = [];
+    onStage?.call('forêt ${tiles.length}/${tiles.length} tuiles');
+
+    // Process tiles in parallel batches of 2 with 12s delay per tile
+    final maxParallel = 2;
+    final batches = <List<String>>[];
+    for (int i = 0; i < tiles.length; i += maxParallel) {
+      batches.add(tiles.sublist(i, min(i + maxParallel, tiles.length)));
+    }
+
+    for (final batch in batches) {
+      final futures = batch.map((tileKey) async {
+        // Check cache first
+        final cached = await _readTileCache(tileKey);
+        if (cached != null) {
+          return MapEntry(tileKey, cached);
         }
-      } else {
-        tileFeatures[tileKey] = [];
+        if (AppSettings.offlineModeEnabled) {
+          return MapEntry(tileKey, <Map<String, dynamic>>[]);
+        }
+        try {
+          final features = await _fetchTile(tileKey).timeout(
+            const Duration(seconds: 12),
+            onTimeout: () => throw TimeoutException('Tile fetch timed out'),
+          );
+          await _writeTileCache(tileKey, features);
+          return MapEntry(tileKey, features);
+        } catch (_) {
+          // Failure: don't write to cache, return empty list
+          return MapEntry(tileKey, <Map<String, dynamic>>[]);
+        }
+      }).toList();
+
+      final results = await Future.wait(futures);
+      for (final entry in results) {
+        tileFeatures[entry.key] = entry.value;
       }
     }
 
@@ -92,21 +119,6 @@ class IgnBdForetForestService implements ForestService {
     }
 
     return result;
-  }
-
-  List<String> _tilesForBounds(LatLngBounds bounds) {
-    final tiles = <String>{};
-    final minLat = (bounds.south / _tileSizeDeg).floor() * _tileSizeDeg;
-    final maxLat = (bounds.north / _tileSizeDeg).ceil() * _tileSizeDeg;
-    final minLng = (bounds.west / _tileSizeDeg).floor() * _tileSizeDeg;
-    final maxLng = (bounds.east / _tileSizeDeg).ceil() * _tileSizeDeg;
-
-    for (var lat = minLat; lat < maxLat; lat += _tileSizeDeg) {
-      for (var lng = minLng; lng < maxLng; lng += _tileSizeDeg) {
-        tiles.add(_tileKey(lat, lng));
-      }
-    }
-    return tiles.toList();
   }
 
   String _tileKey(double lat, double lng) {
@@ -160,7 +172,9 @@ class IgnBdForetForestService implements ForestService {
       LatLng(tileLat + _tileSizeDeg, tileLng + _tileSizeDeg),
     );
     final response = await _client.get(_bboxQuery(bbox)).timeout(timeout);
-    if (response.statusCode != 200) return [];
+    if (response.statusCode != 200) {
+      throw HttpException('HTTP ${response.statusCode}');
+    }
     final decoded = jsonDecode(response.body);
     if (decoded is! Map<String, dynamic> || decoded['features'] is! List) {
       return [];
@@ -497,14 +511,15 @@ class CompositeForestService implements ForestService {
   @override
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
-    List<LatLng> centers,
-  ) async {
+    List<LatLng> centers, {
+    void Function(String)? onStage,
+  }) async {
     // Call both services in parallel
     final bdForetFuture = bdForet
-        .getForestBatch(bounds, centers)
+        .getForestBatch(bounds, centers, onStage: onStage)
         .catchError((_) => <String, ForestData>{});
     final overpassFuture = overpass
-        .getForestBatch(bounds, centers)
+        .getForestBatch(bounds, centers, onStage: onStage)
         .catchError((_) => <String, ForestData>{});
 
     // Wait for both, handling errors so one failure doesn't lose the other

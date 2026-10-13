@@ -122,8 +122,9 @@ class MockForestService implements ForestService {
   @override
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
-    List<LatLng> centers,
-  ) async {
+    List<LatLng> centers, {
+    void Function(String)? onStage,
+  }) async {
     return {};
   }
 }

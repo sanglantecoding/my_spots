@@ -8,6 +8,7 @@ import 'package:my_spots/models/mushroom/habitat_status.dart';
 import 'package:my_spots/models/mushroom/terrain_data.dart';
 import 'package:my_spots/services/mushroom/boletus_edulis_model.dart';
 import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
+import 'package:my_spots/services/mushroom/point_key.dart';
 
 void main() {
   const salvetat = LatLng(43.57158, 2.71777);
@@ -145,8 +146,9 @@ class _FakeViewportSource implements MushroomViewportBatchSource {
   @override
   Future<Map<String, TerrainData>> loadTerrainBatch(
     List<LatLng> cellCenters,
-    MushroomViewportCancellationToken cancellation,
-  ) async {
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  }) async {
     terrainBatchCalls++;
     if (!offline) networkCalls++;
     if (delayTerrain) {
@@ -169,8 +171,9 @@ class _FakeViewportSource implements MushroomViewportBatchSource {
   @override
   Future<Map<String, MushroomViewportWeather>> loadWeatherByGrid(
     List<LatLng> uniqueModelGridCenters,
-    MushroomViewportCancellationToken cancellation,
-  ) async {
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  }) async {
     weatherBatchCalls++;
     weatherGridCenters = uniqueModelGridCenters.length;
     if (!offline) networkCalls++;
@@ -188,8 +191,9 @@ class _FakeViewportSource implements MushroomViewportBatchSource {
   Future<Map<String, ForestData>> loadForestForZone(
     LatLngBounds bounds,
     List<LatLng> eligibleCellCenters,
-    MushroomViewportCancellationToken cancellation,
-  ) async {
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  }) async {
     forestZoneCalls++;
     if (!offline) networkCalls++;
     return {

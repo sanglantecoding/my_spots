@@ -19,8 +19,9 @@ abstract class ForestService {
   /// Implementation par défaut retourne une map vide.
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
-    List<LatLng> centers,
-  ) async {
+    List<LatLng> centers, {
+    void Function(String)? onStage,
+  }) async {
     return {};
   }
 }
@@ -37,17 +38,19 @@ class UnknownForestService implements ForestService {
       longitude: lng,
       isForest: null,
       forestType: null,
+      canopyClass: null,
       treeDensity: null,
       canopyCover: null,
-      source: 'unknown',
+      source: null,
     );
   }
 
   @override
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
-    List<LatLng> centers,
-  ) async {
+    List<LatLng> centers, {
+    void Function(String)? onStage,
+  }) async {
     return {};
   }
 }

@@ -9,6 +9,7 @@ import 'package:my_spots/models/mushroom/weather_day.dart';
 import 'package:my_spots/services/mushroom/app_mushroom_viewport_source.dart';
 import 'package:my_spots/services/mushroom/forest_service.dart';
 import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
+import 'package:my_spots/services/mushroom/point_key.dart';
 import 'package:my_spots/services/mushroom/terrain_service.dart';
 import 'package:my_spots/services/mushroom/weather_service.dart';
 import 'package:my_spots/services/mushroom/habitat_rules.dart';
@@ -124,8 +125,9 @@ class FakeForestService implements ForestService {
   @override
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
-    List<LatLng> centers,
-  ) async {
+    List<LatLng> centers, {
+    void Function(String)? onStage,
+  }) async {
     callCount++;
     final result = <String, ForestData>{};
     for (final center in centers) {

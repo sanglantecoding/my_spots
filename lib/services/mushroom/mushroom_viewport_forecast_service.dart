@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter_map/flutter_map.dart';
@@ -11,15 +12,13 @@ import 'package:my_spots/models/mushroom/terrain_data.dart';
 import 'package:my_spots/models/mushroom/weather_day.dart';
 import 'package:my_spots/services/mushroom/habitat_rules.dart';
 import 'package:my_spots/services/mushroom/mushroom_forecast_engine.dart';
+import 'package:my_spots/services/mushroom/point_key.dart';
 
 const mushroomViewportMinimumZoom = 11.0;
 const mushroomViewportMaximumCells = 150;
 const mushroomViewportDefaultCellsPerSide = 12;
 const mushroomViewportAltitudePointLimit = 5000;
 const mushroomViewportMaximumParallelRequests = 4;
-
-String mushroomViewportPointKey(LatLng point) =>
-    '${point.latitude.toStringAsFixed(6)},${point.longitude.toStringAsFixed(6)}';
 
 enum MushroomViewportStatus { ready, tooWide, cancelled }
 
@@ -67,19 +66,22 @@ class MushroomViewportWeather {
 abstract interface class MushroomViewportBatchSource {
   Future<Map<String, TerrainData>> loadTerrainBatch(
     List<LatLng> cellCenters,
-    MushroomViewportCancellationToken cancellation,
-  );
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  });
 
   Future<Map<String, MushroomViewportWeather>> loadWeatherByGrid(
     List<LatLng> uniqueModelGridCenters,
-    MushroomViewportCancellationToken cancellation,
-  );
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  });
 
   Future<Map<String, ForestData>> loadForestForZone(
     LatLngBounds bounds,
     List<LatLng> eligibleCellCenters,
-    MushroomViewportCancellationToken cancellation,
-  );
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  });
 }
 
 /// Calcule les prévisions locales d'un viewport après chargement batch.
@@ -104,6 +106,7 @@ class MushroomViewportForecastService {
     required LatLngBounds bounds,
     required double zoom,
     DateTime? startDate,
+    void Function(String)? onStage,
   }) async {
     _activeCalculation?.cancel();
     final cancellation = MushroomViewportCancellationToken();
@@ -135,7 +138,11 @@ class MushroomViewportForecastService {
     Map<String, TerrainData> terrains;
     var failedCellCount = 0;
     try {
-      terrains = await _source.loadTerrainBatch(centers, cancellation);
+      terrains = await _source.loadTerrainBatch(
+        centers,
+        cancellation,
+        onStage: onStage,
+      );
     } catch (_) {
       terrains = const {};
     }
@@ -166,7 +173,11 @@ class MushroomViewportForecastService {
     final weatherFuture = modelCenters.isEmpty
         ? Future.value(const <String, MushroomViewportWeather>{})
         : _source
-              .loadWeatherByGrid(modelCenters.values.toList(), cancellation)
+              .loadWeatherByGrid(
+                modelCenters.values.toList(),
+                cancellation,
+                onStage: onStage,
+              )
               .catchError((_) => const <String, MushroomViewportWeather>{});
     final forestFuture = eligible.isEmpty
         ? Future.value(const <String, ForestData>{})
@@ -175,6 +186,7 @@ class MushroomViewportForecastService {
                 bounds,
                 eligible.map((cell) => cell.center).toList(),
                 cancellation,
+                onStage: onStage,
               )
               .catchError((_) => const <String, ForestData>{});
     final batches = await Future.wait([weatherFuture, forestFuture]);
@@ -370,13 +382,26 @@ class MushroomViewportForecastService {
   );
   Future<List<List<MushroomForecast>>> calculateForPoints(
     List<LatLng> points,
+    void Function(String)? onStage,
+    void Function(String)? onWarning,
   ) async {
     if (points.isEmpty) return [];
     if (points.length > 50) throw ArgumentError('Maximum 50 points');
     final cancellation = MushroomViewportCancellationToken();
-    // Load terrain
-    final terrains = await _source.loadTerrainBatch(points, cancellation);
+
+    // Load terrain with 20s timeout
+    onStage?.call('altitude');
+    Map<String, TerrainData> terrains;
+    try {
+      terrains = await _source
+          .loadTerrainBatch(points, cancellation, onStage: onStage)
+          .timeout(const Duration(seconds: 20));
+    } catch (_) {
+      onWarning?.call('Altitude non chargée (délai)');
+      terrains = {};
+    }
     if (cancellation.isCancelled) return [];
+
     // Determine eligible points (habitat not excluded)
     final eligible = <LatLng>[];
     for (final point in points) {
@@ -393,19 +418,41 @@ class MushroomViewportForecastService {
       final center = _modelGridCenter(point);
       modelCenters.putIfAbsent(mushroomViewportPointKey(center), () => center);
     }
-    // Load weather
-    final weatherFuture = modelCenters.isEmpty
-        ? Future.value(const <String, MushroomViewportWeather>{})
-        : _source.loadWeatherByGrid(modelCenters.values.toList(), cancellation);
-    // Load forest for zone (bounds of all points) using eligible points
+    // Load weather with 20s timeout
+    onStage?.call('météo');
+    Map<String, MushroomViewportWeather> weatherByGrid;
+    try {
+      final weatherFuture = modelCenters.isEmpty
+          ? Future.value(const <String, MushroomViewportWeather>{})
+          : _source.loadWeatherByGrid(
+              modelCenters.values.toList(),
+              cancellation,
+              onStage: onStage,
+            );
+      weatherByGrid = await weatherFuture.timeout(const Duration(seconds: 20));
+    } catch (_) {
+      onWarning?.call('Météo non chargée (délai)');
+      weatherByGrid = {};
+    }
+    // Load forest for zone (bounds of all points) using eligible points with 30s timeout
     final bounds = LatLngBounds.fromPoints(points);
-    final forestFuture = eligible.isEmpty
-        ? Future.value(const <String, ForestData>{})
-        : _source.loadForestForZone(bounds, eligible, cancellation);
-    final results = await Future.wait([weatherFuture, forestFuture]);
+    Map<String, ForestData> forests;
+    try {
+      final forestFuture = eligible.isEmpty
+          ? Future.value(const <String, ForestData>{})
+          : _source.loadForestForZone(
+              bounds,
+              eligible,
+              cancellation,
+              onStage: onStage,
+            );
+      forests = await forestFuture.timeout(const Duration(seconds: 30));
+    } catch (_) {
+      onWarning?.call('Forêt non chargée (délai)');
+      forests = {};
+    }
+    onStage?.call('forêt 0/0 tuiles');
     if (cancellation.isCancelled) return [];
-    final weatherByGrid = results[0] as Map<String, MushroomViewportWeather>;
-    final forests = results[1] as Map<String, ForestData>;
     // Compute forecasts for each point
     final forecasts = <List<MushroomForecast>>[];
     final today = DateTime.now();

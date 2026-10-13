@@ -344,8 +344,9 @@ class _FakeForestService implements ForestService {
   @override
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
-    List<LatLng> centers,
-  ) async => {};
+    List<LatLng> centers, {
+    void Function(String)? onStage,
+  }) async => {};
 }
 
 class _StubForest implements ForestService {
@@ -362,8 +363,9 @@ class _StubForest implements ForestService {
   @override
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
-    List<LatLng> centers,
-  ) async {
+    List<LatLng> centers, {
+    void Function(String)? onStage,
+  }) async {
     return {};
   }
 }
@@ -405,8 +407,9 @@ class _FakeBatchForestService implements ForestService {
   @override
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
-    List<LatLng> centers,
-  ) async {
+    List<LatLng> centers, {
+    void Function(String)? onStage,
+  }) async {
     if (shouldFail) throw Exception('Mock failure');
     final result = <String, ForestData>{};
     for (final center in centers) {

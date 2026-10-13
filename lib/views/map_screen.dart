@@ -261,24 +261,46 @@ class _MapScreenState extends State<MapScreen> {
     for (final cell in _mushroomCells) {
       if (_mushroomDateIndex >= cell.forecasts.length) continue;
       final forecast = cell.forecasts[_mushroomDateIndex];
+
+      // Check if cell has missing data (no terrain or weather source)
+      final hasMissingData =
+          forecast.dataSources['terrain'] == null ||
+          forecast.dataSources['weather'] == null ||
+          forecast.dataSources['forest'] == null;
+
       final display = cellDisplayColors(
         forecast: forecast,
         overlayOpacity: opacity,
       );
+
       final points = [
         cell.bounds.northWest,
         cell.bounds.northEast,
         cell.bounds.southEast,
         cell.bounds.southWest,
       ];
-      out.add(
-        Polygon(
-          points: points,
-          color: display.fill,
-          borderColor: display.border,
-          borderStrokeWidth: 0.4,
-        ),
-      );
+
+      if (hasMissingData) {
+        // Gray styling for missing data cells
+        out.add(
+          Polygon(
+            points: points,
+            color: Colors.grey.withValues(alpha: 0.4),
+            borderColor: Colors.grey.withValues(alpha: 1.0),
+            borderStrokeWidth: 1.0,
+          ),
+        );
+      } else {
+        // Normal styling with index color
+        out.add(
+          Polygon(
+            points: points,
+            color: display.fill,
+            borderColor: display.border,
+            borderStrokeWidth: 0.4,
+          ),
+        );
+      }
     }
     return out;
   }
@@ -306,6 +328,11 @@ class _MapScreenState extends State<MapScreen> {
       byDay[d] = <int>[];
     }
     for (final cell in _mushroomCells) {
+      // Only count cells with terrain data (altitude known)
+      if (cell.forecasts.isEmpty) continue;
+      final hasTerrain = cell.forecasts[0].dataSources['terrain'] != null;
+      if (!hasTerrain) continue;
+
       for (var d = 0; d < cell.forecasts.length && d < 8; d++) {
         final f = cell.forecasts[d];
         if (f.habitat != HabitatStatus.excluded) {
@@ -1134,9 +1161,9 @@ class _MapScreenState extends State<MapScreen> {
                       _mushroomStatus == MushroomViewportStatus.ready &&
                       _mushroomFailedCellCount > 0)
                     Positioned(
-                      top: 60,
-                      left: 50,
-                      right: 50,
+                      top: 110,
+                      left: 6,
+                      right: 6,
                       child: Material(
                         color: Colors.grey.withValues(alpha: 0.85),
                         borderRadius: BorderRadius.circular(10),
@@ -1154,11 +1181,13 @@ class _MapScreenState extends State<MapScreen> {
                                 size: 14,
                               ),
                               const SizedBox(width: 6),
-                              Text(
-                                '$_mushroomFailedCellCount cellules sans données (limite de requêtes ou réseau)',
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
+                              Flexible(
+                                child: Text(
+                                  '$_mushroomFailedCellCount cellules sans données',
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11,
+                                  ),
                                 ),
                               ),
                             ],

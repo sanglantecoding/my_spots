@@ -26,7 +26,7 @@ void main() {
       );
 
       expect(
-        () => service.calculateForPoints(points),
+        () => service.calculateForPoints(points, null, null),
         throwsA(
           isA<ArgumentError>().having(
             (e) => e.message,
@@ -56,7 +56,7 @@ void main() {
           const LatLng(43.54, 3.04),
         ];
 
-        final results = await service.calculateForPoints(points);
+        final results = await service.calculateForPoints(points, null, null);
 
         // Should return 5 lists (one per point)
         expect(results.length, equals(5));
@@ -85,8 +85,9 @@ class _MockBatchSource implements MushroomViewportBatchSource {
   @override
   Future<Map<String, TerrainData>> loadTerrainBatch(
     List<LatLng> points,
-    MushroomViewportCancellationToken cancellation,
-  ) async {
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  }) async {
     terrainBatchCallCount++;
     final result = <String, TerrainData>{};
     for (final point in points) {
@@ -106,8 +107,9 @@ class _MockBatchSource implements MushroomViewportBatchSource {
   @override
   Future<Map<String, MushroomViewportWeather>> loadWeatherByGrid(
     List<LatLng> gridCenters,
-    MushroomViewportCancellationToken cancellation,
-  ) async {
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  }) async {
     weatherCallCount++;
     final result = <String, MushroomViewportWeather>{};
     for (final center in gridCenters) {
@@ -156,8 +158,9 @@ class _MockBatchSource implements MushroomViewportBatchSource {
   Future<Map<String, ForestData>> loadForestForZone(
     LatLngBounds bounds,
     List<LatLng> eligibleCellCenters,
-    MushroomViewportCancellationToken cancellation,
-  ) async {
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  }) async {
     forestCallCount++;
     final result = <String, ForestData>{};
     for (final center in eligibleCellCenters) {

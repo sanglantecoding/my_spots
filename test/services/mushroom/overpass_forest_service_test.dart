@@ -8,7 +8,7 @@ import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/services/mushroom/overpass_forest_service.dart';
-import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
+import 'package:my_spots/services/mushroom/point_key.dart';
 
 void main() {
   late Directory cacheDirectory;

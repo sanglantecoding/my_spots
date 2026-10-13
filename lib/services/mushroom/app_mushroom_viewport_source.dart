@@ -12,6 +12,7 @@ import 'package:my_spots/services/mushroom/ign_bd_foret_forest_service.dart';
 import 'package:my_spots/services/mushroom/ign_open_elevation_terrain_service.dart';
 import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
 import 'package:my_spots/services/mushroom/open_meteo_weather_service.dart';
+import 'package:my_spots/services/mushroom/point_key.dart';
 import 'package:my_spots/services/mushroom/terrain_service.dart';
 import 'package:my_spots/services/mushroom/weather_service.dart';
 
@@ -32,8 +33,10 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
   @override
   Future<Map<String, TerrainData>> loadTerrainBatch(
     List<LatLng> cellCenters,
-    MushroomViewportCancellationToken cancellation,
-  ) async {
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  }) async {
+    onStage?.call('altitude');
     if (cancellation.isCancelled) return {};
     if (AppSettings.offlineModeEnabled) {
       final result = <String, TerrainData>{};
@@ -67,8 +70,10 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
   @override
   Future<Map<String, MushroomViewportWeather>> loadWeatherByGrid(
     List<LatLng> uniqueModelGridCenters,
-    MushroomViewportCancellationToken cancellation,
-  ) async {
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  }) async {
+    onStage?.call('météo');
     final result = <String, MushroomViewportWeather>{};
     await _runBatched(
       items: uniqueModelGridCenters,
@@ -121,10 +126,12 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
   Future<Map<String, ForestData>> loadForestForZone(
     LatLngBounds bounds,
     List<LatLng> eligibleCellCenters,
-    MushroomViewportCancellationToken cancellation,
-  ) async {
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  }) async {
     if (cancellation.isCancelled) return {};
     if (AppSettings.offlineModeEnabled) {
+      onStage?.call('forêt ${eligibleCellCenters.length} cellules');
       final result = <String, ForestData>{};
       for (final center in eligibleCellCenters) {
         if (cancellation.isCancelled) return result;
@@ -150,7 +157,11 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
       return result;
     }
 
-    return await forestService.getForestBatch(bounds, eligibleCellCenters);
+    return await forestService.getForestBatch(
+      bounds,
+      eligibleCellCenters,
+      onStage: onStage,
+    );
   }
 
   Future<void> _runBatched<T>({

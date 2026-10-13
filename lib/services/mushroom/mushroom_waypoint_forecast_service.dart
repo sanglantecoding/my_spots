@@ -32,8 +32,10 @@ class MushroomWaypointForecastService {
   /// Retourne null si hors-ligne sans cache, ou si > 50 waypoints.
   /// La clé de la Map est l'identifiant du waypoint (id si existe, sinon 'lat,lng').
   Future<Map<String, List<MushroomForecast>>?> calculateForWaypoints(
-    List<Waypoint> waypoints,
-  ) async {
+    List<Waypoint> waypoints, {
+    void Function(String)? onStage,
+    void Function(String)? onWarning,
+  }) async {
     if (waypoints.isEmpty) return {};
     if (waypoints.length > _maxWaypoints) return null;
 
@@ -65,7 +67,11 @@ class MushroomWaypointForecastService {
 
     try {
       final points = pointsWithKeys.map((e) => e.point).toList();
-      final forecasts = await service.calculateForPoints(points);
+      final forecasts = await service.calculateForPoints(
+        points,
+        onStage,
+        onWarning,
+      );
 
       // Construire la Map avec les clés de waypoints
       final result = <String, List<MushroomForecast>>{};

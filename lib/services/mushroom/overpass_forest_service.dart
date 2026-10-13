@@ -10,7 +10,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/forest_data.dart';
 import 'package:my_spots/services/mushroom/forest_service.dart';
-import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
+import 'package:my_spots/services/mushroom/point_key.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Données OSM par tuile, sans extrapoler les attributs forestiers absents.
@@ -77,22 +77,46 @@ class OverpassForestService implements ForestService {
   @override
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
-    List<LatLng> centers,
-  ) async {
+    List<LatLng> centers, {
+    void Function(String)? onStage,
+  }) async {
     // Determine which 0.05° tiles cover the centers
     final tilePoints = <_Tile>{};
     for (final center in centers) {
       tilePoints.add(_Tile.forPoint(center.latitude, center.longitude));
     }
 
-    // Load each tile once (using existing cache / one request per tile)
+    onStage?.call('forêt ${tilePoints.length}/${tilePoints.length} tuiles');
+
+    // Process tiles in parallel batches of 2 with 12s delay per tile
+    final maxParallel = 2;
+    final tileDelay = const Duration(seconds: 12);
+    final tileList = tilePoints.toList();
+    final batches = <List<_Tile>>[];
+    for (int i = 0; i < tileList.length; i += maxParallel) {
+      batches.add(
+        tileList.sublist(i, math.min(i + maxParallel, tileList.length)),
+      );
+    }
+
     final tileAreas = <String, List<_Area>>{};
-    for (final tile in tilePoints) {
-      final record = await _loadTile(tile);
-      if (record != null) {
-        final key = tile.key;
-        if (tileAreas[key] == null) {
-          tileAreas[key] = _parseTile(record.body);
+    for (final batch in batches) {
+      final futures = batch.map((tile) async {
+        try {
+          final record = await _loadTile(tile).timeout(tileDelay);
+          if (record != null) {
+            return MapEntry(tile.key, _parseTile(record.body));
+          }
+        } catch (_) {
+          // Failure: don't write to cache, skip this tile
+        }
+        return null;
+      }).toList();
+
+      final results = await Future.wait(futures);
+      for (final entry in results) {
+        if (entry != null) {
+          tileAreas[entry.key] = entry.value;
         }
       }
     }

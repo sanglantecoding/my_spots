@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/mushroom/terrain_data.dart';
+import 'package:my_spots/services/mushroom/point_key.dart';
 import 'package:my_spots/services/mushroom/terrain_service.dart';
 
 /// Implémentation V1 de [TerrainService].
@@ -178,16 +179,17 @@ class IgnOpenElevationTerrainService implements TerrainService {
     double spacingMetres,
   ) async {
     final result = <String, TerrainData>{};
-    final uncached = <LatLng>[];
+    final uncached = <(LatLng, String)>[]; // (center, outputKey)
     final now = DateTime.now();
 
     for (final center in centers) {
-      final key = _cacheKey(center.latitude, center.longitude);
-      final cached = _cache[key];
+      final outputKey = mushroomViewportPointKey(center);
+      final cacheKey = _cacheKey(center.latitude, center.longitude);
+      final cached = _cache[cacheKey];
       if (cached != null && now.difference(cached.fetchedAt) < _cacheTtl) {
-        result[key] = cached.data;
+        result[outputKey] = cached.data;
       } else {
-        uncached.add(center);
+        uncached.add((center, outputKey));
       }
     }
 
@@ -196,10 +198,13 @@ class IgnOpenElevationTerrainService implements TerrainService {
     final allPoints = <(double lat, double lng)>[];
     final pointToCenter = <(double lat, double lng), LatLng>{};
     final centerToPatchIndex = <LatLng, int>{};
+    final centerToOutputKey = <LatLng, String>{};
 
     for (var i = 0; i < uncached.length; i++) {
-      final center = uncached[i];
+      final center = uncached[i].$1;
+      final outputKey = uncached[i].$2;
       centerToPatchIndex[center] = i;
+      centerToOutputKey[center] = outputKey;
       final patch = patch3x3(center.latitude, center.longitude);
       for (final point in patch) {
         allPoints.add(point);
@@ -261,7 +266,7 @@ class IgnOpenElevationTerrainService implements TerrainService {
     }
 
     final centersNeedingSrtm = <LatLng>[];
-    for (final center in uncached) {
+    for (final (center, _) in uncached) {
       final patch = patch3x3(center.latitude, center.longitude);
       final centralPoint = patch[4];
       final centralNoData = noDataByPoint[centralPoint] ?? false;
@@ -306,7 +311,7 @@ class IgnOpenElevationTerrainService implements TerrainService {
       }
     }
 
-    for (final center in uncached) {
+    for (final (center, outputKey) in uncached) {
       try {
         final patch = patch3x3(center.latitude, center.longitude);
         final elevations9 = patch.map((p) => elevationsByPoint[p]).toList();
@@ -346,11 +351,11 @@ class IgnOpenElevationTerrainService implements TerrainService {
           aspect: derived.aspectDeg,
           source: source,
         );
-        final key = _cacheKey(center.latitude, center.longitude);
-        _cache[key] = _CachedTerrain(fetchedAt: now, data: data);
-        result[key] = data;
+        final cacheKey = _cacheKey(center.latitude, center.longitude);
+        _cache[cacheKey] = _CachedTerrain(fetchedAt: now, data: data);
+        result[outputKey] = data;
       } catch (_) {
-        final key = _cacheKey(center.latitude, center.longitude);
+        final cacheKey = _cacheKey(center.latitude, center.longitude);
         final data = TerrainData(
           latitude: center.latitude,
           longitude: center.longitude,
@@ -360,8 +365,8 @@ class IgnOpenElevationTerrainService implements TerrainService {
           aspect: null,
           source: null,
         );
-        _cache[key] = _CachedTerrain(fetchedAt: now, data: data);
-        result[key] = data;
+        _cache[cacheKey] = _CachedTerrain(fetchedAt: now, data: data);
+        result[outputKey] = data;
       }
     }
 

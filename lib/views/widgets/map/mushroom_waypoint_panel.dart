@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -36,12 +38,20 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
   String? _errorMessage;
   bool _sortByDistance = false;
   LatLng? _currentPosition;
+  String? _loadingStep;
+  bool _isCancelled = false;
 
   @override
   void initState() {
     super.initState();
     _loadForecasts();
     _getCurrentPosition();
+  }
+
+  @override
+  void dispose() {
+    _isCancelled = true;
+    super.dispose();
   }
 
   @override
@@ -54,26 +64,35 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
   }
 
   Future<void> _getCurrentPosition() async {
+    if (_isCancelled) return;
+    if (!mounted) return;
     try {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
         ),
       );
-      setState(() {
-        _currentPosition = LatLng(position.latitude, position.longitude);
-      });
+      if (mounted && !_isCancelled) {
+        setState(() {
+          _currentPosition = LatLng(position.latitude, position.longitude);
+        });
+      }
     } catch (e) {
       // GPS non disponible, tri par distance désactivé
     }
   }
 
   Future<void> _loadForecasts() async {
+    if (_isCancelled) return;
+
     if (AppSettings.offlineModeEnabled) {
-      setState(() {
-        _errorMessage = 'Indisponible en mode hors-ligne (pas de cache)';
-        _forecasts = null;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Indisponible en mode hors-ligne (pas de cache)';
+          _forecasts = null;
+          _loadingStep = null;
+        });
+      }
       return;
     }
 
@@ -82,51 +101,97 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
         .toList();
 
     if (mushroomWaypoints.isEmpty) {
-      setState(() {
-        _errorMessage = 'Aucun waypoint champignon enregistré';
-        _forecasts = null;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Aucun waypoint champignon enregistré';
+          _forecasts = null;
+          _loadingStep = null;
+        });
+      }
       return;
     }
 
     if (mushroomWaypoints.length > 50) {
-      setState(() {
-        _errorMessage = 'Trop de waypoints (max 50)';
-        _forecasts = null;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Trop de waypoints (max 50)';
+          _forecasts = null;
+          _loadingStep = null;
+        });
+      }
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+        _loadingStep = 'altitude';
+      });
+    }
 
     try {
-      final forecasts = await widget.forecastService.calculateForWaypoints(
-        mushroomWaypoints,
-      );
+      final forecasts = await widget.forecastService
+          .calculateForWaypoints(
+            mushroomWaypoints,
+            onStage: (step) {
+              if (mounted && !_isCancelled) {
+                setState(() {
+                  _loadingStep = step;
+                });
+              }
+            },
+            onWarning: (message) {
+              if (mounted && !_isCancelled) {
+                setState(() {
+                  _errorMessage = message;
+                });
+              }
+            },
+          )
+          .timeout(const Duration(seconds: 90));
+
+      if (_isCancelled) return;
 
       if (forecasts == null) {
-        setState(() {
-          _errorMessage = 'Erreur de chargement (hors-ligne ou réseau)';
-          _forecasts = null;
-        });
+        if (mounted) {
+          setState(() {
+            _errorMessage = 'Erreur de chargement (hors-ligne ou réseau)';
+            _forecasts = null;
+            _loadingStep = null;
+          });
+        }
       } else {
-        setState(() {
-          _forecasts = forecasts;
-        });
+        if (mounted) {
+          setState(() {
+            _forecasts = forecasts;
+            _loadingStep = null;
+          });
+        }
         widget.onForecastsLoaded?.call(forecasts);
       }
+    } on TimeoutException {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Délai dépassé (60 s)';
+          _forecasts = null;
+          _loadingStep = null;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = 'Erreur: ${e.toString()}';
-        _forecasts = null;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Erreur: ${e.toString()}';
+          _forecasts = null;
+          _loadingStep = null;
+        });
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -161,7 +226,14 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
 
       if (dayForecasts == null || dayForecasts.isEmpty) continue;
 
-      // Trouver le meilleur jour de la semaine
+      // Use the selected day's forecast for sorting
+      final selectedDayIndex = _selectedDay;
+      if (selectedDayIndex >= dayForecasts.length) continue;
+
+      final selectedForecast = dayForecasts[selectedDayIndex];
+      if (selectedForecast.habitat == HabitatStatus.excluded) continue;
+
+      // Find the best day of the week
       final suitableForecasts = dayForecasts
           .where((f) => f.habitat != HabitatStatus.excluded)
           .toList();
@@ -173,7 +245,7 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
       );
       final bestDay = dayForecasts.indexOf(bestForecast);
 
-      // Calculer la distance si GPS disponible
+      // Calculate distance if GPS available
       double? distance;
       if (_currentPosition != null) {
         distance = Geolocator.distanceBetween(
@@ -186,7 +258,7 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
 
       results.add((
         waypoint: waypoint,
-        forecast: bestForecast,
+        forecast: selectedForecast, // Use selected day's forecast for sorting
         bestDay: bestDay,
         distance: distance,
       ));
@@ -200,8 +272,8 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
         return distA.compareTo(distB);
       });
     } else {
-      // Tri par indice du jour sélectionné
-      results.sort((a, b) => a.forecast.index.compareTo(b.forecast.index));
+      // Sort by selected day index descending (best to worst)
+      results.sort((a, b) => b.forecast.index.compareTo(a.forecast.index));
     }
 
     return results;
@@ -309,20 +381,69 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
           const SizedBox(height: 12),
           // Content
           if (_isLoading)
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: CircularProgressIndicator(),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 12),
+                  Text(
+                    _loadingStep != null
+                        ? 'Chargement : $_loadingStep...'
+                        : 'Chargement...',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ),
             )
           else if (_errorMessage != null)
             Padding(
               padding: const EdgeInsets.all(24),
-              child: Text(
-                _errorMessage!,
-                style: const TextStyle(color: Colors.white70),
-                textAlign: TextAlign.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _errorMessage!,
+                    style: const TextStyle(color: Colors.white70),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: _loadForecasts,
+                    child: const Text('Réessayer'),
+                  ),
+                ],
               ),
             )
           else if (_forecasts != null) ...[
+            // Warning banner for timed-out stages
+            if (_errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.orangeAccent,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _errorMessage!,
+                        style: const TextStyle(
+                          color: Colors.orangeAccent,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             // Banner for waypoints without data
             if (MushroomWaypointForecastService.countWithoutData(_forecasts!) >
                 0)
@@ -350,6 +471,7 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
                     waypoint: item.waypoint,
                     forecast: item.forecast,
                     bestDay: item.bestDay,
+                    selectedDay: _selectedDay,
                     distance: item.distance,
                     onTap: () {
                       widget.onCenterOnWaypoint?.call(
@@ -375,6 +497,7 @@ class _WaypointListItem extends StatelessWidget {
   final Waypoint waypoint;
   final MushroomForecast forecast;
   final int bestDay;
+  final int selectedDay;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
   final double? distance;
@@ -383,6 +506,7 @@ class _WaypointListItem extends StatelessWidget {
     required this.waypoint,
     required this.forecast,
     required this.bestDay,
+    required this.selectedDay,
     required this.onTap,
     required this.onLongPress,
     this.distance,
@@ -445,7 +569,7 @@ class _WaypointListItem extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Meilleur: J+$bestDay · Indice ${forecast.index}',
+                    'J+$bestDay (meilleur) · J+$selectedDay: ${forecast.index}',
                     style: TextStyle(color: Colors.white60, fontSize: 11),
                   ),
                 ],
