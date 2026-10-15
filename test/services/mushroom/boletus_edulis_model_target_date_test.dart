@@ -20,7 +20,6 @@ void main() {
       lng: 1.0,
       isForest: true,
       forestType: 'feuillu',
-      treeDensity: 60.0,
     );
 
     final model = BoletusEdulisModel();

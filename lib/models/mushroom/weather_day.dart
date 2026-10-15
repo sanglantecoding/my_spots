@@ -96,35 +96,4 @@ class WeatherDay {
       solarRadiation: solarRadiation,
     );
   }
-
-  /// Pluie cumulée sur une période de jours.
-  static WeatherAggregate cumulativePrecipitation(List<WeatherDay> days) {
-    return _aggregate(days, (day) => day.precipitation, mean: false);
-  }
-
-  /// Température moyenne sur une période de jours.
-  static WeatherAggregate meanTemperature(List<WeatherDay> days) {
-    return _aggregate(days, (day) => day.temperatureMean, mean: true);
-  }
-
-  static WeatherAggregate _aggregate(
-    List<WeatherDay> days,
-    double? Function(WeatherDay day) selector, {
-    required bool mean,
-  }) {
-    var observedCount = 0;
-    var sum = 0.0;
-    for (final day in days) {
-      final value = selector(day);
-      if (value == null) continue;
-      observedCount++;
-      sum += value;
-    }
-
-    return WeatherAggregate(
-      value: observedCount == 0 ? null : (mean ? sum / observedCount : sum),
-      windowLength: days.length,
-      observedCount: observedCount,
-    );
-  }
 }

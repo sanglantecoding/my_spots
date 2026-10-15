@@ -1,5 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
-
+import 'package:http/http.dart' as http;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart';
 import 'package:http/testing.dart';
@@ -415,6 +416,169 @@ void main() {
       expect(captured.queryParameters['wind_speed_unit'], 'ms');
       expect(captured.queryParameters['temperature_unit'], 'celsius');
       expect(captured.queryParameters['precipitation_unit'], 'mm');
+    });
+  });
+
+  group('Cache borné — capacité et expiration', () {
+    test('cache interne évite les doubles appels pour mêmes coords', () async {
+      var callCount = 0;
+      final client = MockClient((request) async {
+        callCount++;
+        return Response(
+          jsonEncode(_buildSimpleJson(historicalDays: 1, forecastDays: 1)),
+          200,
+        );
+      });
+      final svc = OpenMeteoWeatherService(client: client);
+      await svc.getHistoricalWeather(lat: 44.0, lng: 3.0, days: 1);
+      await svc.getWeatherForecast(lat: 44.0, lng: 3.0, days: 1);
+      expect(callCount, 1, reason: 'même coordonnées → un seul appel HTTP');
+    });
+    test('le cache est limité à 100 entrées (LRU)', () async {
+      final client = MockClient((request) async {
+        return Response(
+          jsonEncode(_buildSimpleJson(historicalDays: 1, forecastDays: 1)),
+          200,
+        );
+      });
+      final svc = OpenMeteoWeatherService(client: client);
+
+      // 110 mailles distinctes -> seules 100 doivent rester en cache.
+      for (var i = 0; i < 110; i++) {
+        await svc.getHistoricalWeather(lat: 40.0 + i * 0.01, lng: 3.0, days: 1);
+      }
+      expect(svc.cacheSize, lessThanOrEqualTo(100));
+    });
+
+    test('une entrée expirée (> 1 h) est re-téléchargée', () async {
+      var callCount = 0;
+      final client = MockClient((request) async {
+        callCount++;
+        return Response(
+          jsonEncode(_buildSimpleJson(historicalDays: 1, forecastDays: 1)),
+          200,
+        );
+      });
+      final svc = OpenMeteoWeatherService(client: client);
+
+      await svc.getHistoricalWeather(lat: 44.0, lng: 3.0, days: 1);
+      expect(callCount, 1);
+
+      // Simule une entrée expirée en injectant un timestamp ancien.
+      // On ne peut pas accéder directement au cache, donc on vérifie
+      // le comportement : après reset, un nouvel appel refait une requête.
+      svc.resetCacheForTesting();
+      await svc.getHistoricalWeather(lat: 44.0, lng: 3.0, days: 1);
+      expect(callCount, 2);
+    });
+
+    test(
+      'les requêtes simultanées partagent le même Future (1 seul HTTP)',
+      () async {
+        var callCount = 0;
+        final client = MockClient((request) async {
+          callCount++;
+          // Simule une latence pour forcer le chevauchement.
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return Response(
+            jsonEncode(_buildSimpleJson(historicalDays: 1, forecastDays: 1)),
+            200,
+          );
+        });
+        final svc = OpenMeteoWeatherService(client: client);
+
+        // 5 appels simultanés sur la même maille.
+        final futures = List.generate(
+          5,
+          (_) => svc.getHistoricalWeather(lat: 44.0, lng: 3.0, days: 1),
+        );
+        await Future.wait(futures);
+
+        expect(callCount, 1, reason: 'Une seule requête HTTP doit être faite');
+      },
+    );
+
+    test('une erreur HTTP n\'est pas mise en cache', () async {
+      var callCount = 0;
+      final client = MockClient((request) async {
+        callCount++;
+        if (callCount == 1) {
+          return Response('server error', 500);
+        }
+        return Response(
+          jsonEncode(_buildSimpleJson(historicalDays: 1, forecastDays: 1)),
+          200,
+        );
+      });
+      final svc = OpenMeteoWeatherService(client: client);
+
+      // Premier appel : échoue.
+      try {
+        await svc.getHistoricalWeather(lat: 44.0, lng: 3.0, days: 1);
+        fail('Devrait lancer une exception');
+      } catch (e) {
+        expect(e, isA<http.ClientException>());
+      }
+      expect(svc.cacheSize, 0, reason: 'L\'erreur ne doit pas être en cache');
+
+      // Deuxième appel : réussit.
+      await svc.getHistoricalWeather(lat: 44.0, lng: 3.0, days: 1);
+      expect(callCount, 2);
+      expect(svc.cacheSize, 1);
+    });
+
+    test('une entrée valide est réutilisée sans appel HTTP', () async {
+      var callCount = 0;
+      final client = MockClient((request) async {
+        callCount++;
+        return Response(
+          jsonEncode(_buildSimpleJson(historicalDays: 1, forecastDays: 1)),
+          200,
+        );
+      });
+      final svc = OpenMeteoWeatherService(client: client);
+
+      await svc.getHistoricalWeather(lat: 44.0, lng: 3.0, days: 1);
+      await svc.getWeatherForecast(lat: 44.0, lng: 3.0, days: 1);
+      await svc.getSoilMoisture(lat: 44.0, lng: 3.0);
+
+      expect(callCount, 1, reason: 'Une seule requête HTTP pour 3 appels');
+    });
+
+    test('timeout nettoie _inFlight et permet retry', () async {
+      var callCount = 0;
+      final completer = Completer<Response>();
+
+      final client = MockClient((request) async {
+        callCount++;
+        if (callCount == 1) {
+          // Premier appel : ne complète jamais (timeout)
+          return completer.future;
+        }
+        // Deuxième appel : succès rapide
+        return Response(
+          jsonEncode(_buildSimpleJson(historicalDays: 1, forecastDays: 1)),
+          200,
+        );
+      });
+      final svc = OpenMeteoWeatherService(
+        client: client,
+        requestTimeout: const Duration(milliseconds: 100),
+      );
+
+      // Premier appel : timeout
+      try {
+        await svc.getHistoricalWeather(lat: 44.0, lng: 3.0, days: 1);
+        fail('Devrait timeout');
+      } catch (e) {
+        expect(e, isA<TimeoutException>());
+      }
+      expect(callCount, 1);
+
+      // Deuxième appel : doit réussir (retry possible)
+      await svc.getHistoricalWeather(lat: 44.0, lng: 3.0, days: 1);
+      expect(callCount, 2);
+      expect(svc.cacheSize, 1);
     });
   });
 }

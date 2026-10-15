@@ -46,11 +46,7 @@ void main() {
         slope: 12.0,
         aspect: 45.0, // NE
       );
-      final forest = ForestData.mock(
-        isForest: true,
-        forestType: 'feuillu',
-        treeDensity: 60.0,
-      );
+      final forest = ForestData.mock(isForest: true, forestType: 'feuillu');
 
       final forecast = model.calculate(
         weatherHistory: weatherHistory,
@@ -98,11 +94,7 @@ void main() {
         weatherForecast: optimalForecast,
         soilMoistureLayers: [SoilMoistureData.mock(moisture: 50.0)],
         terrain: TerrainData.mock(elevation: 400.0, slope: 12.0, aspect: 45.0),
-        forest: ForestData.mock(
-          isForest: true,
-          forestType: 'feuillu',
-          treeDensity: 60.0,
-        ),
+        forest: ForestData.mock(isForest: true, forestType: 'feuillu'),
         targetDate: DateTime.now(),
       );
 
@@ -121,11 +113,7 @@ void main() {
         weatherForecast: poorForecast,
         soilMoistureLayers: [SoilMoistureData.mock(moisture: 10.0)],
         terrain: TerrainData.mock(elevation: 50.0, slope: 35.0, aspect: 180.0),
-        forest: ForestData.mock(
-          isForest: true,
-          forestType: 'conifère',
-          treeDensity: 20.0,
-        ),
+        forest: ForestData.mock(isForest: true, forestType: 'conifère'),
         targetDate: DateTime.now(),
       );
 
@@ -166,11 +154,7 @@ void main() {
         final forestKnownZero = ForestData.mock(
           isForest: false, // forêt connue et défavorable -> facteur = 0.0
         );
-        final forestUnknown = ForestData.mock(
-          isForest: null,
-          forestType: null,
-          treeDensity: null,
-        );
+        final forestUnknown = ForestData.mock(isForest: null, forestType: null);
 
         final withForestKnownZero = model.calculate(
           weatherHistory: weatherHistory,
@@ -210,13 +194,8 @@ void main() {
         final forestKnown = ForestData.mock(
           isForest: true,
           forestType: 'feuillu',
-          treeDensity: 60.0,
         );
-        final forestUnknown = ForestData.mock(
-          isForest: null,
-          forestType: null,
-          treeDensity: null,
-        );
+        final forestUnknown = ForestData.mock(isForest: null, forestType: null);
         final targetDate = DateTime.utc(2026, 9, 1);
         final weather = List<WeatherDay>.generate(40, (index) {
           return WeatherDay(
@@ -306,7 +285,6 @@ void main() {
         final forestKnown = ForestData.mock(
           isForest: true,
           forestType: 'feuillu',
-          treeDensity: 60.0,
         );
 
         final forecast = model.calculate(
@@ -327,11 +305,7 @@ void main() {
           slope: 12.0,
           aspect: 45.0,
         );
-        final forest = ForestData.mock(
-          isForest: true,
-          forestType: 'feuillu',
-          treeDensity: 60.0,
-        );
+        final forest = ForestData.mock(isForest: true, forestType: 'feuillu');
         final forecast = model.calculate(
           weatherHistory: [],
           weatherForecast: [],
@@ -517,11 +491,7 @@ void main() {
                   aspect: 45,
                   elevation: 400,
                 ),
-                forest: ForestData.mock(
-                  isForest: true,
-                  forestType: 'feuillu',
-                  treeDensity: 60,
-                ),
+                forest: ForestData.mock(isForest: true, forestType: 'feuillu'),
                 targetDate: DateTime(2026, 9, 1),
               );
 

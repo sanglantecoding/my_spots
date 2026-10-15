@@ -5,8 +5,6 @@ class ForestData {
   final bool? isForest; // null si inconnu
   final String?
   forestType; // Type de forêt (ex: "feuillu", "conifère", "mixte") si isForest=true
-  final double? treeDensity; // % (0-100) si isForest=true
-  final double? canopyCover; // % couverture forestière (0-100) si isForest=true
   /// Occupation du sol connue : water, beach, desert, glacier,
   /// bare_rock ou urban. Null tant qu'aucune source ne la renseigne.
   final String? landCover;
@@ -28,8 +26,6 @@ class ForestData {
     required this.longitude,
     this.isForest,
     this.forestType,
-    this.treeDensity,
-    this.canopyCover,
     this.landCover,
     this.canopyClass,
     this.forestAreasInTile,
@@ -43,8 +39,6 @@ class ForestData {
     double lng = 3.5,
     bool? isForest,
     String? forestType,
-    double? treeDensity,
-    double? canopyCover,
     String? landCover,
     String? canopyClass,
     int? forestAreasInTile,
@@ -56,13 +50,26 @@ class ForestData {
       longitude: lng,
       isForest: isForest,
       forestType: forestType,
-      treeDensity: treeDensity,
-      canopyCover: canopyCover,
       landCover: landCover,
       canopyClass: canopyClass,
       forestAreasInTile: forestAreasInTile,
       nearestForestDistanceMeters: nearestForestDistanceMeters,
       source: source,
+    );
+  }
+
+  /// Crée une instance avec toutes les valeurs null (forêt inconnue).
+  factory ForestData.unknown(double lat, double lng) {
+    return ForestData(
+      latitude: lat,
+      longitude: lng,
+      isForest: null,
+      forestType: null,
+      landCover: null,
+      canopyClass: null,
+      forestAreasInTile: null,
+      nearestForestDistanceMeters: null,
+      source: null,
     );
   }
 }

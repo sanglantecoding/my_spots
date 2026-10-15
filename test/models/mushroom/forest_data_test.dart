@@ -9,16 +9,12 @@ void main() {
         longitude: 3.5,
         isForest: true,
         forestType: 'feuillu',
-        treeDensity: 60.0,
-        canopyCover: 70.0,
       );
 
       expect(forest.latitude, 43.5);
       expect(forest.longitude, 3.5);
       expect(forest.isForest, true);
       expect(forest.forestType, 'feuillu');
-      expect(forest.treeDensity, 60.0);
-      expect(forest.canopyCover, 70.0);
     });
 
     test('creates instance with null optional fields', () {
@@ -27,10 +23,8 @@ void main() {
         longitude: 3.5,
         isForest: true,
         forestType: 'feuillu',
-        treeDensity: 60.0,
       );
 
-      expect(forest.canopyCover, isNull);
       expect(forest.source, isNull);
     });
 
@@ -43,8 +37,6 @@ void main() {
 
       expect(forest.isForest, false);
       expect(forest.forestType, isNull);
-      expect(forest.treeDensity, isNull);
-      expect(forest.canopyCover, isNull);
     });
 
     test('mock leaves forest classification and measurements absent', () {
@@ -54,8 +46,6 @@ void main() {
       expect(forest.longitude, 3.5);
       expect(forest.isForest, isNull);
       expect(forest.forestType, isNull);
-      expect(forest.treeDensity, isNull);
-      expect(forest.canopyCover, isNull);
       expect(forest.source, isNull);
     });
 
@@ -63,15 +53,11 @@ void main() {
       final forest = ForestData.mock(
         isForest: true,
         forestType: 'conifère',
-        treeDensity: 80.0,
-        canopyCover: 90.0,
         source: 'ign',
       );
 
       expect(forest.isForest, true);
       expect(forest.forestType, 'conifère');
-      expect(forest.treeDensity, 80.0);
-      expect(forest.canopyCover, 90.0);
       expect(forest.source, 'ign');
     });
 
@@ -80,7 +66,6 @@ void main() {
 
       expect(forest.isForest, false);
       expect(forest.forestType, isNull);
-      expect(forest.treeDensity, isNull);
     });
   });
 }

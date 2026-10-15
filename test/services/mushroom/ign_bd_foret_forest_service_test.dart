@@ -48,8 +48,6 @@ void main() {
     expect(data.isForest, isTrue);
     expect(data.forestType, 'feuillu');
     expect(data.canopyClass, 'fermée');
-    expect(data.canopyCover, isNull);
-    expect(data.treeDensity, isNull);
   });
 
   test('GeoJSON maps conifer, mixed/open, and explicit heathland', () {
@@ -143,8 +141,6 @@ void main() {
     expect(data.isForest, isNull);
     expect(data.forestType, isNull);
     expect(data.canopyClass, isNull);
-    expect(data.treeDensity, isNull);
-    expect(data.canopyCover, isNull);
     expect(data.landCover, isNull);
     expect(data.source, isNull);
   });
@@ -334,8 +330,6 @@ class _FakeForestService implements ForestService {
       isForest: isForest,
       forestType: isForest == true ? 'feuillu' : null,
       canopyClass: isForest == true ? 'fermée' : null,
-      treeDensity: null,
-      canopyCover: null,
       landCover: landCover,
       source: 'fake',
     );
@@ -397,8 +391,6 @@ class _FakeBatchForestService implements ForestService {
       isForest: isForest,
       forestType: forestType,
       canopyClass: isForest == true ? 'fermée' : null,
-      treeDensity: null,
-      canopyCover: null,
       landCover: landCover,
       source: source,
     );
@@ -420,8 +412,6 @@ class _FakeBatchForestService implements ForestService {
         isForest: isForest,
         forestType: forestType,
         canopyClass: isForest == true ? 'fermée' : null,
-        treeDensity: null,
-        canopyCover: null,
         landCover: landCover,
         source: source,
       );

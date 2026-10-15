@@ -706,28 +706,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
               ? 0.9
               : 0.6);
 
-    // Densité : 40-80% optimale
-    final densityScore = forest.treeDensity == null
-        ? null
-        : forest.treeDensity! >= 40 && forest.treeDensity! <= 80
-        ? 1.0
-        : ((forest.treeDensity! >= 20 && forest.treeDensity! < 40) ||
-              (forest.treeDensity! > 80 && forest.treeDensity! <= 90))
-        ? 0.7
-        : 0.5;
-
-    if (typeScore == null && densityScore == null) return 1.0;
-    var weightedSum = 0.0;
-    var knownWeight = 0.0;
-    if (typeScore != null) {
-      weightedSum += typeScore * 0.6;
-      knownWeight += 0.6;
-    }
-    if (densityScore != null) {
-      weightedSum += densityScore * 0.4;
-      knownWeight += 0.4;
-    }
-    return (weightedSum / knownWeight).clamp(0.0, 1.0).toDouble();
+    return typeScore ?? 1.0;
   }
 
   /// Agrégation des facteurs en indice global (0-100).

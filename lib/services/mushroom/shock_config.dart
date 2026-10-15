@@ -22,23 +22,9 @@ class ShockConfig {
   static const double rainMediumPart = 0.5;
   static const double rainHighPart = 1.0;
 
-  /// Seuils placeholders de baisse thermique (°C) et scores associés.
-  static const double temperatureDropMediumC = 3;
-  static const double temperatureDropHighC = 5;
-  static const double temperatureDropMediumPart = 0.5;
-  static const double temperatureDropHighPart = 1.0;
-  static const double temperatureDropNoPart = 0.0;
-
   /// Décalage provisoire entre l'événement et la date estimée (jours).
   static const int lagMinDays = 6;
   static const int lagMaxDays = 10;
-
-  /// Seuils placeholders de température du sol (°C).
-  static const double soilTemperatureLowC = 8;
-  static const double soilTemperatureOptimalLowC = 12;
-  static const double soilTemperatureOptimalHighC = 17;
-  static const double soilTemperatureHighC = 22;
-  static const double soilTemperatureModeratePart = 0.5;
 
   /// Poids provisoires des facteurs globaux (à renormaliser si inconnus).
   static const double waterWeight = 0.30;

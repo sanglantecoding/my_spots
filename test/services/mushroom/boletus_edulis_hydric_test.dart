@@ -287,11 +287,7 @@ void main() {
           weatherForecast: const [],
           soilMoistureLayers: moistureSeries(moisture),
           terrain: TerrainData.mock(elevation: 500, slope: 10, aspect: 90),
-          forest: ForestData.mock(
-            isForest: true,
-            forestType: 'feuillu',
-            treeDensity: 60,
-          ),
+          forest: ForestData.mock(isForest: true, forestType: 'feuillu'),
           targetDate: baseDate,
         );
 
@@ -309,11 +305,7 @@ void main() {
         weatherForecast: const [],
         soilMoistureLayers: moistureSeries(List<double>.filled(60, 35)),
         terrain: TerrainData.mock(elevation: 500, slope: 10, aspect: 90),
-        forest: ForestData.mock(
-          isForest: true,
-          forestType: 'feuillu',
-          treeDensity: 60,
-        ),
+        forest: ForestData.mock(isForest: true, forestType: 'feuillu'),
         targetDate: baseDate,
       );
       final factors = forecast.factors;

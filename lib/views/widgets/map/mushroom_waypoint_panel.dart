@@ -1,14 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/habitat_status.dart';
 import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/services/mushroom/mushroom_waypoint_forecast_service.dart';
-import 'package:my_spots/views/widgets/map/mushroom_color_utils.dart';
+import 'package:my_spots/services/gps_service.dart';
+import 'package:my_spots/views/widgets/map/mushroom_pastille.dart';
 
 /// Panneau "Où aller ?" pour les waypoints champignons.
 class MushroomWaypointPanel extends StatefulWidget {
@@ -17,6 +17,8 @@ class MushroomWaypointPanel extends StatefulWidget {
   final Function(Waypoint)? onOpenSheet;
   final Function(int)? onDayChanged;
   final Function(Map<String, List<MushroomForecast>>)? onForecastsLoaded;
+  final LatLng? currentPosition;
+  final int selectedDay;
 
   const MushroomWaypointPanel({
     super.key,
@@ -25,6 +27,8 @@ class MushroomWaypointPanel extends StatefulWidget {
     this.onOpenSheet,
     this.onDayChanged,
     this.onForecastsLoaded,
+    this.currentPosition,
+    this.selectedDay = 0,
   });
 
   @override
@@ -40,17 +44,36 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
   LatLng? _currentPosition;
   String? _loadingStep;
   bool _isCancelled = false;
+  final List<String> _warnings = <String>[];
+  int _requestId = 0;
+
+  List<Waypoint> get _mushroomWaypoints => WaypointStore.waypoints
+      .where((wp) => wp.category == WaypointCategory.mushrooms)
+      .toList();
+
+  List<
+    ({
+      Waypoint waypoint,
+      MushroomForecast forecast,
+      int bestDay,
+      double? distance,
+    })
+  >?
+  _cachedSortedWaypoints;
+  int? _cachedCountWithoutData;
 
   @override
   void initState() {
     super.initState();
+    _selectedDay = widget.selectedDay;
+    _currentPosition = widget.currentPosition;
     _loadForecasts();
-    _getCurrentPosition();
   }
 
   @override
   void dispose() {
     _isCancelled = true;
+    widget.forecastService.cancelActive();
     super.dispose();
   }
 
@@ -59,26 +82,13 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
     super.didUpdateWidget(oldWidget);
     // Reload if waypoint list changed (detected by cache invalidation)
     if (oldWidget.forecastService != widget.forecastService) {
+      _requestId++;
       _loadForecasts();
     }
-  }
-
-  Future<void> _getCurrentPosition() async {
-    if (_isCancelled) return;
-    if (!mounted) return;
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-      if (mounted && !_isCancelled) {
-        setState(() {
-          _currentPosition = LatLng(position.latitude, position.longitude);
-        });
-      }
-    } catch (e) {
-      // GPS non disponible, tri par distance désactivé
+    // Update current position if changed
+    if (oldWidget.currentPosition != widget.currentPosition) {
+      _currentPosition = widget.currentPosition;
+      _cachedSortedWaypoints = null; // Invalidate cache when position changes
     }
   }
 
@@ -96,11 +106,7 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
       return;
     }
 
-    final mushroomWaypoints = WaypointStore.waypoints
-        .where((wp) => wp.category == WaypointCategory.mushrooms)
-        .toList();
-
-    if (mushroomWaypoints.isEmpty) {
+    if (_mushroomWaypoints.isEmpty) {
       if (mounted) {
         setState(() {
           _errorMessage = 'Aucun waypoint champignon enregistré';
@@ -111,7 +117,7 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
       return;
     }
 
-    if (mushroomWaypoints.length > 50) {
+    if (_mushroomWaypoints.length > 50) {
       if (mounted) {
         setState(() {
           _errorMessage = 'Trop de waypoints (max 50)';
@@ -127,31 +133,35 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
         _isLoading = true;
         _errorMessage = null;
         _loadingStep = 'altitude';
+        _warnings.clear();
       });
     }
+
+    final currentRequestId = _requestId;
 
     try {
       final forecasts = await widget.forecastService
           .calculateForWaypoints(
-            mushroomWaypoints,
+            _mushroomWaypoints,
             onStage: (step) {
-              if (mounted && !_isCancelled) {
+              if (mounted && !_isCancelled && _requestId == currentRequestId) {
                 setState(() {
                   _loadingStep = step;
                 });
               }
             },
             onWarning: (message) {
-              if (mounted && !_isCancelled) {
-                setState(() {
-                  _errorMessage = message;
-                });
+              if (mounted &&
+                  !_isCancelled &&
+                  !_warnings.contains(message) &&
+                  _requestId == currentRequestId) {
+                setState(() => _warnings.add(message));
               }
             },
           )
           .timeout(const Duration(seconds: 90));
 
-      if (_isCancelled) return;
+      if (_isCancelled || _requestId != currentRequestId) return;
 
       if (forecasts == null) {
         if (mounted) {
@@ -166,6 +176,8 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
           setState(() {
             _forecasts = forecasts;
             _loadingStep = null;
+            _cachedSortedWaypoints = null;
+            _cachedCountWithoutData = null;
           });
         }
         widget.onForecastsLoaded?.call(forecasts);
@@ -181,7 +193,7 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Erreur: ${e.toString()}';
+          _errorMessage = 'Erreur de chargement des prévisions';
           _forecasts = null;
           _loadingStep = null;
         });
@@ -204,11 +216,14 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
     })
   >
   _getSortedWaypoints() {
-    if (_forecasts == null) return [];
+    if (_cachedSortedWaypoints != null) {
+      return _cachedSortedWaypoints!;
+    }
 
-    final mushroomWaypoints = WaypointStore.waypoints
-        .where((wp) => wp.category == WaypointCategory.mushrooms)
-        .toList();
+    if (_forecasts == null) {
+      _cachedSortedWaypoints = [];
+      return [];
+    }
 
     final results =
         <
@@ -220,7 +235,7 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
           })
         >[];
 
-    for (final waypoint in mushroomWaypoints) {
+    for (final waypoint in _mushroomWaypoints) {
       final key = '${waypoint.latitude},${waypoint.longitude}';
       final dayForecasts = _forecasts![key];
 
@@ -248,12 +263,12 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
       // Calculate distance if GPS available
       double? distance;
       if (_currentPosition != null) {
-        distance = Geolocator.distanceBetween(
+        final current = LatLng(
           _currentPosition!.latitude,
           _currentPosition!.longitude,
-          waypoint.latitude,
-          waypoint.longitude,
         );
+        final waypointPos = LatLng(waypoint.latitude, waypoint.longitude);
+        distance = GpsService.distanceBetween(current, waypointPos);
       }
 
       results.add((
@@ -276,7 +291,22 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
       results.sort((a, b) => b.forecast.index.compareTo(a.forecast.index));
     }
 
+    _cachedSortedWaypoints = results;
     return results;
+  }
+
+  int _getCountWithoutData() {
+    if (_cachedCountWithoutData != null) {
+      return _cachedCountWithoutData!;
+    }
+    if (_forecasts == null) {
+      _cachedCountWithoutData = 0;
+      return 0;
+    }
+    _cachedCountWithoutData = MushroomWaypointForecastService.countWithoutData(
+      _forecasts!,
+    );
+    return _cachedCountWithoutData!;
   }
 
   @override
@@ -418,7 +448,7 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
             )
           else if (_forecasts != null) ...[
             // Warning banner for timed-out stages
-            if (_errorMessage != null)
+            if (_warnings.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 20,
@@ -434,7 +464,7 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _errorMessage!,
+                        _warnings.join(' · '),
                         style: const TextStyle(
                           color: Colors.orangeAccent,
                           fontSize: 12,
@@ -445,15 +475,14 @@ class _MushroomWaypointPanelState extends State<MushroomWaypointPanel> {
                 ),
               ),
             // Banner for waypoints without data
-            if (MushroomWaypointForecastService.countWithoutData(_forecasts!) >
-                0)
+            if (_getCountWithoutData() > 0)
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 20,
                   vertical: 8,
                 ),
                 child: Text(
-                  '${MushroomWaypointForecastService.countWithoutData(_forecasts!)} coin${MushroomWaypointForecastService.countWithoutData(_forecasts!) > 1 ? 's' : ''} sans donnée',
+                  '${_getCountWithoutData()} coin${_getCountWithoutData() > 1 ? 's' : ''} sans donnée',
                   style: const TextStyle(
                     color: Colors.orangeAccent,
                     fontSize: 12,
@@ -514,10 +543,6 @@ class _WaypointListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = indexToGradientColor(forecast.index);
-    final isExcluded = forecast.habitat == HabitatStatus.excluded;
-    final displayColor = isExcluded ? Colors.grey : color;
-
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -531,27 +556,10 @@ class _WaypointListItem extends StatelessWidget {
         child: Row(
           children: [
             // Pastille colorée
-            Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                color: displayColor,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  width: 1,
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  forecast.index.toString(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+            MushroomPastille(
+              index: forecast.index,
+              habitat: forecast.habitat,
+              onTap: onTap,
             ),
             const SizedBox(width: 12),
             // Nom et détails

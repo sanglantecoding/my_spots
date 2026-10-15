@@ -17,8 +17,6 @@ import 'package:my_spots/services/mushroom/point_key.dart';
 const mushroomViewportMinimumZoom = 11.0;
 const mushroomViewportMaximumCells = 150;
 const mushroomViewportDefaultCellsPerSide = 12;
-const mushroomViewportAltitudePointLimit = 5000;
-const mushroomViewportMaximumParallelRequests = 4;
 
 enum MushroomViewportStatus { ready, tooWide, cancelled }
 
@@ -50,11 +48,13 @@ class MushroomViewportWeather {
     required this.history,
     required this.forecast,
     required this.soil,
+    this.meshElevation,
   });
 
   final List<WeatherDay> history;
   final List<WeatherDay> forecast;
   final List<SoilMoistureData> soil;
+  final double? meshElevation; // Altitude de la maille météo (m)
 }
 
 /// Contrat batch pour les fournisseurs réseau/cache du calcul viewport.
@@ -99,6 +99,12 @@ class MushroomViewportForecastService {
   final double minimumZoom;
   final int maximumCells;
   MushroomViewportCancellationToken? _activeCalculation;
+
+  /// Annule le calcul en cours.
+  void cancelActive() {
+    _activeCalculation?.cancel();
+    _activeCalculation = null;
+  }
 
   /// Le curseur utilise [startDate] comme J+0 ; chaque cellule contient les
   /// huit jours déjà calculés. Une nouvelle invocation annule la précédente.
@@ -153,14 +159,23 @@ class MushroomViewportForecastService {
     for (final cell in cells) {
       final key = mushroomViewportPointKey(cell.center);
       final terrain = terrains[key] ?? _unknownTerrain(cell.center);
-      if (terrain.elevation == null) {
+      final terrainKnown = terrain.elevation != null;
+      if (!terrainKnown) {
         failedCellCount++;
       }
       final habitat = HabitatRules.evaluateTerrain(terrain);
       if (habitat != null) {
         excluded[key] = _excludedForecasts(terrain, habitat, targetStart).first;
       } else {
-        eligible.add(cell);
+        eligible.add(
+          MushroomGridCell(
+            bounds: cell.bounds,
+            forecasts: cell.forecasts,
+            calculationDate: cell.calculationDate,
+            terrainKnown: terrainKnown,
+            weatherKnown: cell.weatherKnown,
+          ),
+        );
       }
     }
 
@@ -199,6 +214,15 @@ class MushroomViewportForecastService {
       final key = mushroomViewportPointKey(cell.center);
       final terrain = terrains[key] ?? _unknownTerrain(cell.center);
       final excludedForecast = excluded[key];
+      final gridKey = mushroomViewportPointKey(_modelGridCenter(cell.center));
+      final weather = weatherByGrid[gridKey];
+
+      final cellTerrainKnown =
+          terrain.elevation != null || terrain.noElevationData;
+      final cellWeatherKnown =
+          weather != null &&
+          (weather.history.isNotEmpty || weather.forecast.isNotEmpty);
+
       final forecasts = excludedForecast == null
           ? _calculateCellForecasts(
               cell: cell,
@@ -214,9 +238,10 @@ class MushroomViewportForecastService {
       results.add(
         MushroomGridCell(
           bounds: cell.bounds,
-          forecast: forecasts.first,
           forecasts: forecasts,
           calculationDate: DateTime.now(),
+          terrainKnown: cellTerrainKnown,
+          weatherKnown: cellWeatherKnown,
         ),
       );
     }
@@ -241,16 +266,76 @@ class MushroomViewportForecastService {
     final availableWeather =
         weather ??
         const MushroomViewportWeather(history: [], forecast: [], soil: []);
+
+    // Apply temperature correction based on altitude difference
+    // Standard lapse rate: 0.0065 °C/m (6.5°C per 1000m)
+    // Correction: (meshElevation - cellAltitude) * 0.0065
+    final meshElevation = weather?.meshElevation;
+    final cellAltitude = terrain.elevation;
+    final tempCorrection = (meshElevation != null && cellAltitude != null)
+        ? (meshElevation - cellAltitude) * 0.0065
+        : 0.0;
+
+    // Create corrected weather copies if correction is needed
+    final correctedHistory = tempCorrection != 0
+        ? _applyTempCorrection(availableWeather.history, tempCorrection)
+        : availableWeather.history;
+    final correctedForecast = tempCorrection != 0
+        ? _applyTempCorrection(availableWeather.forecast, tempCorrection)
+        : availableWeather.forecast;
+
     return List.generate(8, (i) {
-      return _engine.calculate(
-        weatherHistory: availableWeather.history,
-        weatherForecast: availableWeather.forecast,
+      final forecast = _engine.calculate(
+        weatherHistory: correctedHistory,
+        weatherForecast: correctedForecast,
         soilMoistureLayers: availableWeather.soil,
         terrain: terrain,
         forest: forest,
         targetDate: startDate.add(Duration(days: i)),
       );
+      // Fill dataSources for all cells
+      return forecast.copyWith(
+        dataSources: {
+          'terrain': terrain.source,
+          'weather': weather != null ? 'ecmwf_ifs025' : null,
+          'forest': forest.source,
+        },
+      );
     });
+  }
+
+  /// Applique une correction de température à une liste de WeatherDay.
+  /// Approximation du gradient thermique standard (0.0065 °C/m).
+  List<WeatherDay> _applyTempCorrection(
+    List<WeatherDay> days,
+    double correction,
+  ) {
+    return days.map((day) {
+      if (day.temperatureMin == null &&
+          day.temperatureMax == null &&
+          day.temperatureMean == null) {
+        return day;
+      }
+      return WeatherDay(
+        date: day.date,
+        kind: day.kind,
+        temperatureMin: day.temperatureMin != null
+            ? day.temperatureMin! + correction
+            : null,
+        temperatureMax: day.temperatureMax != null
+            ? day.temperatureMax! + correction
+            : null,
+        temperatureMean: day.temperatureMean != null
+            ? day.temperatureMean! + correction
+            : null,
+        precipitation: day.precipitation,
+        humidity: day.humidity,
+        et0: day.et0,
+        windSpeed: day.windSpeed,
+        windGust: day.windGust,
+        solarRadiation: day.solarRadiation,
+      );
+    }).toList();
   }
 
   List<MushroomForecast> _excludedForecasts(
@@ -259,22 +344,12 @@ class MushroomViewportForecastService {
     DateTime start,
   ) => List.generate(
     8,
-    (i) => MushroomForecast(
+    (i) => MushroomForecast.excluded(
       date: start.add(Duration(days: i)),
       species: _engine.species,
-      index: 0,
-      confidence: 1,
       habitat: habitat.status,
       habitatReason: habitat.reason,
-      factors: ForecastFactors(
-        waterFactor: null,
-        temperatureFactor: null,
-        dryingFactor: 0,
-        terrainFactor: null,
-        forestFactor: null,
-        shockFactor: null,
-      ),
-      dataSources: {'terrain': terrain.source},
+      dataSources: {'terrain': terrain.source, 'weather': null, 'forest': null},
     ),
   );
 
@@ -287,10 +362,12 @@ class MushroomViewportForecastService {
   static ({int rows, int columns, int cellSizeMeters, int cellCount})?
   _gridGeometry(LatLngBounds bounds) {
     final latMeters = (bounds.north - bounds.south).abs() * 111320;
+    // Use cos(latitude rounded to 0.1°) for longitude step
+    final centerLatRounded = (bounds.center.latitude * 10).round() / 10.0;
     final lngMeters =
         (bounds.east - bounds.west).abs() *
         111320 *
-        math.cos(bounds.center.latitude * math.pi / 180).abs();
+        math.cos(centerLatRounded * math.pi / 180).abs();
     if (latMeters <= 0 || lngMeters <= 0) return null;
     final target = math.max(latMeters, lngMeters) / 20;
     const sizes = [100, 200, 500, 1000];
@@ -303,9 +380,10 @@ class MushroomViewportForecastService {
         selected = size;
       }
     }
+    // Include border row and column in count
     for (final size in sizes.where((value) => value >= selected)) {
-      final rows = (latMeters / size).ceil();
-      final columns = (lngMeters / size).ceil();
+      final rows = (latMeters / size).ceil() + 1;
+      final columns = (lngMeters / size).ceil() + 1;
       if (rows * columns <= mushroomViewportMaximumCells) {
         return (
           rows: rows,
@@ -316,11 +394,12 @@ class MushroomViewportForecastService {
       }
     }
     return (
-      rows: (latMeters / selected).ceil(),
-      columns: (lngMeters / selected).ceil(),
+      rows: (latMeters / selected).ceil() + 1,
+      columns: (lngMeters / selected).ceil() + 1,
       cellSizeMeters: selected,
       cellCount:
-          ((latMeters / selected).ceil()) * ((lngMeters / selected).ceil()),
+          ((latMeters / selected).ceil() + 1) *
+          ((lngMeters / selected).ceil() + 1),
     );
   }
 
@@ -329,21 +408,28 @@ class MushroomViewportForecastService {
     ({int rows, int columns, int cellSizeMeters, int cellCount}) geometry,
   ) {
     final stepLat = geometry.cellSizeMeters / 111320;
+    // Use cos(latitude rounded to 0.1°) for longitude step
+    final centerLatRounded = (bounds.center.latitude * 10).round() / 10.0;
     final stepLng =
         geometry.cellSizeMeters /
-        (111320 * math.cos(bounds.center.latitude * math.pi / 180).abs());
+        (111320 * math.cos(centerLatRounded * math.pi / 180).abs());
+
+    // Anchor grid to fixed network: floor(bound / step) * step
+    final originLat = (bounds.south / stepLat).floor() * stepLat;
+    final originLng = (bounds.west / stepLng).floor() * stepLng;
+
     final result = <MushroomGridCell>[];
     for (var row = 0; row < geometry.rows; row++) {
       for (var column = 0; column < geometry.columns; column++) {
-        final south = bounds.south + row * stepLat;
-        final west = bounds.west + column * stepLng;
+        final south = originLat + row * stepLat;
+        final west = originLng + column * stepLng;
         final north = math.min(south + stepLat, bounds.north);
         final east = math.min(west + stepLng, bounds.east);
         if (north <= south || east <= west) continue;
         result.add(
           MushroomGridCell(
             bounds: LatLngBounds(LatLng(south, west), LatLng(north, east)),
-            forecast: MushroomForecast.mock(),
+            forecasts: [MushroomForecast.mock()],
             calculationDate: DateTime.now(),
           ),
         );
@@ -360,26 +446,11 @@ class MushroomViewportForecastService {
   static DateTime _day(DateTime value) =>
       DateTime(value.year, value.month, value.day);
 
-  static TerrainData _unknownTerrain(LatLng center) => TerrainData(
-    latitude: center.latitude,
-    longitude: center.longitude,
-    elevation: null,
-    noElevationData: false,
-    slope: null,
-    aspect: null,
-    source: null,
-  );
+  static TerrainData _unknownTerrain(LatLng center) =>
+      TerrainData.unknown(center.latitude, center.longitude);
 
-  static ForestData _unknownForest(LatLng center) => ForestData(
-    latitude: center.latitude,
-    longitude: center.longitude,
-    isForest: null,
-    forestType: null,
-    canopyClass: null,
-    treeDensity: null,
-    canopyCover: null,
-    source: null,
-  );
+  static ForestData _unknownForest(LatLng center) =>
+      ForestData.unknown(center.latitude, center.longitude);
   Future<List<List<MushroomForecast>>> calculateForPoints(
     List<LatLng> points,
     void Function(String)? onStage,
@@ -396,13 +467,16 @@ class MushroomViewportForecastService {
       terrains = await _source
           .loadTerrainBatch(points, cancellation, onStage: onStage)
           .timeout(const Duration(seconds: 20));
-    } catch (_) {
+    } on TimeoutException {
       onWarning?.call('Altitude non chargée (délai)');
+      terrains = {};
+    } catch (_) {
+      onWarning?.call('Altitude non chargée (erreur)');
       terrains = {};
     }
     if (cancellation.isCancelled) return [];
 
-    // Determine eligible points (habitat not excluded)
+    // Determine eligible points (habitat not excluded by altitude)
     final eligible = <LatLng>[];
     for (final point in points) {
       final terrain =
@@ -412,9 +486,9 @@ class MushroomViewportForecastService {
         eligible.add(point);
       }
     }
-    // Compute unique model grid centers from all points (weather needed for all)
+    // Compute unique model grid centers from eligible points only (weather only for non-excluded)
     final modelCenters = <String, LatLng>{};
-    for (final point in points) {
+    for (final point in eligible) {
       final center = _modelGridCenter(point);
       modelCenters.putIfAbsent(mushroomViewportPointKey(center), () => center);
     }
@@ -430,11 +504,15 @@ class MushroomViewportForecastService {
               onStage: onStage,
             );
       weatherByGrid = await weatherFuture.timeout(const Duration(seconds: 20));
-    } catch (_) {
+    } on TimeoutException {
       onWarning?.call('Météo non chargée (délai)');
+      weatherByGrid = {};
+    } catch (_) {
+      onWarning?.call('Météo non chargée (erreur)');
       weatherByGrid = {};
     }
     // Load forest for zone (bounds of all points) using eligible points with 30s timeout
+    onStage?.call('forêt');
     final bounds = LatLngBounds.fromPoints(points);
     Map<String, ForestData> forests;
     try {
@@ -447,15 +525,18 @@ class MushroomViewportForecastService {
               onStage: onStage,
             );
       forests = await forestFuture.timeout(const Duration(seconds: 30));
-    } catch (_) {
+    } on TimeoutException {
       onWarning?.call('Forêt non chargée (délai)');
       forests = {};
+    } catch (_) {
+      onWarning?.call('Forêt non chargée (erreur)');
+      forests = {};
     }
-    onStage?.call('forêt 0/0 tuiles');
     if (cancellation.isCancelled) return [];
     // Compute forecasts for each point
     final forecasts = <List<MushroomForecast>>[];
-    final today = DateTime.now();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     for (final point in points) {
       final terrainKey = mushroomViewportPointKey(point);
       final terrain = terrains[terrainKey] ?? _unknownTerrain(point);
@@ -467,13 +548,23 @@ class MushroomViewportForecastService {
           forests[mushroomViewportPointKey(point)] ?? _unknownForest(point);
       final List<MushroomForecast> pointForecasts = List.generate(8, (i) {
         final targetDate = today.add(Duration(days: i));
-        return _engine.calculate(
+        final forecast = _engine.calculate(
           weatherHistory: weather.history,
           weatherForecast: weather.forecast,
           soilMoistureLayers: weather.soil,
           terrain: terrain,
           forest: forest,
           targetDate: targetDate,
+        );
+        // Fill dataSources for each forecast
+        return forecast.copyWith(
+          dataSources: {
+            'terrain': terrain.source,
+            'weather': weatherByGrid.containsKey(gridKey)
+                ? 'ecmwf_ifs025'
+                : null,
+            'forest': forest.source,
+          },
         );
       });
       forecasts.add(pointForecasts);

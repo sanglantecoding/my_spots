@@ -77,6 +77,42 @@ class MushroomForecast {
     this.dataSources = const {},
   });
 
+  MushroomForecast copyWith({
+    int? index,
+    double? confidence,
+    HabitatStatus? habitat,
+    String? habitatReason,
+    Map<String, String?>? dataSources,
+  }) => MushroomForecast(
+    date: date,
+    species: species,
+    index: index ?? this.index,
+    confidence: confidence ?? this.confidence,
+    factors: factors,
+    habitat: habitat ?? this.habitat,
+    habitatReason: habitatReason ?? this.habitatReason,
+    wetStreak: wetStreak,
+    dryBefore: dryBefore,
+    soilMoistureAvailable: soilMoistureAvailable,
+    soilMoisture0To7Percent: soilMoisture0To7Percent,
+    soilMoisture7To28Percent: soilMoisture7To28Percent,
+    soilMoisture7To28Min60dPercent: soilMoisture7To28Min60dPercent,
+    soilMoisture7To28Median60dPercent: soilMoisture7To28Median60dPercent,
+    soilMoisture7To28Max60dPercent: soilMoisture7To28Max60dPercent,
+    soilMoisture7To28Percentile60d: soilMoisture7To28Percentile60d,
+    soilTemperature0To7C: soilTemperature0To7C,
+    hydricGate: hydricGate,
+    shockDate: shockDate,
+    shockRainMm: shockRainMm,
+    shockTempDropC: shockTempDropC,
+    temperatureSource: temperatureSource,
+    rain26: rain26,
+    tmean20: tmean20,
+    hasRecentFrost: hasRecentFrost,
+    isInSeason: isInSeason,
+    dataSources: dataSources ?? this.dataSources,
+  );
+
   /// Crée une instance mockée pour les tests/développement.
   factory MushroomForecast.mock({
     DateTime? date,
@@ -134,6 +170,33 @@ class MushroomForecast {
       tmean20: tmean20,
       isInSeason: isInSeason,
       hasRecentFrost: hasRecentFrost,
+      dataSources: dataSources,
+    );
+  }
+
+  /// Crée une prévision exclue (habitat non adapté).
+  factory MushroomForecast.excluded({
+    required DateTime date,
+    required MushroomSpecies species,
+    required HabitatStatus habitat,
+    String? habitatReason,
+    Map<String, String?> dataSources = const {},
+  }) {
+    return MushroomForecast(
+      date: date,
+      species: species,
+      index: 0,
+      confidence: 1.0,
+      habitat: habitat,
+      habitatReason: habitatReason,
+      factors: ForecastFactors(
+        waterFactor: null,
+        temperatureFactor: null,
+        dryingFactor: 0,
+        terrainFactor: null,
+        forestFactor: null,
+        shockFactor: null,
+      ),
       dataSources: dataSources,
     );
   }

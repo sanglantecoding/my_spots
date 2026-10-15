@@ -1,10 +1,14 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/soil_moisture_data.dart';
 import 'package:my_spots/models/mushroom/weather_day.dart';
 import 'package:my_spots/services/mushroom/weather_service.dart';
+import 'package:my_spots/services/mushroom/lru_cache.dart';
 
 /// Implémentation de [WeatherService] utilisant l'API Open-Meteo.
 ///
@@ -13,20 +17,37 @@ import 'package:my_spots/services/mushroom/weather_service.dart';
 /// - `forecast_days=8`
 /// - `timezone=auto`
 ///
-/// Le client HTTP est long-lived (pas de close() prématuré). Un cache interne
-/// évite les appels réseau redondants pour des positions proches.
+/// Le client HTTP est long-lived (pas de close() prématuré).
+///
+/// Cache :
+/// - borné à 100 entrées (LRU),
+/// - TTL 1 h,
+/// - déduplication des requêtes simultanées pour une même maille,
+/// - les erreurs HTTP ne sont jamais mises en cache.
 class OpenMeteoWeatherService implements WeatherService {
-  OpenMeteoWeatherService({http.Client? client})
-    : _client = client ?? http.Client();
+  OpenMeteoWeatherService({
+    http.Client? client,
+    this.requestTimeout = const Duration(seconds: 30),
+  }) : _client = client ?? http.Client();
 
   final http.Client _client;
+  final Duration requestTimeout;
 
   static const _baseUrl = 'https://api.open-meteo.com/v1/forecast';
   static const _model = 'ecmwf_ifs025';
   static const _cacheTtl = Duration(hours: 1);
   static const _coordPrecision = 3;
+  static const int _maxCacheSize = 100;
 
-  final Map<String, _CachedResponse> _cache = {};
+  final BoundedLruCache<String, _CachedResponse> _cache =
+      BoundedLruCache<String, _CachedResponse>(
+        maxSize: _maxCacheSize,
+        ttl: _cacheTtl,
+      );
+
+  /// Requêtes HTTP en cours, indexées par clé de maille.
+  final Map<String, Future<ParsedResponse>> _inFlight =
+      <String, Future<ParsedResponse>>{};
 
   String _cacheKey(double lat, double lng) {
     final latRounded = lat.toStringAsFixed(_coordPrecision);
@@ -36,14 +57,38 @@ class OpenMeteoWeatherService implements WeatherService {
 
   Future<ParsedResponse> _fetchOrCache(double lat, double lng) async {
     final key = _cacheKey(lat, lng);
-    final now = DateTime.now();
-    final cached = _cache[key];
-    if (cached != null && now.difference(cached.fetchedAt) < _cacheTtl) {
+
+    final cached = _cache.get(key);
+    if (cached != null) {
       return cached.data;
     }
-    final data = await _fetchAndParse(lat, lng);
-    _cache[key] = _CachedResponse(fetchedAt: now, data: data);
-    return data;
+
+    final existing = _inFlight[key];
+    if (existing != null) {
+      return existing;
+    }
+
+    if (AppSettings.offlineModeEnabled) {
+      throw OfflineCacheMissException(
+        'Données météo non disponibles hors-ligne pour $lat, $lng',
+      );
+    }
+
+    final future = _fetchAndParse(lat, lng);
+    _inFlight[key] = future;
+    try {
+      final data = await future;
+      _cache.put(key, _CachedResponse(fetchedAt: DateTime.now(), data: data));
+      return data;
+    } catch (_) {
+      // Les erreurs ne sont jamais mises en cache.
+      rethrow;
+    } finally {
+      // Retire la clé inFlight même en cas d'erreur, pour permettre un retry.
+      if (identical(_inFlight[key], future)) {
+        _inFlight.remove(key);
+      }
+    }
   }
 
   Future<ParsedResponse> _fetchAndParse(double lat, double lng) async {
@@ -86,14 +131,13 @@ class OpenMeteoWeatherService implements WeatherService {
       },
     );
 
-    final response = await _client.get(uri);
+    final response = await _client.get(uri).timeout(requestTimeout);
     if (response.statusCode != 200) {
       throw http.ClientException(
         'Open-Meteo HTTP ${response.statusCode}: ${response.body}',
         uri,
       );
     }
-
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     return parseJson(json);
   }
@@ -140,6 +184,15 @@ class OpenMeteoWeatherService implements WeatherService {
     return parsed.soilLayers;
   }
 
+  /// Retourne l'altitude de la maille météo (mesh elevation) pour un point.
+  Future<double?> getMeshElevation({
+    required double lat,
+    required double lng,
+  }) async {
+    final parsed = await _fetchOrCache(lat, lng);
+    return parsed.meshElevation;
+  }
+
   /// Parse une réponse Open-Meteo en listes typées.
   ///
   /// [forecastDays] indique combien des derniers jours de `daily.time`
@@ -156,6 +209,9 @@ class OpenMeteoWeatherService implements WeatherService {
     if (daily == null || hourly == null) {
       throw const FormatException('Open-Meteo response missing daily/hourly');
     }
+
+    // Elevation of the requested point (mesh elevation)
+    final elevation = json['elevation'] as num?;
 
     final dailyDates = _parseDateList(daily['time'] as List<dynamic>);
     final hourlyTimes = _parseDateTimeList(hourly['time'] as List<dynamic>);
@@ -192,7 +248,6 @@ class OpenMeteoWeatherService implements WeatherService {
 
     final humidityByDay = _dailyMeanFromHourly(hourlyTimes, hourlyHumidity);
     final solarByDay = _dailyMeanFromHourly(hourlyTimes, hourlySolar);
-
     final sm07ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm07);
     final sm728ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm728);
     final sm28100ByDay = _dailyMeanFromHourly(hourlyTimes, hourlySm28100);
@@ -269,7 +324,11 @@ class OpenMeteoWeatherService implements WeatherService {
       }
     }
 
-    return ParsedResponse(weatherDays: weatherDays, soilLayers: soilLayers);
+    return ParsedResponse(
+      weatherDays: weatherDays,
+      soilLayers: soilLayers,
+      meshElevation: elevation?.toDouble(),
+    );
   }
 
   static List<DateTime> _parseDateList(List<dynamic> raw) {
@@ -313,6 +372,19 @@ class OpenMeteoWeatherService implements WeatherService {
       return MapEntry(day, sum / values.length);
     });
   }
+
+  // ──── Hooks de test ────
+
+  /// Vide le cache et les requêtes en cours (tests uniquement).
+  @visibleForTesting
+  void resetCacheForTesting() {
+    _cache.clear();
+    _inFlight.clear();
+  }
+
+  /// Taille courante du cache (tests uniquement).
+  @visibleForTesting
+  int get cacheSize => _cache.length;
 }
 
 class _LayerSpec {
@@ -331,7 +403,21 @@ class _CachedResponse {
 
 /// Résultat du parsing d'une réponse Open-Meteo.
 class ParsedResponse {
-  ParsedResponse({required this.weatherDays, required this.soilLayers});
+  ParsedResponse({
+    required this.weatherDays,
+    required this.soilLayers,
+    this.meshElevation,
+  });
   final List<WeatherDay> weatherDays;
   final List<SoilMoistureData> soilLayers;
+  final double? meshElevation; // Altitude de la maille météo (m)
+}
+
+/// Exception levée quand les données ne sont pas disponibles hors-ligne.
+class OfflineCacheMissException implements Exception {
+  OfflineCacheMissException(this.message);
+  final String message;
+
+  @override
+  String toString() => 'OfflineCacheMissException: $message';
 }

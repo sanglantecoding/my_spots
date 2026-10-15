@@ -1,41 +1,43 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:my_spots/models/mushroom/forest_data.dart';
 import 'package:my_spots/models/mushroom/habitat_status.dart';
 import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 import 'package:my_spots/models/mushroom/mushroom_species.dart';
+import 'package:my_spots/models/mushroom/soil_moisture_data.dart';
+import 'package:my_spots/models/mushroom/terrain_data.dart';
+import 'package:my_spots/models/mushroom/weather_day.dart';
 import 'package:my_spots/models/waypoint.dart';
+import 'package:my_spots/services/mushroom/mushroom_forecast_engine.dart';
+import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
 import 'package:my_spots/services/mushroom/mushroom_waypoint_forecast_service.dart';
 import 'package:my_spots/views/widgets/map/mushroom_waypoint_panel.dart';
 
 void main() {
   group('MushroomWaypointPanel', () {
     testWidgets('panel builds without error', (WidgetTester tester) async {
-      final mockService = _MockWaypointForecastService();
-
+      final forecastService = _buildTestForecastService();
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: MushroomWaypointPanel(forecastService: mockService),
+            body: MushroomWaypointPanel(forecastService: forecastService),
           ),
         ),
       );
-
-      // Verify panel renders
       expect(find.text('Où aller ?'), findsOneWidget);
     });
 
     testWidgets('day selector renders J+0 to J+7', (WidgetTester tester) async {
-      final mockService = _MockWaypointForecastService();
-
+      final forecastService = _buildTestForecastService();
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: MushroomWaypointPanel(forecastService: mockService),
+            body: MushroomWaypointPanel(forecastService: forecastService),
           ),
         ),
       );
-
-      // Verify day selector chips exist
       expect(find.text('J+0'), findsOneWidget);
       expect(find.text('J+1'), findsOneWidget);
       expect(find.text('J+7'), findsOneWidget);
@@ -44,26 +46,29 @@ void main() {
     testWidgets('excluded waypoint shows gray color in mock', (
       WidgetTester tester,
     ) async {
-      final mockService = _MockWaypointForecastService(withExcluded: true);
-
+      final forecastService = _buildTestForecastService(withExcluded: true);
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: MushroomWaypointPanel(forecastService: mockService),
+            body: MushroomWaypointPanel(forecastService: forecastService),
           ),
         ),
       );
-
-      // Verify mock service was configured with excluded flag
-      expect(mockService.withExcluded, isTrue);
+      await tester.pumpAndSettle();
+      // Le mock renvoie un indice 0 et habitat excluded
+      // Le panel s'affiche sans erreur
+      expect(find.text('Où aller ?'), findsOneWidget);
     });
 
     testWidgets(
       'pastille assigned to correct waypoint with non-mushroom waypoints',
       (WidgetTester tester) async {
-        final mockService = _MockWaypointForecastService();
+        final mockSource = _MockViewportSource();
+        final forecastService = MushroomWaypointForecastService(
+          source: mockSource,
+          engine: _MockForecastEngine(),
+        );
 
-        // Add waypoints with non-mushroom before and after
         WaypointStore.waypoints.clear();
         WaypointStore.waypoints.addAll([
           Waypoint(
@@ -92,19 +97,17 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
-              body: MushroomWaypointPanel(forecastService: mockService),
+              body: MushroomWaypointPanel(forecastService: forecastService),
             ),
           ),
         );
-
         await tester.pumpAndSettle();
 
-        // Verify service was called
-        expect(mockService.loadCalled, isTrue);
+        // Vérifie que la source a bien été appelée
+        expect(mockSource.callCount, greaterThan(0));
 
-        // The key for Mushroom 1 should be '43.51,3.01'
-        // Verify the mock service returns forecasts keyed by coordinates
-        final result = await mockService.calculateForWaypoints(
+        // Vérifie que le résultat contient bien la clé du waypoint champignon
+        final result = await forecastService.calculateForWaypoints(
           WaypointStore.waypoints,
         );
         expect(result, isNotNull);
@@ -115,9 +118,12 @@ void main() {
     testWidgets('cache returns same results with different input order', (
       WidgetTester tester,
     ) async {
-      final mockService = _MockWaypointForecastService();
+      final mockSource = _MockViewportSource();
+      final forecastService = MushroomWaypointForecastService(
+        source: mockSource,
+        engine: _MockForecastEngine(),
+      );
 
-      // Create waypoints in one order
       final waypoints1 = [
         Waypoint(
           name: 'Mushroom A',
@@ -135,7 +141,6 @@ void main() {
         ),
       ];
 
-      // Create same waypoints in reverse order
       final waypoints2 = [
         Waypoint(
           name: 'Mushroom B',
@@ -153,25 +158,20 @@ void main() {
         ),
       ];
 
-      // Calculate for first order
-      final result1 = await mockService.calculateForWaypoints(waypoints1);
+      // Premier appel
+      await forecastService.calculateForWaypoints(waypoints1);
+      final callCountAfterFirst = mockSource.callCount;
 
-      // Clear the mock's call counter but keep cache
-      mockService.loadCalled = false;
+      // Deuxième appel avec l'ordre inverse
+      await forecastService.calculateForWaypoints(waypoints2);
 
-      // Calculate for reverse order - should use cache (same keys)
-      final result2 = await mockService.calculateForWaypoints(waypoints2);
-
-      // Both results should have the same keys
-      expect(result1!.keys.toSet(), equals(result2!.keys.toSet()));
+      // Le compteur d'appels réseau ne doit PAS avoir augmenté grâce au cache interne
+      expect(mockSource.callCount, equals(callCountAfterFirst));
     });
   });
 
   group('Distance formatting', () {
     test('formats distance under 1000m as "X m"', () {
-      // Test the formatting logic by checking the expected output
-      // Since _formatDistance is private, we verify the logic indirectly
-      // by checking the implementation would produce the right format
       const meters = 850.0;
       final formatted = '${meters.round()} m';
       expect(formatted, equals('850 m'));
@@ -198,106 +198,142 @@ void main() {
     });
 
     test('sorting by distance puts closest waypoint first', () {
-      // Verify the sorting logic would put the closest waypoint first
       const dist1 = 500.0;
       const dist2 = 1500.0;
       const dist3 = 200.0;
-
       final distances = [dist1, dist2, dist3];
       distances.sort();
-
-      expect(distances[0], equals(200.0)); // Closest
+      expect(distances[0], equals(200.0));
       expect(distances[1], equals(500.0));
-      expect(distances[2], equals(1500.0)); // Farthest
+      expect(distances[2], equals(1500.0));
     });
 
     test('sorts by selected day index descending (best to worst)', () {
-      // Verify descending sort logic
       final indices = [30, 50, 20, 80, 40];
-      indices.sort((a, b) => b.compareTo(a)); // Descending
-
-      expect(indices[0], equals(80)); // Best
+      indices.sort((a, b) => b.compareTo(a));
+      expect(indices[0], equals(80));
       expect(indices[1], equals(50));
       expect(indices[2], equals(40));
       expect(indices[3], equals(30));
-      expect(indices[4], equals(20)); // Worst
+      expect(indices[4], equals(20));
     });
 
     test('timeout shows error message with retry button', () {
-      // Verify timeout handling logic
       const timeoutDuration = Duration(seconds: 60);
       expect(timeoutDuration.inSeconds, equals(60));
-
-      // The actual timeout behavior is tested in the widget via the service mock
-      // This test verifies the expected timeout value
     });
 
     test('missing data cell has gray styling', () {
-      // Verify gray color for missing data
       final grayColor = Colors.grey.withValues(alpha: 0.4);
       final grayBorder = Colors.grey.withValues(alpha: 1.0);
-
       expect(grayColor.a, greaterThanOrEqualTo(0.35));
       expect(grayBorder.a, equals(1.0));
     });
 
     test('best day label excludes cells without terrain data', () {
-      // Verify that cells without terrain data are excluded from best day calculation
       final hasTerrain = true;
       final noTerrain = false;
-
-      // Only cells with terrain should be counted
       expect(hasTerrain, isTrue);
       expect(noTerrain, isFalse);
     });
   });
 }
 
-class _MockWaypointForecastService implements MushroomWaypointForecastService {
-  bool loadCalled = false;
-  int loadCalledCount = 0;
+// ──── Mocks pour les tests (à placer à la fin du fichier) ────
+
+MushroomWaypointForecastService _buildTestForecastService({
+  bool withExcluded = false,
+}) {
+  return MushroomWaypointForecastService(
+    source: _MockViewportSource(withExcluded: withExcluded),
+    engine: _MockForecastEngine(withExcluded: withExcluded),
+  );
+}
+
+class _MockViewportSource implements MushroomViewportBatchSource {
+  int callCount = 0;
   final bool withExcluded;
 
-  _MockWaypointForecastService({this.withExcluded = false});
+  _MockViewportSource({this.withExcluded = false});
 
   @override
-  Future<Map<String, List<MushroomForecast>>?> calculateForWaypoints(
-    List<Waypoint> waypoints, {
+  Future<Map<String, TerrainData>> loadTerrainBatch(
+    List<LatLng> cellCenters,
+    MushroomViewportCancellationToken cancellation, {
     void Function(String)? onStage,
-    void Function(String)? onWarning,
   }) async {
-    loadCalled = true;
-    loadCalledCount++;
-
-    if (waypoints.isEmpty) return {};
-    if (waypoints.length > 50) return null;
-
-    // Return mock forecasts as a Map keyed by waypoint coordinates
-    final result = <String, List<MushroomForecast>>{};
-    for (int i = 0; i < waypoints.length; i++) {
-      final key = '${waypoints[i].latitude},${waypoints[i].longitude}';
-      result[key] = List.generate(8, (day) {
-        return MushroomForecast.mock(
-          date: DateTime.now().add(Duration(days: day)),
-          species: MushroomSpecies.boletusEdulis,
-          index: withExcluded && i == 0 ? 0 : 50 + i * 10,
-          confidence: 0.7,
-          habitat: withExcluded && i == 0
-              ? HabitatStatus.excluded
-              : HabitatStatus.suitable,
-        );
-      });
-    }
-    return result;
+    callCount++;
+    return {
+      for (final center in cellCenters)
+        '${center.latitude},${center.longitude}': TerrainData(
+          latitude: center.latitude,
+          longitude: center.longitude,
+          elevation: 500,
+          slope: 10.0,
+          aspect: 45.0,
+          source: 'mock',
+        ),
+    };
   }
 
   @override
-  void invalidateCache(List<Waypoint> waypoints) {
-    // Mock implementation
+  Future<Map<String, MushroomViewportWeather>> loadWeatherByGrid(
+    List<LatLng> uniqueModelGridCenters,
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  }) async {
+    return {
+      for (final center in uniqueModelGridCenters)
+        '${center.latitude},${center.longitude}': const MushroomViewportWeather(
+          history: [],
+          forecast: [],
+          soil: [],
+        ),
+    };
   }
 
   @override
-  void clearCache() {
-    // Mock implementation
+  Future<Map<String, ForestData>> loadForestForZone(
+    LatLngBounds bounds,
+    List<LatLng> eligibleCellCenters,
+    MushroomViewportCancellationToken cancellation, {
+    void Function(String)? onStage,
+  }) async {
+    return {
+      for (final center in eligibleCellCenters)
+        '${center.latitude},${center.longitude}': ForestData(
+          latitude: center.latitude,
+          longitude: center.longitude,
+          isForest: true,
+          forestType: 'feuillu',
+          source: 'mock',
+        ),
+    };
+  }
+}
+
+class _MockForecastEngine implements MushroomForecastEngine {
+  final bool withExcluded;
+  _MockForecastEngine({this.withExcluded = false});
+
+  @override
+  MushroomSpecies get species => MushroomSpecies.boletusEdulis;
+
+  @override
+  MushroomForecast calculate({
+    required List<WeatherDay> weatherHistory,
+    required List<WeatherDay> weatherForecast,
+    required List<SoilMoistureData> soilMoistureLayers,
+    required TerrainData terrain,
+    required ForestData forest,
+    required DateTime targetDate,
+  }) {
+    return MushroomForecast.mock(
+      date: targetDate,
+      species: species,
+      index: withExcluded ? 0 : 50,
+      confidence: 0.7,
+      habitat: withExcluded ? HabitatStatus.excluded : HabitatStatus.suitable,
+    );
   }
 }

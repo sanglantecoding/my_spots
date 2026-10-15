@@ -116,8 +116,6 @@ class FakeForestService implements ForestService {
       isForest: true,
       forestType: 'feuillu',
       canopyClass: 'fermée',
-      treeDensity: null,
-      canopyCover: null,
       source: 'fake',
     );
   }

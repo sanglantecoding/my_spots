@@ -8,9 +8,8 @@ import 'package:my_spots/models/mushroom/soil_moisture_data.dart';
 import 'package:my_spots/models/mushroom/terrain_data.dart';
 import 'package:my_spots/models/mushroom/weather_day.dart';
 import 'package:my_spots/services/mushroom/forest_service.dart';
-import 'package:my_spots/services/mushroom/ign_bd_foret_forest_service.dart';
-import 'package:my_spots/services/mushroom/ign_open_elevation_terrain_service.dart';
 import 'package:my_spots/services/mushroom/mushroom_viewport_forecast_service.dart';
+import 'package:my_spots/services/mushroom/mushroom_services.dart';
 import 'package:my_spots/services/mushroom/open_meteo_weather_service.dart';
 import 'package:my_spots/services/mushroom/point_key.dart';
 import 'package:my_spots/services/mushroom/terrain_service.dart';
@@ -21,9 +20,9 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
     TerrainService? terrain,
     WeatherService? weather,
     ForestService? forest,
-  }) : terrainService = terrain ?? IgnOpenElevationTerrainService(),
-       weatherService = weather ?? OpenMeteoWeatherService(),
-       forestService = forest ?? IgnBdForetForestService();
+  }) : terrainService = terrain ?? MushroomServices.instance.terrainService,
+       weatherService = weather ?? MushroomServices.instance.weatherService,
+       forestService = forest ?? MushroomServices.instance.ignBdForetService;
 
   final TerrainService terrainService;
   final WeatherService weatherService;
@@ -49,14 +48,9 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
           );
           result[mushroomViewportPointKey(center)] = data;
         } catch (_) {
-          result[mushroomViewportPointKey(center)] = TerrainData(
-            latitude: center.latitude,
-            longitude: center.longitude,
-            elevation: null,
-            noElevationData: false,
-            slope: null,
-            aspect: null,
-            source: null,
+          result[mushroomViewportPointKey(center)] = TerrainData.unknown(
+            center.latitude,
+            center.longitude,
           );
         }
       }
@@ -84,6 +78,7 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
         List<WeatherDay> history;
         List<WeatherDay> forecast;
         List<SoilMoistureData> soil;
+        double? meshElevation;
         try {
           final results = await Future.wait([
             weatherService
@@ -107,6 +102,12 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
           history = results[0] as List<WeatherDay>;
           forecast = results[1] as List<WeatherDay>;
           soil = results[2] as List<SoilMoistureData>;
+
+          // Get meshElevation from weather service if available
+          if (weatherService is OpenMeteoWeatherService) {
+            meshElevation = await (weatherService as OpenMeteoWeatherService)
+                .getMeshElevation(lat: center.latitude, lng: center.longitude);
+          }
         } catch (_) {
           history = const [];
           forecast = const [];
@@ -116,6 +117,7 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
           history: history,
           forecast: forecast,
           soil: soil,
+          meshElevation: meshElevation,
         );
       },
     );
@@ -142,15 +144,9 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
           );
           result[mushroomViewportPointKey(center)] = data;
         } catch (_) {
-          result[mushroomViewportPointKey(center)] = ForestData(
-            latitude: center.latitude,
-            longitude: center.longitude,
-            isForest: null,
-            forestType: null,
-            canopyClass: null,
-            treeDensity: null,
-            canopyCover: null,
-            source: null,
+          result[mushroomViewportPointKey(center)] = ForestData.unknown(
+            center.latitude,
+            center.longitude,
           );
         }
       }
@@ -175,7 +171,6 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
     Future<void> worker() async {
       while (nextIndex < items.length) {
         if (cancellation.isCancelled) return;
-        if (AppSettings.offlineModeEnabled) return;
         final i = nextIndex++;
         try {
           await action(items[i]);
@@ -183,10 +178,7 @@ class AppMushroomViewportSource implements MushroomViewportBatchSource {
       }
     }
 
-    final workers = List.generate(
-      AppSettings.offlineModeEnabled ? 1 : concurrency,
-      (_) => worker(),
-    );
+    final workers = List.generate(concurrency, (_) => worker());
     await Future.wait(workers);
   }
 }

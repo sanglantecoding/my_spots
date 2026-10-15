@@ -116,7 +116,9 @@ class _MapScreenState extends State<MapScreen> {
   DateTime _mushroomStartDate = DateTime.now();
   Timer? _mushroomDebounce;
   Map<String, List<MushroomForecast>>? _mushroomWaypointForecasts;
-  int _mushroomWaypointSelectedDay = 0;
+
+  /// Memoization cache for mushroom polygons
+  final Map<String, List<Polygon>> _mushroomPolygonCache = {};
 
   /// Configuration (name + layers) collected from NewZoneSheet before
   /// entering _zoneEditMode.
@@ -215,6 +217,13 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _recalculateMushroomForecast() async {
+    // Refresh start date when day changes
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    if (_mushroomStartDate != today) {
+      _mushroomStartDate = today;
+    }
+
     final service = _mushroomService;
     if (service == null || !mounted) return;
     final bounds = _mapVisibleBounds ?? _mapController.camera.visibleBounds;
@@ -229,7 +238,12 @@ class _MapScreenState extends State<MapScreen> {
       startDate: _mushroomStartDate,
     );
     if (!mounted) return;
-    if (result.status == MushroomViewportStatus.cancelled) return;
+    if (result.status == MushroomViewportStatus.cancelled) {
+      setState(() {
+        _mushroomLoading = false;
+      });
+      return;
+    }
     setState(() {
       _mushroomLoading = false;
       _mushroomStatus = result.status;
@@ -243,34 +257,35 @@ class _MapScreenState extends State<MapScreen> {
   bool get _mushroomOfflineNoCache {
     if (!AppSettings.offlineModeEnabled) return false;
     if (_mushroomCells.isEmpty) return true;
-    return _mushroomCells.every(
-      (c) => c.forecasts.every(
-        (f) =>
-            f.habitat == HabitatStatus.unknown &&
-            (f.dataSources['terrain'] == null ||
-                f.dataSources['forest'] == null),
-      ),
-    );
+    return _mushroomCells.every((c) => !c.terrainKnown || !c.weatherKnown);
   }
 
   List<Polygon> _buildMushroomPolygons() {
     if (_mushroomStatus != MushroomViewportStatus.ready) return const [];
     if (_mushroomDateIndex >= 8) return const [];
+
+    // Memoization key: cells hash + day index + opacity + palette
     final opacity = AppSettings.mushroomOverlayOpacity;
+    final palette = AppSettings.mushroomPalette;
+    final cellsHash = _mushroomCells.length.toString();
+    final cacheKey = '$cellsHash-$_mushroomDateIndex-$opacity-$palette';
+
+    if (_mushroomPolygonCache.containsKey(cacheKey)) {
+      return _mushroomPolygonCache[cacheKey]!;
+    }
+
     final out = <Polygon>[];
     for (final cell in _mushroomCells) {
       if (_mushroomDateIndex >= cell.forecasts.length) continue;
       final forecast = cell.forecasts[_mushroomDateIndex];
 
-      // Check if cell has missing data (no terrain or weather source)
-      final hasMissingData =
-          forecast.dataSources['terrain'] == null ||
-          forecast.dataSources['weather'] == null ||
-          forecast.dataSources['forest'] == null;
+      // Check if cell has missing data (no terrain or weather)
+      final dataMissing = !cell.terrainKnown || !cell.weatherKnown;
 
       final display = cellDisplayColors(
         forecast: forecast,
         overlayOpacity: opacity,
+        dataMissing: dataMissing,
       );
 
       final points = [
@@ -280,14 +295,26 @@ class _MapScreenState extends State<MapScreen> {
         cell.bounds.southWest,
       ];
 
-      if (hasMissingData) {
-        // Gray styling for missing data cells
+      if (dataMissing) {
+        // Gray styling for missing data cells with dotted border
         out.add(
           Polygon(
             points: points,
             color: Colors.grey.withValues(alpha: 0.4),
             borderColor: Colors.grey.withValues(alpha: 1.0),
             borderStrokeWidth: 1.0,
+            pattern: StrokePattern.dotted(),
+          ),
+        );
+      } else if (forecast.habitat == HabitatStatus.excluded) {
+        // Excluded cells with dotted border
+        out.add(
+          Polygon(
+            points: points,
+            color: Colors.grey.withValues(alpha: 0.18 * opacity),
+            borderColor: Colors.grey.withValues(alpha: 0.35 * opacity),
+            borderStrokeWidth: 1.0,
+            pattern: StrokePattern.dotted(),
           ),
         );
       } else {
@@ -302,6 +329,8 @@ class _MapScreenState extends State<MapScreen> {
         );
       }
     }
+
+    _mushroomPolygonCache[cacheKey] = out;
     return out;
   }
 
@@ -329,9 +358,8 @@ class _MapScreenState extends State<MapScreen> {
     }
     for (final cell in _mushroomCells) {
       // Only count cells with terrain data (altitude known)
+      if (!cell.terrainKnown) continue;
       if (cell.forecasts.isEmpty) continue;
-      final hasTerrain = cell.forecasts[0].dataSources['terrain'] != null;
-      if (!hasTerrain) continue;
 
       for (var d = 0; d < cell.forecasts.length && d < 8; d++) {
         final f = cell.forecasts[d];
@@ -385,14 +413,6 @@ class _MapScreenState extends State<MapScreen> {
       setState(() {});
     });
     _resetMushroomStartDate();
-    // Initialiser le service d'alarme
-    // S'abonner au flux broadcast d'événements d'alarme
-    _alarmSubscription = AlarmService.onAlarmEvent.listen((event) {
-      if (!mounted) return;
-      // On rebuild sur tout changement d'état vu par MapScreen
-      // (icône haut-parleur, etc.) — événement RARE, pas un tick GPS.
-      setState(() {});
-    });
     _startLocationTracking();
     _loadOfflineZones();
     if (widget.centerOn != null) {
@@ -422,6 +442,8 @@ class _MapScreenState extends State<MapScreen> {
     _waypointNameController.dispose();
     _mapCameraUpdateDebounce?.cancel();
     _mushroomDebounce?.cancel();
+    _mushroomService?.cancelActive();
+    _mapController.dispose();
     super.dispose();
   }
 
@@ -842,8 +864,7 @@ class _MapScreenState extends State<MapScreen> {
                       ? _buildMushroomPolygons()
                       : const [],
                   mushroomWaypointForecasts: _mushroomWaypointForecasts,
-                  mushroomWaypointSelectedDay: _mushroomWaypointSelectedDay,
-                  onMushroomPolygonTapCenter: null,
+                  mushroomWaypointSelectedDay: _mushroomDateIndex,
                   onMapBackgroundTap: _onMapBackgroundTap,
                   onLongPress: (latLng) {
                     if (_zoneEditMode) {
@@ -918,41 +939,121 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   if (AppSettings.mapType != MapType.marine)
                     Positioned(
-                      left: 6,
-                      top: 10,
-                      child: MushroomControlsWidget(
-                        forecastService: _mushroomWaypointService,
-                        onCenterOnWaypoint: (latLng) {
-                          _mapController.move(latLng, 16.0);
-                        },
-                        onOpenSheet: (waypoint) {
-                          setState(() {
-                            _selectedWaypoint = waypoint;
-                          });
-                        },
-                        onDayChanged: (day) {
-                          setState(() {
-                            _mushroomWaypointSelectedDay = day;
-                          });
-                        },
-                        onForecastsLoaded: (forecasts) {
-                          setState(() {
-                            _mushroomWaypointForecasts = forecasts;
-                          });
-                        },
-                        onChanged: () {
-                          if (!mounted) return;
-                          if (AppSettings.mushroomOverlayEnabled) {
-                            _scheduleMushroomRecalc();
-                          } else {
-                            setState(() {
-                              _mushroomCells = const [];
-                              _mushroomStatus = null;
-                              _mushroomMessage = null;
-                            });
-                          }
-                          setState(() {});
-                        },
+                      left: 8,
+                      top: 8,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          MushroomControlsWidget(
+                            forecastService: _mushroomWaypointService,
+                            currentPosition: _gpsLatLng(),
+                            selectedDay: _mushroomDateIndex,
+                            onCenterOnWaypoint: (latLng) {
+                              _mapController.move(latLng, 16.0);
+                            },
+                            onOpenSheet: (waypoint) {
+                              setState(() {
+                                _selectedWaypoint = waypoint;
+                              });
+                            },
+                            onDayChanged: (day) {
+                              setState(() {
+                                _mushroomDateIndex = day;
+                              });
+                            },
+                            onForecastsLoaded: (forecasts) {
+                              setState(() {
+                                _mushroomWaypointForecasts = forecasts;
+                              });
+                            },
+                            onStyleChanged: () {
+                              if (mounted) setState(() {});
+                            },
+                            onChanged: () {
+                              if (!mounted) return;
+                              if (AppSettings.mushroomOverlayEnabled) {
+                                _scheduleMushroomRecalc();
+                              } else {
+                                _mushroomService?.cancelActive();
+                                setState(() {
+                                  _mushroomCells = const [];
+                                  _mushroomStatus = null;
+                                  _mushroomMessage = null;
+                                });
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                          const MushroomLegendWidget(),
+                          if (_mushroomMessage != null ||
+                              (_mushroomStatus ==
+                                      MushroomViewportStatus.ready &&
+                                  _mushroomFailedCellCount > 0))
+                            const SizedBox(height: 8),
+                          if (_mushroomMessage != null)
+                            Material(
+                              color: Colors.orangeAccent.withValues(
+                                alpha: 0.92,
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 8,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(
+                                      Icons.zoom_in,
+                                      color: Colors.black87,
+                                      size: 16,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      _mushroomMessage!,
+                                      style: const TextStyle(
+                                        color: Colors.black87,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          if (!_mushroomLoading &&
+                              _mushroomStatus == MushroomViewportStatus.ready &&
+                              _mushroomFailedCellCount > 0)
+                            Material(
+                              color: Colors.grey.withValues(alpha: 0.85),
+                              borderRadius: BorderRadius.circular(10),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 8,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(
+                                      Icons.warning,
+                                      color: Colors.black87,
+                                      size: 16,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '$_mushroomFailedCellCount cellules sans données',
+                                      style: const TextStyle(
+                                        color: Colors.black87,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   // Boutons : recentrage GPS, toggle waypoints, + waypoint.
@@ -1078,167 +1179,87 @@ class _MapScreenState extends State<MapScreen> {
                 if (AppSettings.mapType != MapType.marine &&
                     AppSettings.mushroomOverlayEnabled &&
                     !_zoneEditMode) ...[
-                  if (_mushroomLoading)
-                    Positioned(
-                      top: 10,
-                      left: 80,
-                      right: 80,
-                      child: Material(
-                        color: Colors.black.withValues(alpha: 0.8),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.tealAccent.withValues(
-                                    alpha: 0.9,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              const Flexible(
-                                child: Text(
-                                  'Calcul de la prévision...',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (!_mushroomLoading &&
-                      _mushroomStatus == MushroomViewportStatus.tooWide)
-                    Positioned(
-                      top: 10,
-                      left: 50,
-                      right: 50,
-                      child: Material(
-                        color: Colors.orangeAccent.withValues(alpha: 0.92),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.zoom_in,
-                                color: Colors.black87,
-                                size: 16,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _mushroomMessage ??
-                                    'Zone trop large : zoomez pour calculer la prévision.',
-                                style: const TextStyle(
-                                  color: Colors.black87,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (!_mushroomLoading &&
-                      _mushroomStatus == MushroomViewportStatus.ready &&
-                      _mushroomFailedCellCount > 0)
-                    Positioned(
-                      top: 110,
-                      left: 6,
-                      right: 6,
-                      child: Material(
-                        color: Colors.grey.withValues(alpha: 0.85),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.warning_amber_outlined,
-                                color: Colors.white70,
-                                size: 14,
-                              ),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  '$_mushroomFailedCellCount cellules sans données',
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (!_mushroomLoading &&
-                      AppSettings.offlineModeEnabled &&
-                      _mushroomOfflineNoCache)
-                    Positioned(
-                      top: 10,
-                      left: 50,
-                      right: 50,
-                      child: Material(
-                        color: Colors.redAccent.withValues(alpha: 0.9),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.wifi_off,
-                                color: Colors.white,
-                                size: 16,
-                              ),
-                              const SizedBox(width: 6),
-                              const Flexible(
-                                child: Text(
-                                  'Hors-ligne : données non disponibles en cache pour cette zone',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
                   Positioned(
-                    left: 6,
-                    top: 60,
-                    child: const MushroomLegendWidget(),
+                    left: 8,
+                    top: 8,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_mushroomLoading)
+                          Material(
+                            color: Colors.black.withValues(alpha: 0.8),
+                            borderRadius: BorderRadius.circular(10),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 8,
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.tealAccent.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  const Flexible(
+                                    child: Text(
+                                      'Calcul de la prévision...',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        if (!_mushroomLoading &&
+                            AppSettings.offlineModeEnabled &&
+                            _mushroomOfflineNoCache)
+                          Material(
+                            color: Colors.redAccent.withValues(alpha: 0.9),
+                            borderRadius: BorderRadius.circular(10),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 8,
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.wifi_off,
+                                    color: Colors.white,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  const Flexible(
+                                    child: Text(
+                                      'Hors-ligne : données non disponibles en cache pour cette zone',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                   Positioned(
                     left: 16,

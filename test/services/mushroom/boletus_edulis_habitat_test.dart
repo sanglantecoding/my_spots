@@ -27,7 +27,6 @@ void main() {
       forest: ForestData.mock(
         isForest: isForest,
         forestType: isForest == true ? 'feuillu' : null,
-        treeDensity: isForest == true ? 60 : null,
         landCover: landCover,
       ),
       targetDate: DateTime(2026, 9, 1),

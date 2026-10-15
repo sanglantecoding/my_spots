@@ -61,8 +61,6 @@ void main() {
       ).getForestData(lat: 45.012, lng: 3.012);
       expect(data.isForest, isTrue);
       expect(data.forestType, 'feuillu');
-      expect(data.treeDensity, isNull);
-      expect(data.canopyCover, isNull);
       expect(data.source, 'osm_overpass');
       expect(data.forestAreasInTile, greaterThan(0));
       expect(data.nearestForestDistanceMeters, isNotNull);
@@ -227,8 +225,6 @@ void main() {
         for (final data in [first, second]) {
           expect(data.isForest, isNull);
           expect(data.forestType, isNull);
-          expect(data.treeDensity, isNull);
-          expect(data.canopyCover, isNull);
           expect(data.landCover, isNull);
           expect(data.source, isNull);
         }
@@ -289,8 +285,6 @@ void main() {
         final data = await svc.getForestData(lat: 45.012, lng: 3.012);
         expect(data.isForest, isNull);
         expect(data.forestType, isNull);
-        expect(data.treeDensity, isNull);
-        expect(data.canopyCover, isNull);
         expect(data.landCover, isNull);
         expect(data.forestAreasInTile, isNull);
         expect(data.nearestForestDistanceMeters, isNull);
@@ -312,8 +306,6 @@ void main() {
       expect(calls, 0);
       expect(data.isForest, isNull);
       expect(data.forestType, isNull);
-      expect(data.treeDensity, isNull);
-      expect(data.canopyCover, isNull);
       expect(data.landCover, isNull);
       expect(data.forestAreasInTile, isNull);
       expect(data.nearestForestDistanceMeters, isNull);

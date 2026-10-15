@@ -33,16 +33,7 @@ class UnknownForestService implements ForestService {
     required double lat,
     required double lng,
   }) async {
-    return ForestData(
-      latitude: lat,
-      longitude: lng,
-      isForest: null,
-      forestType: null,
-      canopyClass: null,
-      treeDensity: null,
-      canopyCover: null,
-      source: null,
-    );
+    return ForestData.unknown(lat, lng);
   }
 
   @override
@@ -54,6 +45,3 @@ class UnknownForestService implements ForestService {
     return {};
   }
 }
-
-/// Nom de compatibilité pour l'injection du service forestier neutre.
-class NeutralForestService extends UnknownForestService {}

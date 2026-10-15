@@ -4,14 +4,13 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/controllers/gps_controller.dart';
-import 'package:my_spots/models/mushroom/habitat_status.dart';
 import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 import 'package:my_spots/models/offline_map_layer.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/services/marine_map_service.dart';
 import 'package:my_spots/services/map_tile_cache_service.dart';
 import 'package:my_spots/views/widgets/map/gps_marker_widget.dart';
-import 'package:my_spots/views/widgets/map/mushroom_color_utils.dart';
+import 'package:my_spots/views/widgets/map/mushroom_pastille.dart';
 
 /// Widget isolé contenant FlutterMap et ses couches.
 ///
@@ -37,7 +36,6 @@ class MapView extends StatefulWidget {
   final List<Polygon>? mushroomPolygons;
   final Map<String, List<MushroomForecast>>? mushroomWaypointForecasts;
   final int mushroomWaypointSelectedDay;
-  final void Function(LatLng)? onMushroomPolygonTapCenter;
   final void Function(LatLng tapPosition)? onMapBackgroundTap;
   final void Function(LatLng) onLongPress;
   final void Function(Waypoint) onTap;
@@ -65,7 +63,6 @@ class MapView extends StatefulWidget {
     this.mushroomPolygons,
     this.mushroomWaypointForecasts,
     this.mushroomWaypointSelectedDay = 0,
-    required this.onMushroomPolygonTapCenter,
     this.onMapBackgroundTap,
     required this.onLongPress,
     required this.onTap,
@@ -130,9 +127,6 @@ class _MapViewState extends State<MapView> {
     // Superposition champignons
     if (widget.mushroomEnabled != oldWidget.mushroomEnabled) return true;
     if (widget.mushroomOpacity != oldWidget.mushroomOpacity) return true;
-    if (widget.mushroomPolygons?.length != oldWidget.mushroomPolygons?.length) {
-      return true;
-    }
 
     // Zoom pour carte marine (seuils de couches)
     if (widget.mapType == MapType.marine &&
@@ -534,10 +528,6 @@ class _MapViewState extends State<MapView> {
     String dateStr,
     double fontSize,
   ) {
-    final color = indexToGradientColor(forecast.index);
-    final isExcluded = forecast.habitat == HabitatStatus.excluded;
-    final displayColor = isExcluded ? Colors.grey : color;
-
     const double circleSize = 24.0; // pastille plus petite
 
     return Marker(
@@ -555,34 +545,11 @@ class _MapViewState extends State<MapView> {
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => widget.onTap(waypoint),
-            child: Container(
-              width: circleSize,
-              height: circleSize,
-              decoration: BoxDecoration(
-                color: displayColor,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: displayColor.withValues(alpha: 0.5),
-                  width: 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 3,
-                    offset: const Offset(0, 1),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  forecast.index.toString(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+            child: MushroomPastille(
+              index: forecast.index,
+              habitat: forecast.habitat,
+              size: circleSize,
+              onTap: () => widget.onTap(waypoint),
             ),
           ),
           if (hasLabel)

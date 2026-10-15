@@ -5,23 +5,30 @@ import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 import 'package:my_spots/models/waypoint.dart';
 import 'package:my_spots/services/mushroom/mushroom_waypoint_forecast_service.dart';
 import 'package:my_spots/views/widgets/map/mushroom_waypoint_panel.dart';
+import 'package:my_spots/views/widgets/map/mushroom_palette_button.dart';
 
 class MushroomControlsWidget extends StatefulWidget {
   final VoidCallback? onChanged;
+  final VoidCallback? onStyleChanged;
   final MushroomWaypointForecastService? forecastService;
   final Function(LatLng)? onCenterOnWaypoint;
   final Function(Waypoint)? onOpenSheet;
   final Function(int)? onDayChanged;
   final Function(Map<String, List<MushroomForecast>>)? onForecastsLoaded;
+  final LatLng? currentPosition;
+  final int selectedDay;
 
   const MushroomControlsWidget({
     super.key,
     this.onChanged,
+    this.onStyleChanged,
     this.forecastService,
     this.onCenterOnWaypoint,
     this.onOpenSheet,
     this.onDayChanged,
     this.onForecastsLoaded,
+    this.currentPosition,
+    this.selectedDay = 0,
   });
 
   @override
@@ -29,6 +36,14 @@ class MushroomControlsWidget extends StatefulWidget {
 }
 
 class _MushroomControlsWidgetState extends State<MushroomControlsWidget> {
+  Widget _paletteChip(String label, MushroomPalette palette) {
+    return MushroomPaletteButton(
+      palette: palette,
+      label: label,
+      onTap: () => _setPalette(palette),
+    );
+  }
+
   Future<void> _toggle(bool? value) async {
     if (value == null) return;
     await AppSettings.saveMushroomOverlayEnabled(value);
@@ -41,14 +56,14 @@ class _MushroomControlsWidgetState extends State<MushroomControlsWidget> {
     await AppSettings.saveMushroomOverlayOpacity(value);
     if (!mounted) return;
     setState(() {});
-    widget.onChanged?.call();
+    (widget.onStyleChanged ?? widget.onChanged)?.call();
   }
 
   Future<void> _setPalette(MushroomPalette palette) async {
     await AppSettings.saveMushroomPalette(palette);
     if (!mounted) return;
     setState(() {});
-    widget.onChanged?.call();
+    (widget.onStyleChanged ?? widget.onChanged)?.call();
   }
 
   void _showWaypointPanel(BuildContext context) {
@@ -79,6 +94,8 @@ class _MushroomControlsWidgetState extends State<MushroomControlsWidget> {
         onOpenSheet: widget.onOpenSheet,
         onDayChanged: widget.onDayChanged,
         onForecastsLoaded: widget.onForecastsLoaded,
+        currentPosition: widget.currentPosition,
+        selectedDay: widget.selectedDay,
       ),
     );
   }
@@ -163,63 +180,9 @@ class _MushroomControlsWidgetState extends State<MushroomControlsWidget> {
                     'Palette : ',
                     style: TextStyle(color: Colors.white70, fontSize: 11),
                   ),
-                  GestureDetector(
-                    onTap: () => _setPalette(MushroomPalette.classic),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color:
-                            AppSettings.mushroomPalette ==
-                                MushroomPalette.classic
-                            ? Colors.tealAccent.withValues(alpha: 0.3)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'Classique',
-                        style: TextStyle(
-                          color:
-                              AppSettings.mushroomPalette ==
-                                  MushroomPalette.classic
-                              ? Colors.tealAccent
-                              : Colors.white70,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ),
-                  ),
+                  _paletteChip('Classique', MushroomPalette.classic),
                   const SizedBox(width: 4),
-                  GestureDetector(
-                    onTap: () => _setPalette(MushroomPalette.contrasted),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color:
-                            AppSettings.mushroomPalette ==
-                                MushroomPalette.contrasted
-                            ? Colors.tealAccent.withValues(alpha: 0.3)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'Contrastée',
-                        style: TextStyle(
-                          color:
-                              AppSettings.mushroomPalette ==
-                                  MushroomPalette.contrasted
-                              ? Colors.tealAccent
-                              : Colors.white70,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ),
-                  ),
+                  _paletteChip('Contrastée', MushroomPalette.contrasted),
                 ],
               ),
             ],

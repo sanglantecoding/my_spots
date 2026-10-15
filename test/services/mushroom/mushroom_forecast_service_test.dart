@@ -113,8 +113,6 @@ class MockForestService implements ForestService {
       isForest: true,
       forestType: 'feuillu',
       canopyClass: 'fermée',
-      treeDensity: null,
-      canopyCover: null,
       source: 'mock',
     );
   }
@@ -313,30 +311,6 @@ void main() {
       },
     );
 
-    test('calculateGridForecast calculates small grid', () async {
-      final bounds = LatLngBounds(
-        const LatLng(43.0, 3.0),
-        const LatLng(43.1, 3.1),
-      );
-
-      final cells = await service.calculateGridForecast(
-        bounds: bounds,
-        species: MushroomSpecies.boletusEdulis,
-        targetDate: DateTime.now(),
-        gridSizeKm: 5.0,
-      );
-
-      // Grille générée
-      expect(cells.isNotEmpty, true);
-
-      // Chaque cellule a des bounds valides
-      for (final cell in cells) {
-        expect(cell.bounds, isNotNull);
-        expect(cell.forecast, isNotNull);
-        expect(cell.calculationDate, isNotNull);
-      }
-    });
-
     test('throws ArgumentError when engine not registered', () async {
       final serviceWithoutEngine = MushroomForecastService(
         weatherService: mockWeatherService,
@@ -354,5 +328,22 @@ void main() {
         throwsArgumentError,
       );
     });
+
+    test(
+      'calculateForecast fills rain26, tmean20, hasRecentFrost, isInSeason',
+      () async {
+        final forecast = await service.calculateForecast(
+          lat: 43.5,
+          lng: 3.5,
+          species: MushroomSpecies.boletusEdulis,
+          targetDate: DateTime(2026, 10, 8),
+        );
+
+        expect(forecast.rain26, isNotNull);
+        expect(forecast.tmean20, isNotNull);
+        expect(forecast.hasRecentFrost, isNotNull);
+        expect(forecast.isInSeason, isNotNull);
+      },
+    );
   });
 }

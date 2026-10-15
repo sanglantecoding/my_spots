@@ -42,6 +42,19 @@ class TerrainData {
     );
   }
 
+  /// Crée une instance avec toutes les valeurs null (terrain inconnu).
+  factory TerrainData.unknown(double lat, double lng) {
+    return TerrainData(
+      latitude: lat,
+      longitude: lng,
+      elevation: null,
+      noElevationData: false,
+      slope: null,
+      aspect: null,
+      source: null,
+    );
+  }
+
   /// Orientation cardinale textuelle.
   String? get aspectCardinal {
     final a = aspect;

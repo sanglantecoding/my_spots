@@ -508,8 +508,6 @@ class OverpassForestService implements ForestService {
       // OSM n'est pas exhaustif : on n'en tire que des preuves positives.
       isForest: forest ? true : null,
       forestType: forestType,
-      treeDensity: null,
-      canopyCover: null,
       landCover: prioritizedCover ?? (urbanAtPoint && !forest ? 'urban' : null),
       forestAreasInTile: forestAreasInTile,
       nearestForestDistanceMeters: nearestForestDistanceMeters,
@@ -545,16 +543,8 @@ class OverpassForestService implements ForestService {
     return null;
   }
 
-  static ForestData _unknown(double lat, double lng) => ForestData(
-    latitude: lat,
-    longitude: lng,
-    isForest: null,
-    forestType: null,
-    treeDensity: null,
-    canopyCover: null,
-    landCover: null,
-    source: null,
-  );
+  static ForestData _unknown(double lat, double lng) =>
+      ForestData.unknown(lat, lng);
 }
 
 class _Tile {

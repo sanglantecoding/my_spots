@@ -40,20 +40,5 @@ void main() {
       final multiplier = SeasonConfig.seasonMultiplier(date);
       expect(multiplier, equals(SeasonConfig.outOfSeasonMultiplier));
     });
-
-    test('isOutOfSeason: Sept 15 -> false', () {
-      final date = DateTime.utc(2026, 9, 15);
-      expect(SeasonConfig.isOutOfSeason(date), isFalse);
-    });
-
-    test('isOutOfSeason: Aug 10 -> true', () {
-      final date = DateTime.utc(2026, 8, 10);
-      expect(SeasonConfig.isOutOfSeason(date), isTrue);
-    });
-
-    test('isOutOfSeason: Jan 1 -> true', () {
-      final date = DateTime.utc(2026, 1, 1);
-      expect(SeasonConfig.isOutOfSeason(date), isTrue);
-    });
   });
 }

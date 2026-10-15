@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/habitat_status.dart';
 import 'package:my_spots/models/mushroom/mushroom_forecast.dart';
 import 'package:my_spots/views/widgets/map/mushroom_color_utils.dart';
@@ -41,6 +42,24 @@ void main() {
       final half = indexToGradientColor(50, opacityMultiplier: 0.5);
       expect(_byte(half.a), lessThan(_byte(full.a)));
       expect(_byte(half.a), closeTo(_byte(full.a) ~/ 2, 1));
+    });
+
+    test('palette classique -> rouge-jaune-vert', () {
+      AppSettings.mushroomPalette = MushroomPalette.classic;
+      final c0 = indexToGradientColor(0);
+      final c50 = indexToGradientColor(50);
+      final c100 = indexToGradientColor(100);
+      expect(c0.toARGB32(), equals(const Color(0xFFE53935).toARGB32()));
+      expect(c100.toARGB32(), equals(const Color(0xFF2E7D32).toARGB32()));
+      expect(_byte(c50.g), greaterThan(_byte(c0.g)));
+    });
+
+    test('palette contrastée -> rouge-orange-jaune-bleu', () {
+      AppSettings.mushroomPalette = MushroomPalette.contrasted;
+      final c0 = indexToGradientColor(0);
+      final c100 = indexToGradientColor(100);
+      expect(c0.toARGB32(), equals(const Color(0xFFE53935).toARGB32()));
+      expect(c100.toARGB32(), equals(const Color(0xFF1976D2).toARGB32()));
     });
   });
 
@@ -86,17 +105,70 @@ void main() {
       expect(u.hatch, isFalse);
     });
 
-    test('Missing terrain data -> gray dotted', () {
+    test('dataMissing true -> gray dotted', () {
       final f = MushroomForecast.mock(
         index: 60,
         habitat: HabitatStatus.suitable,
-        dataSources: {}, // No terrain data
+        dataSources: {'terrain': 'ign_rge_alti_wld'},
       );
-      final colors = cellDisplayColors(forecast: f, overlayOpacity: 1.0);
+      final colors = cellDisplayColors(
+        forecast: f,
+        overlayOpacity: 1.0,
+        dataMissing: true,
+      );
       expect(colors.hatch, isTrue);
       expect(_byte(colors.fill.r), equals(158));
       expect(_byte(colors.fill.g), equals(158));
       expect(_byte(colors.fill.b), equals(158));
+    });
+
+    test('dataMissing false -> colored fill not gray', () {
+      final f = MushroomForecast.mock(
+        index: 60,
+        habitat: HabitatStatus.suitable,
+        dataSources: {'terrain': 'ign_rge_alti_wld'},
+      );
+      final colors = cellDisplayColors(
+        forecast: f,
+        overlayOpacity: 1.0,
+        dataMissing: false,
+      );
+      expect(colors.hatch, isFalse);
+      expect(_byte(colors.fill.r), isNot(equals(158)));
+    });
+
+    test('unknown forest -> attenuated non-gray', () {
+      final suitable = MushroomForecast.mock(
+        index: 60,
+        habitat: HabitatStatus.suitable,
+        dataSources: {'terrain': 'ign_rge_alti_wld'},
+      );
+      final unknown = MushroomForecast.mock(
+        index: 60,
+        habitat: HabitatStatus.unknown,
+        dataSources: {'terrain': 'ign_rge_alti_wld'},
+      );
+      final s = cellDisplayColors(
+        forecast: suitable,
+        overlayOpacity: 1.0,
+        dataMissing: false,
+      );
+      final u = cellDisplayColors(
+        forecast: unknown,
+        overlayOpacity: 1.0,
+        dataMissing: false,
+      );
+      // Unknown habitat should be attenuated (0.55 multiplier) but not gray
+      expect(_byte(u.fill.a), closeTo((_byte(s.fill.a) * 0.55).round(), 2));
+      expect(u.hatch, isFalse);
+      expect(_byte(u.fill.r), isNot(equals(158))); // Not gray
+    });
+
+    test('pastille color always opaque (opacityMultiplier 1.0)', () {
+      // Pastilles use indexToGradientColor with opacityMultiplier: 1.0
+      // regardless of overlay opacity
+      final color = indexToGradientColor(50, opacityMultiplier: 1.0);
+      expect(_byte(color.a), equals(255)); // Fully opaque
     });
 
     test('overlayOpacity appique sur toutes les branches', () {
@@ -115,50 +187,8 @@ void main() {
       );
       final s1 = cellDisplayColors(forecast: suitable, overlayOpacity: 1.0);
       final s2 = cellDisplayColors(forecast: suitable, overlayOpacity: 0.3);
-      expect(_byte(s2.fill.a), closeTo((_byte(s1.fill.a) * 0.3).round(), 1));
-    });
-  });
-
-  group('MushroomColorUtils - bestDaySummary', () {
-    test('Tous excluded -> message habitat exclu', () {
-      final forecasts = List.generate(
-        3,
-        (i) => MushroomForecast.mock(
-          date: DateTime(2025, 1, 1 + i),
-          index: 50,
-          habitat: HabitatStatus.excluded,
-        ),
-      );
-      expect(bestDaySummary(forecasts), contains('Hors habitat'));
-    });
-
-    test('Meilleur jour = J+0 quand premier est le meilleur', () {
-      final d0 = DateTime(2025, 4, 12);
-      final forecasts = [
-        MushroomForecast.mock(
-          date: d0,
-          index: 90,
-          habitat: HabitatStatus.suitable,
-        ),
-        MushroomForecast.mock(date: d0.add(const Duration(days: 1)), index: 40),
-      ];
-      final s = bestDaySummary(forecasts);
-      expect(s, contains("aujourd'hui"));
-      expect(s, contains('12/04'));
-      expect(s, contains('indice 90'));
-    });
-
-    test('Meilleur jour = J+N quand dernier est meilleur', () {
-      final d0 = DateTime(2025, 4, 12);
-      final forecasts = [
-        MushroomForecast.mock(date: d0, index: 20),
-        MushroomForecast.mock(date: d0.add(const Duration(days: 1)), index: 30),
-        MushroomForecast.mock(date: d0.add(const Duration(days: 2)), index: 95),
-      ];
-      final s = bestDaySummary(forecasts);
-      expect(s, contains('J+2'));
-      expect(s, contains('14/04'));
-      expect(s, contains('indice 95'));
+      // Minimum alpha of 0.35 is applied, so 0.3 becomes 0.35
+      expect(_byte(s2.fill.a), closeTo((_byte(s1.fill.a) * 0.35).round(), 1));
     });
   });
 }

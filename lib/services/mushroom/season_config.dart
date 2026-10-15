@@ -59,7 +59,4 @@ class SeasonConfig {
     // Hors saison
     return outOfSeasonMultiplier;
   }
-
-  /// Indique si la date est hors saison (multiplicateur < 1.0).
-  static bool isOutOfSeason(DateTime date) => seasonMultiplier(date) < 1.0;
 }

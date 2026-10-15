@@ -234,8 +234,6 @@ class IgnBdForetForestService implements ForestService {
             isForest: true,
             forestType: classified.forestType,
             canopyClass: classified.canopyClass,
-            treeDensity: null,
-            canopyCover: null,
             source: 'ign_bdforet_v2',
           );
         }
@@ -338,8 +336,6 @@ class IgnBdForetForestService implements ForestService {
           : null,
       forestType: forest?.forestType,
       canopyClass: forest?.canopyClass,
-      treeDensity: null,
-      canopyCover: null,
       source: 'ign_bdforet_v2',
     );
   }
@@ -446,21 +442,11 @@ class IgnBdForetForestService implements ForestService {
     isForest: json['isForest'] as bool?,
     forestType: json['forestType'] as String?,
     canopyClass: json['canopyClass'] as String?,
-    treeDensity: null,
-    canopyCover: null,
     source: json['source'] as String?,
   );
 
-  static ForestData _unknown(double lat, double lng) => ForestData(
-    latitude: lat,
-    longitude: lng,
-    isForest: null,
-    forestType: null,
-    canopyClass: null,
-    treeDensity: null,
-    canopyCover: null,
-    source: null,
-  );
+  static ForestData _unknown(double lat, double lng) =>
+      ForestData.unknown(lat, lng);
 }
 
 class CompositeForestService implements ForestService {
@@ -499,8 +485,6 @@ class CompositeForestService implements ForestService {
       forestType:
           bd.forestType ?? (osm.isForest == true ? osm.forestType : null),
       canopyClass: bd.canopyClass,
-      treeDensity: null,
-      canopyCover: null,
       landCover: osm.landCover,
       forestAreasInTile: osm.forestAreasInTile,
       nearestForestDistanceMeters: osm.nearestForestDistanceMeters,
@@ -565,8 +549,6 @@ class CompositeForestService implements ForestService {
             bdForetData?.forestType ??
             (overpassData?.isForest == true ? overpassData?.forestType : null),
         canopyClass: bdForetData?.canopyClass,
-        treeDensity: null,
-        canopyCover: null,
         landCover: overpassData?.landCover, // landCover from OSM
         forestAreasInTile: overpassData?.forestAreasInTile, // Copy from OSM
         nearestForestDistanceMeters:
@@ -599,9 +581,9 @@ extension on ForestData {
     isForest: isForest,
     forestType: forestType,
     canopyClass: canopyClass,
-    treeDensity: treeDensity,
-    canopyCover: canopyCover,
     landCover: landCover,
+    forestAreasInTile: forestAreasInTile,
+    nearestForestDistanceMeters: nearestForestDistanceMeters,
     source: source,
   );
 }
