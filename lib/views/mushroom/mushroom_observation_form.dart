@@ -84,7 +84,7 @@ class _MushroomObservationFormState extends State<MushroomObservationForm> {
         latitude: widget.latitude,
         longitude: widget.longitude,
         date: _date,
-      );
+      ).timeout(const Duration(seconds: 8));
     } catch (_) {
       // La sortie reste enregistrable même si la prévision est indisponible.
     }

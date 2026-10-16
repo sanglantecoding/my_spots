@@ -14,20 +14,6 @@ enum MushroomSpecies {
 }
 
 extension MushroomSpeciesExtension on MushroomSpecies {
-  /// Nom affichable de l'espèce
-  String get displayName {
-    switch (this) {
-      case MushroomSpecies.boletusEdulis:
-        return 'Cèpe de Bordeaux';
-      case MushroomSpecies.chanterelle:
-        return 'Girolle';
-      case MushroomSpecies.blackTrumpet:
-        return 'Trompette de la mort';
-      case MushroomSpecies.other:
-        return 'Autre';
-    }
-  }
-
   /// Code court pour sérialisation/stockage
   String get code {
     switch (this) {

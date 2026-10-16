@@ -4,11 +4,13 @@ import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/forest_data.dart';
+import 'package:my_spots/services/mushroom/bounded_lru_cache.dart';
 import 'package:my_spots/services/mushroom/forest_service.dart';
 import 'package:my_spots/services/mushroom/point_key.dart';
 import 'package:path_provider/path_provider.dart';
@@ -50,8 +52,8 @@ class OverpassForestService implements ForestService {
   final Uri? fallbackEndpoint;
   final Duration requestTimeout;
   final List<Duration> retryBackoff;
-  final Map<String, _TileRecord> _memoryCache = {};
-  final Map<String, List<_Area>> _parsedCache = {};
+  final BoundedLruCache<String, _TileRecord> _memoryCache = BoundedLruCache(6);
+  final BoundedLruCache<String, List<_Area>> _parsedCache = BoundedLruCache(6);
   final Map<String, Future<_TileRecord?>> _inFlight = {};
   Future<void> _requestQueue = Future<void>.value();
 
@@ -64,10 +66,8 @@ class OverpassForestService implements ForestService {
     try {
       final record = await _loadTile(tile);
       if (record == null) return _unknown(lat, lng);
-      final parsed = _parsedCache.putIfAbsent(
-        tile.key,
-        () => _parseTile(record.body),
-      );
+      final parsed = await compute(_parseTile, record.body);
+      _parsedCache[tile.key] = parsed;
       return _resolvePoint(lat, lng, parsed);
     } catch (_) {
       return _unknown(lat, lng);
@@ -88,9 +88,8 @@ class OverpassForestService implements ForestService {
 
     onStage?.call('forêt ${tilePoints.length}/${tilePoints.length} tuiles');
 
-    // Process tiles in parallel batches of 2 with 12s delay per tile
+    // Process tiles in parallel batches of 2
     final maxParallel = 2;
-    final tileDelay = const Duration(seconds: 12);
     final tileList = tilePoints.toList();
     final batches = <List<_Tile>>[];
     for (int i = 0; i < tileList.length; i += maxParallel) {
@@ -103,9 +102,10 @@ class OverpassForestService implements ForestService {
     for (final batch in batches) {
       final futures = batch.map((tile) async {
         try {
-          final record = await _loadTile(tile).timeout(tileDelay);
+          final record = await _loadTile(tile);
           if (record != null) {
-            return MapEntry(tile.key, _parseTile(record.body));
+            final parsed = await compute(_parseTile, record.body);
+            return MapEntry(tile.key, parsed);
           }
         } catch (_) {
           // Failure: don't write to cache, skip this tile
@@ -117,6 +117,7 @@ class OverpassForestService implements ForestService {
       for (final entry in results) {
         if (entry != null) {
           tileAreas[entry.key] = entry.value;
+          _parsedCache[entry.key] = entry.value;
         }
       }
     }
@@ -180,7 +181,9 @@ class OverpassForestService implements ForestService {
 
   Future<_TileRecord?> _downloadTile(_Tile tile) async {
     try {
-      final body = await _withRequestLock(() => _fetchTile(tile));
+      final body = await _withRequestLock(
+        () => _fetchTile(tile).timeout(const Duration(seconds: 30)),
+      );
       final record = _TileRecord(body, DateTime.now());
       _memoryCache[tile.key] = record;
       try {
@@ -459,7 +462,13 @@ class OverpassForestService implements ForestService {
     for (final area in areas) {
       final cover = _landCover(area.tags);
       final isForestArea = _isForest(area.tags);
-      final contains = area.polygons.any((polygon) => polygon.contains(point));
+
+      // Calculer contains une seule fois par polygon
+      final polygonContains = <_Polygon, bool>{};
+      for (final polygon in area.polygons) {
+        polygonContains[polygon] = polygon.contains(point);
+      }
+
       if (isForestArea) {
         forestAreasInTile += area.polygons.length;
         for (final polygon in area.polygons) {
@@ -470,13 +479,12 @@ class OverpassForestService implements ForestService {
           }
         }
       }
-      if (cover != null && cover != 'urban' && contains) {
-        coversAtPoint.add(cover);
+      if (cover != null && cover != 'urban') {
+        final contains = polygonContains.values.any((c) => c);
+        if (contains) coversAtPoint.add(cover);
       }
       if (isForestArea) {
-        final inForest = area.polygons.any(
-          (polygon) => polygon.contains(point),
-        );
+        final inForest = polygonContains.values.any((c) => c);
         final nearEdge = area.polygons.any(
           (polygon) => polygon.nearOuterEdge(point, forestEdgeToleranceMeters),
         );
@@ -485,7 +493,10 @@ class OverpassForestService implements ForestService {
           forestType ??= _mapLeafType(area.tags['leaf_type']);
         }
       }
-      if (cover == 'urban' && contains) urbanAtPoint = true;
+      if (cover == 'urban') {
+        final contains = polygonContains.values.any((c) => c);
+        if (contains) urbanAtPoint = true;
+      }
     }
 
     String? prioritizedCover;

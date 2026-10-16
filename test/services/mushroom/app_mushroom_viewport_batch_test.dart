@@ -42,15 +42,6 @@ class FakeTerrainService implements TerrainService {
   }
 
   @override
-  Future<double> getElevation({
-    required double lat,
-    required double lng,
-  }) async {
-    final data = await getTerrainData(lat: lat, lng: lng);
-    return data.elevation ?? 0.0;
-  }
-
-  @override
   Future<Map<String, TerrainData>> getTerrainBatch(
     List<LatLng> centers,
     double spacingMetres,

@@ -16,32 +16,12 @@ abstract class ForestService {
 
   /// Charge les données de forêt pour plusieurs centres en batch.
   ///
-  /// Implementation par défaut retourne une map vide.
+  /// Doit être implémenté par les services qui supportent le traitement par lot.
   Future<Map<String, ForestData>> getForestBatch(
     LatLngBounds bounds,
     List<LatLng> centers, {
     void Function(String)? onStage,
-  }) async {
-    return {};
-  }
-}
-
-/// Service neutre : aucune donnée forestière n'est disponible localement.
-class UnknownForestService implements ForestService {
-  @override
-  Future<ForestData> getForestData({
-    required double lat,
-    required double lng,
-  }) async {
-    return ForestData.unknown(lat, lng);
-  }
-
-  @override
-  Future<Map<String, ForestData>> getForestBatch(
-    LatLngBounds bounds,
-    List<LatLng> centers, {
-    void Function(String)? onStage,
-  }) async {
-    return {};
+  }) {
+    throw UnimplementedError('getForestBatch must be implemented');
   }
 }

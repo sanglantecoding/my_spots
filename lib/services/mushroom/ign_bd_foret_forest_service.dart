@@ -3,11 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/app_settings.dart';
 import 'package:my_spots/models/mushroom/forest_data.dart';
+import 'package:my_spots/services/mushroom/bounded_lru_cache.dart';
 import 'package:my_spots/services/mushroom/forest_service.dart';
 import 'package:my_spots/services/mushroom/point_key.dart';
 import 'package:path_provider/path_provider.dart';
@@ -32,7 +34,7 @@ class IgnBdForetForestService implements ForestService {
   final Directory? _cacheDirectory;
   final Uri endpoint;
   final Duration timeout;
-  final Map<String, _CacheEntry> _memory = {};
+  final BoundedLruCache<String, _CacheEntry> _memory = BoundedLruCache(6);
   final Map<String, Future<ForestData>> _inFlight = {};
 
   @override
@@ -73,15 +75,16 @@ class IgnBdForetForestService implements ForestService {
     final tiles = tileKeys.toList();
     final tileFeatures = <String, List<Map<String, dynamic>>>{};
 
-    onStage?.call('forêt ${tiles.length}/${tiles.length} tuiles');
+    onStage?.call('forêt 0/${tiles.length} tuiles');
 
-    // Process tiles in parallel batches of 2 with 12s delay per tile
+    // Process tiles in parallel batches of 2
     final maxParallel = 2;
     final batches = <List<String>>[];
     for (int i = 0; i < tiles.length; i += maxParallel) {
       batches.add(tiles.sublist(i, min(i + maxParallel, tiles.length)));
     }
 
+    var loadedCount = 0;
     for (final batch in batches) {
       final futures = batch.map((tileKey) async {
         // Check cache first
@@ -109,6 +112,8 @@ class IgnBdForetForestService implements ForestService {
       for (final entry in results) {
         tileFeatures[entry.key] = entry.value;
       }
+      loadedCount += batch.length;
+      onStage?.call('forêt $loadedCount/${tiles.length} tuiles');
     }
 
     for (final center in centers) {
@@ -127,6 +132,13 @@ class IgnBdForetForestService implements ForestService {
     return 'tile_${tileLat.toStringAsFixed(3)}_${tileLng.toStringAsFixed(3)}';
   }
 
+  static List<Map<String, dynamic>> _parseFeatures(List decoded) {
+    return [
+      for (final item in decoded)
+        if (item is Map) Map<String, dynamic>.from(item),
+    ];
+  }
+
   Future<List<Map<String, dynamic>>?> _readTileCache(String tileKey) async {
     try {
       final directory = await _directory();
@@ -141,7 +153,8 @@ class IgnBdForetForestService implements ForestService {
       }
       final decoded = jsonDecode(await file.readAsString());
       if (decoded is! List) return null;
-      return decoded as List<Map<String, dynamic>>;
+      // Decode JSON off UI using compute
+      return await compute(_parseFeatures, decoded);
     } catch (_) {
       return null;
     }
@@ -216,44 +229,63 @@ class IgnBdForetForestService implements ForestService {
   ) {
     for (final feature in features) {
       final geometry = feature['geometry'];
-      if (geometry is! Map) continue;
-      final type = geometry['type'];
-      if (type != 'Polygon') continue;
-      final coordinates = geometry['coordinates'];
-      if (coordinates is! List || coordinates.isEmpty) continue;
-      final ring = coordinates[0];
-      if (ring is! List) continue;
-      if (_isPointInPolygon(lat, lng, ring)) {
-        final properties = feature['properties'];
-        if (properties is! Map<String, dynamic>) continue;
-        final classified = _classify(properties);
-        if (classified != null && classified.isForest) {
-          return ForestData(
-            latitude: lat,
-            longitude: lng,
-            isForest: true,
-            forestType: classified.forestType,
-            canopyClass: classified.canopyClass,
-            source: 'ign_bdforet_v2',
-          );
-        }
-      }
+      final properties = feature['properties'];
+      if (geometry is! Map || properties is! Map) continue;
+      if (!_geometryContains(lat, lng, geometry)) continue;
+      final classified = _classify(Map<String, dynamic>.from(properties));
+      if (classified == null) continue;
+      return ForestData(
+        latitude: lat,
+        longitude: lng,
+        isForest: classified.isForest,
+        forestType: classified.isForest ? classified.forestType : null,
+        canopyClass: classified.isForest ? classified.canopyClass : null,
+        source: 'ign_bdforet_v2',
+      );
     }
     return _unknown(lat, lng);
   }
 
-  bool _isPointInPolygon(double lat, double lng, List ring) {
+  bool _geometryContains(double lat, double lng, Map geometry) {
+    final coordinates = geometry['coordinates'];
+    if (coordinates is! List) return false;
+    return switch (geometry['type']) {
+      'Polygon' => _polygonContains(lat, lng, coordinates),
+      'MultiPolygon' => coordinates.any(
+        (polygon) => polygon is List && _polygonContains(lat, lng, polygon),
+      ),
+      _ => false,
+    };
+  }
+
+  /// Anneau extérieur puis trous. L'ordre des axes du GeoJSON WFS
+  /// (urn:...:4326) est latitude puis longitude ; on le détecte pour la France
+  /// (latitude > longitude) afin de rester robuste.
+  bool _polygonContains(double lat, double lng, List rings) {
+    if (rings.isEmpty || rings.first is! List) return false;
+    final outer = rings.first as List;
+    if (outer.isEmpty || outer.first is! List) return false;
+    final first = outer.first as List;
+    final latFirst = (first[0] as num) > (first[1] as num);
+    if (!_ringContains(lat, lng, outer, latFirst)) return false;
+    for (final hole in rings.skip(1)) {
+      if (hole is List && _ringContains(lat, lng, hole, latFirst)) return false;
+    }
+    return true;
+  }
+
+  bool _ringContains(double lat, double lng, List ring, bool latFirst) {
     var inside = false;
     for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      final vertexI = ring[i];
-      final vertexJ = ring[j];
-      if (vertexI is! List || vertexJ is! List) continue;
-      final xi = vertexI[0] as double;
-      final yi = vertexI[1] as double;
-      final xj = vertexJ[0] as double;
-      final yj = vertexJ[1] as double;
-      if (((yi > lng) != (yj > lng)) &&
-          (lng < (xj - xi) * (lng - yi) / (yj - yi) + xi)) {
+      final a = ring[i];
+      final b = ring[j];
+      if (a is! List || b is! List || a.length < 2 || b.length < 2) continue;
+      final ax = ((latFirst ? a[1] : a[0]) as num).toDouble();
+      final ay = ((latFirst ? a[0] : a[1]) as num).toDouble();
+      final bx = ((latFirst ? b[1] : b[0]) as num).toDouble();
+      final by = ((latFirst ? b[0] : b[1]) as num).toDouble();
+      if ((ay > lat) != (by > lat) &&
+          lng < (bx - ax) * (lat - ay) / (by - ay) + ax) {
         inside = !inside;
       }
     }

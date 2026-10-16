@@ -317,7 +317,6 @@ class OpenMeteoWeatherService implements WeatherService {
             depthEnd: spec.endCm.toDouble(),
             soilMoisture: moistureVol == null ? null : moistureVol * 100.0,
             soilTemperature: spec.temperatureC,
-            soilWaterIndex: null,
             source: sourceModel,
           ),
         );

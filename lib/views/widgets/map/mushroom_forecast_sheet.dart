@@ -8,6 +8,7 @@ import 'package:my_spots/views/mushroom/mushroom_observation_form.dart';
 import 'package:my_spots/views/mushroom/mushroom_observations_screen.dart';
 
 const _observationActionBarHeight = 56.0;
+const _mushroomTealColor = Color(0xFF80CBC4);
 const mushroomConfidenceExplanation =
     'Ce pourcentage mesure la complétude des sources, pas la fiabilité du modèle.';
 
@@ -145,7 +146,7 @@ class _MushroomForecastSheetState extends State<MushroomForecastSheet> {
                         'Meilleur jour estimé : J+${bestDay.key} '
                         '(indice ${bestDay.value.index})',
                         style: const TextStyle(
-                          color: Color(0xFF80CBC4),
+                          color: _mushroomTealColor,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -287,7 +288,7 @@ class _ForecastDayExpansion extends StatelessWidget {
           Text(
             excluded ? 'Hors habitat' : '${forecast.index}',
             style: TextStyle(
-              color: excluded ? Colors.grey : Color(0xFF80CBC4),
+              color: excluded ? Colors.grey : _mushroomTealColor,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -302,7 +303,7 @@ class _ForecastDayExpansion extends StatelessWidget {
               value: (forecast.index / 100).clamp(0.0, 1.0).toDouble(),
               minHeight: 7,
               backgroundColor: excluded ? Colors.grey.shade700 : Colors.white12,
-              color: excluded ? Colors.grey.shade500 : const Color(0xFF80CBC4),
+              color: excluded ? Colors.grey.shade500 : _mushroomTealColor,
             ),
             if (excluded)
               Padding(
@@ -339,24 +340,16 @@ class _ForecastDayExpansion extends StatelessWidget {
             style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ),
-        if (excluded)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Hors habitat : ${forecast.habitatReason ?? 'raison inconnue'} · '
-              '${mushroomDataAvailabilityLabel(forecast.confidence)}',
-              style: const TextStyle(color: Colors.white70),
-            ),
-          )
-        else
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Indice : ${forecast.index}/100 · '
-              '${mushroomDataAvailabilityLabel(forecast.confidence)}',
-              style: const TextStyle(color: Colors.white70),
-            ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            excluded
+                ? mushroomDataAvailabilityLabel(forecast.confidence)
+                : 'Indice : ${forecast.index}/100 · '
+                      '${mushroomDataAvailabilityLabel(forecast.confidence)}',
+            style: const TextStyle(color: Colors.white70),
           ),
+        ),
         const SizedBox(height: 8),
         _FactorRow(
           label: mushroomWaterFactorLabel(forecast.soilMoistureAvailable),
@@ -464,7 +457,8 @@ String _shockDescription(MushroomForecast forecast) {
   final drop = forecast.shockTempDropC == null
       ? 'donnée non disponible'
       : forecast.shockTempDropC!.toStringAsFixed(1);
-  return 'Choc déclencheur il y a $daysAgo jours '
+  final daysLabel = daysAgo == 1 ? 'jour' : 'jours';
+  return 'Choc déclencheur il y a $daysAgo $daysLabel '
       '(pluie $rain mm, baisse $drop °C)';
 }
 
@@ -500,7 +494,7 @@ class _FactorRow extends StatelessWidget {
               value: value!.clamp(0.0, 1.0).toDouble(),
               minHeight: 5,
               backgroundColor: Colors.white12,
-              color: const Color(0xFF80CBC4),
+              color: _mushroomTealColor,
             ),
           ),
         ],

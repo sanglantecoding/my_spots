@@ -233,31 +233,47 @@ class MushroomObservation {
   factory MushroomObservation.fromJson(Map<String, dynamic> json) {
     final rawHabitats = json['microHabitats'];
     final rawSnapshot = json['forecastSnapshot'];
+
+    // Abondance : si inconnue, lève une erreur -> observation ignorée
+    final abundance = MushroomAbundance.values.firstWhere(
+      (value) => value.name == json['abundance'],
+    );
+
+    // Micro-habitats : si inconnus, lève une erreur -> observation ignorée
+    final microHabitats = rawHabitats is List
+        ? rawHabitats
+              .map<MushroomMicroHabitat>(
+                (value) => MushroomMicroHabitat.values.firstWhere(
+                  (habitat) => habitat.name == value,
+                ),
+              )
+              .toList(growable: false)
+        : const <MushroomMicroHabitat>[];
+
+    // Snapshot ancien ou incomplet : garder l'observation avec forecastSnapshot = null
+    MushroomForecastSnapshot? forecastSnapshot;
+    if (rawSnapshot is Map) {
+      try {
+        forecastSnapshot = MushroomForecastSnapshot.fromJson(
+          Map<String, dynamic>.from(rawSnapshot),
+        );
+      } catch (_) {
+        // Snapshot invalide : ignorer, garder l'observation sans snapshot
+        forecastSnapshot = null;
+      }
+    }
+
     return MushroomObservation(
       id: json['id'] as String,
       date: DateTime.parse(json['date'].toString()),
       latitude: (json['latitude'] as num).toDouble(),
       longitude: (json['longitude'] as num).toDouble(),
       species: mushroomSpeciesFromCode(json['species']?.toString() ?? ''),
-      abundance: MushroomAbundance.values.firstWhere(
-        (value) => value.name == json['abundance'],
-      ),
+      abundance: abundance,
       approximateCount: (json['approximateCount'] as num?)?.toInt(),
-      microHabitats: rawHabitats is List
-          ? rawHabitats
-                .map(
-                  (value) => MushroomMicroHabitat.values.firstWhere(
-                    (habitat) => habitat.name == value,
-                  ),
-                )
-                .toList(growable: false)
-          : const [],
+      microHabitats: microHabitats,
       notes: json['notes'] as String?,
-      forecastSnapshot: rawSnapshot is Map
-          ? MushroomForecastSnapshot.fromJson(
-              Map<String, dynamic>.from(rawSnapshot),
-            )
-          : null,
+      forecastSnapshot: forecastSnapshot,
     );
   }
 

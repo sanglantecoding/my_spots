@@ -1,45 +1,6 @@
 /// Origine temporelle d'une observation météo.
 enum WeatherDataKind { historical, forecast }
 
-/// Agrégation d'une fenêtre de jours, avec couverture explicite.
-///
-/// [value] n'est calculé qu'à partir des mesures présentes. Les jours
-/// manquants ne sont ni interpolés ni remplacés. [isComplete] est faux
-/// dès qu'au moins une valeur de la fenêtre est absente.
-class WeatherAggregate {
-  const WeatherAggregate({
-    required this.value,
-    required this.windowLength,
-    required this.observedCount,
-  });
-
-  /// Somme ou moyenne des mesures observées, ou `null` s'il n'y en a aucune.
-  final double? value;
-
-  /// Nombre de jours dans la fenêtre demandée.
-  final int windowLength;
-
-  /// Nombre de jours pour lesquels la mesure agrégée est présente.
-  final int observedCount;
-
-  bool get isEmpty => observedCount == 0;
-
-  bool get isComplete => windowLength > 0 && observedCount == windowLength;
-
-  bool get isPartial => observedCount > 0 && observedCount < windowLength;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is WeatherAggregate &&
-          value == other.value &&
-          windowLength == other.windowLength &&
-          observedCount == other.observedCount;
-
-  @override
-  int get hashCode => Object.hash(value, windowLength, observedCount);
-}
-
 /// Données météo pour un jour donné à une position.
 class WeatherDay {
   final DateTime date;

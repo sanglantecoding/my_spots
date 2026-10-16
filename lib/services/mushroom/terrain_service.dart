@@ -16,16 +16,13 @@ abstract class TerrainService {
     required double lng,
   });
 
-  /// Récupère l'altitude uniquement (plus léger si seule l'altitude est nécessaire).
-  Future<double> getElevation({required double lat, required double lng});
-
   /// Charge les données de terrain pour plusieurs centres en batch.
   ///
-  /// Implementation par défaut retourne une map vide.
+  /// Doit être implémenté par les services qui supportent le traitement par lot.
   Future<Map<String, TerrainData>> getTerrainBatch(
     List<LatLng> centers,
     double spacingMetres,
-  ) async {
-    return {};
+  ) {
+    throw UnimplementedError('getTerrainBatch must be implemented');
   }
 }

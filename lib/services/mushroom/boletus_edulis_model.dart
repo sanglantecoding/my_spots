@@ -9,7 +9,7 @@ import 'package:my_spots/models/mushroom/terrain_data.dart';
 import 'package:my_spots/models/mushroom/weather_day.dart';
 import 'package:my_spots/services/mushroom/mushroom_forecast_engine.dart';
 import 'package:my_spots/services/mushroom/hydric_config.dart';
-import 'package:my_spots/services/mushroom/shock_config.dart';
+import 'package:my_spots/services/mushroom/model_weights.dart';
 import 'package:my_spots/services/mushroom/habitat_rules.dart';
 import 'package:my_spots/services/mushroom/season_config.dart';
 import 'package:my_spots/services/mushroom/frost_config.dart';
@@ -103,8 +103,6 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     return list;
   }
 
-  /// Ordonne une liste SoilMoistureData en antéchronologique
-  /// (du PLUS RÉCENT au PLUS ANCIEN) pour la couche [layerDepthMin..layerDepthMax].
   @override
   MushroomForecast calculate({
     required List<WeatherDay> weatherHistory,
@@ -161,6 +159,12 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     final habitat = _evaluateHabitat(terrain, forest);
 
     // 10. Une exclusion certaine interdit toute valeur d'indice positive.
+    final soilTemperature0To7C = _soilValueAt(
+      soilMoistureLayers,
+      tDay,
+      depth: ModelWeights.soilTemperatureLayerDepth,
+      select: (soil) => soil.soilTemperature,
+    );
     final aggregatedIndex = _aggregateIndex(
       waterFactor,
       temperatureFactor,
@@ -179,14 +183,16 @@ class BoletusEdulisModel implements MushroomForecastEngine {
 
     final index = habitat.status == HabitatStatus.excluded
         ? 0
-        : (aggregatedIndex * hydricGate * seasonMult * frostMult).round();
+        : (aggregatedIndex * hydricGate * seasonMult * frostMult)
+              .round()
+              .toInt();
 
     // 10. Calcul de la confiance (basée sur la disponibilité des données)
     final confidence = _calculateConfidence(
       weatherSeriesDesc,
       weatherForecast,
       hydric.hasSoilMoisture,
-      temperature.source == 'soil_0_7cm',
+      soilTemperature0To7C != null,
       waterFactor,
       temperatureFactor,
       shock.factor,
@@ -228,12 +234,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       soilMoisture7To28Median60dPercent: soilMoistureStats.median,
       soilMoisture7To28Max60dPercent: soilMoistureStats.max,
       soilMoisture7To28Percentile60d: soilMoistureStats.percentile,
-      soilTemperature0To7C: _soilValueAt(
-        soilMoistureLayers,
-        tDay,
-        depth: ShockConfig.soilTemperatureLayerDepth,
-        select: (soil) => soil.soilTemperature,
-      ),
+      soilTemperature0To7C: soilTemperature0To7C,
       hydricGate: hydricGate,
       shockDate: shock.date,
       shockRainMm: shock.rain48h,
@@ -242,7 +243,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
       rain26: hydric.rain26,
       tmean20: temperature.tmean20,
       hasRecentFrost: frostMult < 1.0,
-      isInSeason: seasonMult < 1.0,
+      isInSeason: seasonMult >= 1.0,
       dataSources: {
         'terrain': terrain.source,
         'forest': forest.source,
@@ -507,8 +508,9 @@ class BoletusEdulisModel implements MushroomForecastEngine {
         soilLayers
             .where(
               (soil) =>
-                  soil.depthStart == ShockConfig.soilTemperatureLayerDepth.$1 &&
-                  soil.depthEnd == ShockConfig.soilTemperatureLayerDepth.$2 &&
+                  soil.depthStart ==
+                      ModelWeights.soilTemperatureLayerDepth.$1 &&
+                  soil.depthEnd == ModelWeights.soilTemperatureLayerDepth.$2 &&
                   soil.soilTemperature != null &&
                   !_stripTime(soil.date).isAfter(targetDate),
             )
@@ -534,8 +536,8 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     double? bestRain;
     double? bestTempDrop;
     for (
-      var lag = ShockConfig.lagMinDays;
-      lag <= ShockConfig.lagMaxDays;
+      var lag = ModelWeights.lagMinDays;
+      lag <= ModelWeights.lagMaxDays;
       lag++
     ) {
       final date = targetDate.subtract(Duration(days: lag));
@@ -551,7 +553,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
         date,
       ); // Pour affichage seulement
       // Score basé uniquement sur la pluie
-      final score = rain48h < ShockConfig.rainTriggerMm
+      final score = rain48h < ModelWeights.rainTriggerMm
           ? 0.0
           : _shockScore(rain48h);
       if (bestFactor == null || score > bestFactor) {
@@ -571,11 +573,11 @@ class BoletusEdulisModel implements MushroomForecastEngine {
 
   double _shockScore(double rain48h) {
     // Score basé uniquement sur la pluie (tempDrop pour affichage seulement)
-    return rain48h >= ShockConfig.rainHighMm
-        ? ShockConfig.rainHighPart
-        : rain48h >= ShockConfig.rainMediumMm
-        ? ShockConfig.rainMediumPart
-        : ShockConfig.rainLowPart;
+    return rain48h >= ModelWeights.rainHighMm
+        ? ModelWeights.rainHighPart
+        : rain48h >= ModelWeights.rainMediumMm
+        ? ModelWeights.rainMediumPart
+        : ModelWeights.rainLowPart;
   }
 
   double? _temperatureDrop(Map<DateTime, WeatherDay> byDate, DateTime date) {
@@ -608,7 +610,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     int dryDays = 0;
     for (final day in weatherSeriesDesc) {
       if (day.precipitation == null) break;
-      if (day.precipitation! < 2.0) {
+      if (day.precipitation! < HydricConfig.rainDayMm) {
         dryDays++;
       } else {
         break;
@@ -713,7 +715,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
   /// Les facteurs terrain et forest peuvent être null si leurs données sont inconnues.
   /// Les facteurs connus sont moyennés pondérément avec leurs poids renormalisés
   /// pour que la somme reste 1.
-  int _aggregateIndex(
+  double _aggregateIndex(
     double? water,
     double? temperature,
     double drying,
@@ -721,12 +723,12 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     double? terrain,
     double? forest,
   ) {
-    final waterWeight = ShockConfig.waterWeight;
-    final temperatureWeight = ShockConfig.airOrSoilTemperatureWeight;
-    final dryingWeight = ShockConfig.dryingWeight;
-    final shockWeight = ShockConfig.shockWeight;
-    final terrainWeight = ShockConfig.terrainWeight;
-    final forestWeight = ShockConfig.forestWeight;
+    final waterWeight = ModelWeights.waterWeight;
+    final temperatureWeight = ModelWeights.airOrSoilTemperatureWeight;
+    final dryingWeight = ModelWeights.dryingWeight;
+    final shockWeight = ModelWeights.shockWeight;
+    final terrainWeight = ModelWeights.terrainWeight;
+    final forestWeight = ModelWeights.forestWeight;
 
     // Calculer la somme des poids des facteurs connus
     double knownWeightSum = dryingWeight;
@@ -747,7 +749,7 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     // Normaliser pour que la somme des poids soit 1
     final weighted = (weightedSum / knownWeightSum).clamp(0.0, 1.0);
 
-    return (weighted * 100).round();
+    return weighted * 100;
   }
 
   /// Calcul de la confiance dans la prédiction.
@@ -796,11 +798,11 @@ class BoletusEdulisModel implements MushroomForecastEngine {
     }
     if (!hasSoilMoisture) missingWeight += 0.15;
     if (!hasSoilTemperature) missingWeight += 0.05;
-    if (waterFactor == null) missingWeight += ShockConfig.waterWeight;
+    if (waterFactor == null) missingWeight += ModelWeights.waterWeight;
     if (temperatureFactor == null) {
-      missingWeight += ShockConfig.airOrSoilTemperatureWeight;
+      missingWeight += ModelWeights.airOrSoilTemperatureWeight;
     }
-    if (shockFactor == null) missingWeight += ShockConfig.shockWeight;
+    if (shockFactor == null) missingWeight += ModelWeights.shockWeight;
 
     return (confidence - missingWeight).clamp(0.0, 1.0);
   }

@@ -63,31 +63,5 @@ void main() {
       final multiplier = FrostConfig.frostMultiplier(targetDate, weather);
       expect(multiplier, equals(1.0));
     });
-
-    test('hasRecentFrost: detects frost', () {
-      final targetDate = DateTime.utc(2026, 10, 15);
-      final weather = [
-        WeatherDay(
-          date: DateTime.utc(2026, 10, 14),
-          temperatureMin: -1.0,
-          temperatureMean: 2.0,
-          temperatureMax: 8.0,
-        ),
-      ];
-      expect(FrostConfig.hasRecentFrost(targetDate, weather), isTrue);
-    });
-
-    test('hasRecentFrost: no frost', () {
-      final targetDate = DateTime.utc(2026, 10, 15);
-      final weather = [
-        WeatherDay(
-          date: DateTime.utc(2026, 10, 14),
-          temperatureMin: 2.0,
-          temperatureMean: 5.0,
-          temperatureMax: 10.0,
-        ),
-      ];
-      expect(FrostConfig.hasRecentFrost(targetDate, weather), isFalse);
-    });
   });
 }

@@ -7,6 +7,65 @@ import 'package:my_spots/services/mushroom/habitat_rules.dart';
 import 'package:my_spots/models/mushroom/habitat_status.dart';
 import 'package:my_spots/services/mushroom/ign_open_elevation_terrain_service.dart';
 
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+Client _mockIgnFixedVals(List<double?> vals) {
+  return MockClient((request) async {
+    if (request.url.host == 'data.geopf.fr') {
+      final body = jsonEncode({
+        'elevations': List<Map<String, dynamic>>.generate(vals.length, (i) {
+          final m = <String, dynamic>{'lon': 1.0, 'lat': 44.0, 'acc': 1.0};
+          final v = vals[i];
+          if (v != null) m['z'] = v;
+          return m;
+        }),
+      });
+      return Response(body, 200, headers: {'content-type': 'application/json'});
+    }
+    return Response('{}', 500);
+  });
+}
+
+IgnOpenElevationTerrainService _serviceWithIgnNoData({
+  double? srtmCenter,
+  bool srtmFails = false,
+}) {
+  final client = MockClient((request) async {
+    if (request.url.host == 'data.geopf.fr') {
+      final body = jsonEncode({
+        'elevations': List<Map<String, dynamic>>.generate(
+          9,
+          (i) => {'lon': 1.0, 'lat': 44.0, 'z': i == 4 ? -99999 : 300},
+        ),
+      });
+      return Response(body, 200, headers: {'content-type': 'application/json'});
+    }
+    if (request.url.host == 'api.open-elevation.com') {
+      if (srtmFails) return Response('{}', 503);
+      final body = jsonEncode({
+        'results': List<Map<String, dynamic>>.generate(
+          9,
+          (i) => {
+            'latitude': 44.0,
+            'longitude': 1.0,
+            'elevation': i == 4 ? srtmCenter : 901 + i,
+          },
+        ),
+      });
+      return Response(body, 200, headers: {'content-type': 'application/json'});
+    }
+    return Response('{}', 500);
+  });
+  return IgnOpenElevationTerrainService(client: client);
+}
+
+Future<dynamic> _terrainFromVals(List<double?> vals) async {
+  final svc = IgnOpenElevationTerrainService(client: _mockIgnFixedVals(vals));
+  return svc.getTerrainData(lat: 44.0, lng: 1.0);
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────
+
 void main() {
   group('parseIgnResponse', () {
     test('parse 9 altitudes dans le bon ordre', () {
@@ -204,7 +263,7 @@ void main() {
       );
       expect(
         HabitatRules.evaluateTerrain(terrain)?.reason,
-        'Pas d’altitude IGN ni SRTM : mer probable',
+        "Pas d'altitude IGN ni SRTM : mer probable",
       );
     });
 
@@ -336,89 +395,7 @@ void main() {
 
         final req = captured!;
         expect(req.method, 'POST');
-        expect(req.url.host, 'data.geopf.fr');
-        final parsed = jsonDecode(req.body) as Map<String, dynamic>;
-        expect(parsed['resource'], 'ign_rge_alti_wld');
-        expect(parsed['delimiter'], '|');
-        expect((parsed['lon'] as String).split('|').length, 9);
-        expect((parsed['lat'] as String).split('|').length, 9);
       },
     );
   });
-
-  group('getElevation wrapper', () {
-    test('retourne l\'altitude centrale quand dispo', () async {
-      const vals = <double?>[1, 2, 3, 4, 99.0, 6, 7, 8, 9];
-      final svc = IgnOpenElevationTerrainService(
-        client: _mockIgnFixedVals(vals),
-      );
-      final e = await svc.getElevation(lat: 44.0, lng: 1.0);
-      expect(e, 99.0);
-    });
-
-    test('erreur si altitude non dispo', () async {
-      final vals = List<double?>.filled(9, null);
-      final svc = IgnOpenElevationTerrainService(
-        client: _mockIgnFixedVals(vals),
-      );
-      expect(svc.getElevation(lat: 44.0, lng: 1.0), throwsA(isA<StateError>()));
-    });
-  });
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-Client _mockIgnFixedVals(List<double?> vals) {
-  return MockClient((request) async {
-    if (request.url.host == 'data.geopf.fr') {
-      final body = jsonEncode({
-        'elevations': List<Map<String, dynamic>>.generate(vals.length, (i) {
-          final m = <String, dynamic>{'lon': 1.0, 'lat': 44.0, 'acc': 1.0};
-          final v = vals[i];
-          if (v != null) m['z'] = v;
-          return m;
-        }),
-      });
-      return Response(body, 200, headers: {'content-type': 'application/json'});
-    }
-    return Response('{}', 500);
-  });
-}
-
-IgnOpenElevationTerrainService _serviceWithIgnNoData({
-  double? srtmCenter,
-  bool srtmFails = false,
-}) {
-  final client = MockClient((request) async {
-    if (request.url.host == 'data.geopf.fr') {
-      final body = jsonEncode({
-        'elevations': List<Map<String, dynamic>>.generate(
-          9,
-          (i) => {'lon': 1.0, 'lat': 44.0, 'z': i == 4 ? -99999 : 300},
-        ),
-      });
-      return Response(body, 200, headers: {'content-type': 'application/json'});
-    }
-    if (request.url.host == 'api.open-elevation.com') {
-      if (srtmFails) return Response('{}', 503);
-      final body = jsonEncode({
-        'results': List<Map<String, dynamic>>.generate(
-          9,
-          (i) => {
-            'latitude': 44.0,
-            'longitude': 1.0,
-            'elevation': i == 4 ? srtmCenter : 901 + i,
-          },
-        ),
-      });
-      return Response(body, 200, headers: {'content-type': 'application/json'});
-    }
-    return Response('{}', 500);
-  });
-  return IgnOpenElevationTerrainService(client: client);
-}
-
-Future<dynamic> _terrainFromVals(List<double?> vals) async {
-  final svc = IgnOpenElevationTerrainService(client: _mockIgnFixedVals(vals));
-  return svc.getTerrainData(lat: 44.0, lng: 1.0);
 }

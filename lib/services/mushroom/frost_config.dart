@@ -53,9 +53,4 @@ class FrostConfig {
 
     return multiplier;
   }
-
-  /// Indique s'il y a un gel récent.
-  static bool hasRecentFrost(DateTime targetDate, List<WeatherDay> weather) {
-    return frostMultiplier(targetDate, weather) < 1.0;
-  }
 }

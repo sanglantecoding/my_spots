@@ -1,11 +1,11 @@
-/// Configuration du choc déclencheur pour le modèle BoletusEdulisModel.
+/// Configuration des poids du modèle pour BoletusEdulisModel.
 ///
 /// Sources : préprint Brejon Lamartinière & Hoffman (hêtraie allemande, 2015-2024, non relu par des pairs)
 /// À recalibrer avec mes observations (Haut-Languedoc).
 ///
 /// Ces valeurs sont des HYPOTHÈSES à calibrer, aucune donnée inventée.
-class ShockConfig {
-  ShockConfig._();
+class ModelWeights {
+  ModelWeights._();
 
   /// Couche native ECMWF IFS utilisée pour la température du sol (cm).
   static const (double, double) soilTemperatureLayerDepth = (0, 7);

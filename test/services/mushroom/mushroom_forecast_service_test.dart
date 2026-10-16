@@ -82,14 +82,6 @@ class MockTerrainService implements TerrainService {
   }
 
   @override
-  Future<double> getElevation({
-    required double lat,
-    required double lng,
-  }) async {
-    return elevation ?? 0.0;
-  }
-
-  @override
   Future<Map<String, TerrainData>> getTerrainBatch(
     List<LatLng> centers,
     double spacingMetres,
@@ -122,8 +114,10 @@ class MockForestService implements ForestService {
     LatLngBounds bounds,
     List<LatLng> centers, {
     void Function(String)? onStage,
-  }) async {
-    return {};
+  }) {
+    throw UnimplementedError(
+      'MockForestService does not implement getForestBatch',
+    );
   }
 }
 

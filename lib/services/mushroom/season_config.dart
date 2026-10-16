@@ -26,22 +26,27 @@ class SeasonConfig {
 
   /// Calcule le multiplicateur saisonnier pour une date donnée.
   static double seasonMultiplier(DateTime date) {
-    final fullStart = DateTime(
-      date.year,
+    final day = DateTime.utc(date.year, date.month, date.day);
+    final fullStart = DateTime.utc(
+      day.year,
       fullSeasonStartMonth,
       fullSeasonStartDay,
     );
-    final fullEnd = DateTime(date.year, fullSeasonEndMonth, fullSeasonEndDay);
+    final fullEnd = DateTime.utc(
+      day.year,
+      fullSeasonEndMonth,
+      fullSeasonEndDay,
+    );
 
     // Si la date est dans la période pleine
-    if (!date.isBefore(fullStart) && !date.isAfter(fullEnd)) {
+    if (!day.isBefore(fullStart) && !day.isAfter(fullEnd)) {
       return fullSeasonMultiplier;
     }
 
     // Rampe d'entrée (avant le début de la saison pleine)
     final rampStart = fullStart.subtract(Duration(days: rampDays));
-    if (date.isAfter(rampStart) && date.isBefore(fullStart)) {
-      final daysIntoRamp = date.difference(rampStart).inDays;
+    if (day.isAfter(rampStart) && day.isBefore(fullStart)) {
+      final daysIntoRamp = day.difference(rampStart).inDays;
       final t = daysIntoRamp / rampDays;
       return outOfSeasonMultiplier +
           (fullSeasonMultiplier - outOfSeasonMultiplier) * t;
@@ -49,8 +54,8 @@ class SeasonConfig {
 
     // Rampe de sortie (après la fin de la saison pleine)
     final rampEnd = fullEnd.add(Duration(days: rampDays));
-    if (date.isAfter(fullEnd) && date.isBefore(rampEnd)) {
-      final daysIntoRamp = date.difference(fullEnd).inDays;
+    if (day.isAfter(fullEnd) && day.isBefore(rampEnd)) {
+      final daysIntoRamp = day.difference(fullEnd).inDays;
       final t = daysIntoRamp / rampDays;
       return fullSeasonMultiplier -
           (fullSeasonMultiplier - outOfSeasonMultiplier) * t;

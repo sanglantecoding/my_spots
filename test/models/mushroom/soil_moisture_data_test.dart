@@ -10,7 +10,6 @@ void main() {
         depthStart: 0.0,
         depthEnd: 7.0,
         soilMoisture: 30.0,
-        soilWaterIndex: 0.5,
       );
 
       expect(moisture.date, date);
@@ -18,7 +17,6 @@ void main() {
       expect(moisture.depthStart, 0.0);
       expect(moisture.depthEnd, 7.0);
       expect(moisture.soilMoisture, 30.0);
-      expect(moisture.soilWaterIndex, 0.5);
     });
 
     test('creates instance with null optional fields', () {
@@ -30,7 +28,6 @@ void main() {
       );
 
       expect(moisture.soilTemperature, isNull);
-      expect(moisture.soilWaterIndex, isNull);
       expect(moisture.source, isNull);
     });
 
@@ -55,7 +52,6 @@ void main() {
       expect(moisture.depthEnd, 7.0);
       expect(moisture.soilMoisture, isNull);
       expect(moisture.soilTemperature, isNull);
-      expect(moisture.soilWaterIndex, isNull);
       expect(moisture.source, isNull);
     });
 
@@ -65,7 +61,6 @@ void main() {
         depthEnd: 10.0,
         moisture: 50.0,
         soilTemperature: 15.0,
-        swi: 0.8,
         source: 'open-meteo',
       );
 
@@ -73,7 +68,6 @@ void main() {
       expect(moisture.depthEnd, 10.0);
       expect(moisture.soilMoisture, 50.0);
       expect(moisture.soilTemperature, 15.0);
-      expect(moisture.soilWaterIndex, 0.8);
       expect(moisture.source, 'open-meteo');
     });
   });

@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:my_spots/models/mushroom/terrain_data.dart';
+import 'package:my_spots/services/mushroom/bounded_lru_cache.dart';
 import 'package:my_spots/services/mushroom/point_key.dart';
 import 'package:my_spots/services/mushroom/terrain_service.dart';
 
@@ -19,7 +20,7 @@ import 'package:my_spots/services/mushroom/terrain_service.dart';
 ///
 /// Les calculs se font en local :
 /// - pente (degrés) : `atan(sqrt(dzDx² + dzDy²)) * 180/π`
-/// - aspect (degrés 0=Nord → 360°) : `atan2(dzDx, -dzDy)` converti en 0..360
+/// - aspect (degrés 0=Nord → 360°) : `atan2(-dzDx, dzDy)` converti en 0..360
 /// - aspect = null si `slope < 1°` (terrain quasi plat, pas d'orientation signifiante)
 ///
 /// Si un ou plusieurs points du patch 3×3 manquent (null / hors territoire)
@@ -51,11 +52,13 @@ class IgnOpenElevationTerrainService implements TerrainService {
   static const _cacheTtl = Duration(days: 30);
   static const _coordPrecision = 4; // ~11 m
   static const _maxPointsPerRequest = 5000;
+  static const _maxSrtmPointsPerRequest = 100;
   static const _maxRequestsPerSecond = 4;
   static const _requestDelayMs = 1000 ~/ _maxRequestsPerSecond;
+  static const _requestTimeout = Duration(seconds: 15);
 
-  final Map<String, _CachedTerrain> _cache = {};
-  DateTime? _lastRequestTime;
+  final BoundedLruCache<String, _CachedTerrain> _cache = BoundedLruCache(2000);
+  Future<void>? _rateLimitQueue;
 
   String _cacheKey(double lat, double lng) {
     final latR = lat.toStringAsFixed(_coordPrecision);
@@ -149,21 +152,12 @@ class IgnOpenElevationTerrainService implements TerrainService {
       source: source,
     );
 
-    _cache[key] = _CachedTerrain(fetchedAt: now, data: data);
-    return data;
-  }
-
-  @override
-  Future<double> getElevation({
-    required double lat,
-    required double lng,
-  }) async {
-    final data = await getTerrainData(lat: lat, lng: lng);
-    final e = data.elevation;
-    if (e == null) {
-      throw StateError('Elevation unavailable at ($lat, $lng)');
+    // Ne mettre en cache que si elevation != null ou noElevationData == true
+    // (un échec réseau ne doit pas rester 30 jours en cache)
+    if (centralElevation != null || noElevationData) {
+      _cache[key] = _CachedTerrain(fetchedAt: now, data: data);
     }
-    return e;
+    return data;
   }
 
   /// Charge les données de terrain pour plusieurs centres de cellules en batch.
@@ -196,19 +190,13 @@ class IgnOpenElevationTerrainService implements TerrainService {
     if (uncached.isEmpty) return result;
 
     final allPoints = <(double lat, double lng)>[];
-    final pointToCenter = <(double lat, double lng), LatLng>{};
-    final centerToPatchIndex = <LatLng, int>{};
     final centerToOutputKey = <LatLng, String>{};
 
-    for (var i = 0; i < uncached.length; i++) {
-      final center = uncached[i].$1;
-      final outputKey = uncached[i].$2;
-      centerToPatchIndex[center] = i;
+    for (final (center, outputKey) in uncached) {
       centerToOutputKey[center] = outputKey;
       final patch = patch3x3(center.latitude, center.longitude);
       for (final point in patch) {
         allPoints.add(point);
-        pointToCenter[point] = center;
       }
     }
 
@@ -280,7 +268,7 @@ class IgnOpenElevationTerrainService implements TerrainService {
       var currentSrtmBatch = <LatLng>[];
       for (final center in centersNeedingSrtm) {
         currentSrtmBatch.add(center);
-        if (currentSrtmBatch.length >= 100) {
+        if (currentSrtmBatch.length >= _maxSrtmPointsPerRequest) {
           srtmBatches.add(currentSrtmBatch);
           currentSrtmBatch = [];
         }
@@ -352,10 +340,12 @@ class IgnOpenElevationTerrainService implements TerrainService {
           source: source,
         );
         final cacheKey = _cacheKey(center.latitude, center.longitude);
-        _cache[cacheKey] = _CachedTerrain(fetchedAt: now, data: data);
+        // Ne mettre en cache que si elevation != null ou noElevationData == true
+        if (centralElevation != null || noElevationData) {
+          _cache[cacheKey] = _CachedTerrain(fetchedAt: now, data: data);
+        }
         result[outputKey] = data;
       } catch (_) {
-        final cacheKey = _cacheKey(center.latitude, center.longitude);
         final data = TerrainData(
           latitude: center.latitude,
           longitude: center.longitude,
@@ -365,7 +355,7 @@ class IgnOpenElevationTerrainService implements TerrainService {
           aspect: null,
           source: null,
         );
-        _cache[cacheKey] = _CachedTerrain(fetchedAt: now, data: data);
+        // Ne pas mettre en cache les échecs (elevation == null et noElevationData == false)
         result[outputKey] = data;
       }
     }
@@ -374,15 +364,10 @@ class IgnOpenElevationTerrainService implements TerrainService {
   }
 
   Future<void> _enforceRateLimit() async {
-    if (_lastRequestTime != null) {
-      final elapsed = DateTime.now().difference(_lastRequestTime!);
-      if (elapsed.inMilliseconds < _requestDelayMs) {
-        await Future.delayed(
-          Duration(milliseconds: _requestDelayMs - elapsed.inMilliseconds),
-        );
-      }
-    }
-    _lastRequestTime = DateTime.now();
+    _rateLimitQueue = (_rateLimitQueue ?? Future.value()).then((_) async {
+      await Future.delayed(Duration(milliseconds: _requestDelayMs));
+    });
+    await _rateLimitQueue;
   }
 
   // ────────────────── Appels HTTP ──────────────────
@@ -402,15 +387,17 @@ class IgnOpenElevationTerrainService implements TerrainService {
       'resource': 'ign_rge_alti_wld',
       'delimiter': '|',
     });
-    final response = await _client.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'my_spots/1.0 (Flutter)',
-        'Accept': 'application/json',
-      },
-      body: body,
-    );
+    final response = await _client
+        .post(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'my_spots/1.0 (Flutter)',
+            'Accept': 'application/json',
+          },
+          body: body,
+        )
+        .timeout(_requestTimeout);
     if (response.statusCode != 200) {
       throw const _ProviderUnavailableException();
     }
@@ -427,15 +414,17 @@ class IgnOpenElevationTerrainService implements TerrainService {
       (i) => {'latitude': lats[i], 'longitude': lngs[i]},
     );
     final body = jsonEncode(<String, dynamic>{'locations': locations});
-    final response = await _client.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'my_spots/1.0 (Flutter)',
-        'Accept': 'application/json',
-      },
-      body: body,
-    );
+    final response = await _client
+        .post(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'my_spots/1.0 (Flutter)',
+            'Accept': 'application/json',
+          },
+          body: body,
+        )
+        .timeout(_requestTimeout);
     if (response.statusCode != 200) {
       throw _ProviderUnavailableException(
         inner: http.ClientException(

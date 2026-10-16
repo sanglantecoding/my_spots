@@ -58,7 +58,6 @@ void main() {
       );
       // moyenne (0.25 + 0.35) / 2 = 0.30 → ×100 = 30 %
       expect(layer07.soilMoisture, closeTo(30.0, 0.001));
-      expect(layer07.soilWaterIndex, isNull);
     });
 
     test('séparation historical / forecast – index-based', () {
@@ -303,7 +302,6 @@ void main() {
       final result = OpenMeteoWeatherService.parseJson(json, forecastDays: 1);
       for (final s in result.soilLayers) {
         expect(s.soilMoisture, isNull);
-        expect(s.soilWaterIndex, isNull);
       }
     });
   });

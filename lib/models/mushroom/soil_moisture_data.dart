@@ -9,7 +9,6 @@ class SoilMoistureData {
   final double depthEnd; // cm (profondeur fin de la couche)
   final double? soilMoisture; // % volumique (0-100)
   final double? soilTemperature; // °C (température du sol, si disponible)
-  final double? soilWaterIndex; // Index normalisé (0-1) si disponible
   final String? source;
 
   SoilMoistureData({
@@ -19,7 +18,6 @@ class SoilMoistureData {
     required this.depthEnd,
     this.soilMoisture,
     this.soilTemperature,
-    this.soilWaterIndex,
     this.source,
   });
 
@@ -31,7 +29,6 @@ class SoilMoistureData {
     double depthEnd = 7.0,
     double? moisture,
     double? soilTemperature,
-    double? swi,
     String? source,
   }) {
     return SoilMoistureData(
@@ -41,7 +38,6 @@ class SoilMoistureData {
       depthEnd: depthEnd,
       soilMoisture: moisture,
       soilTemperature: soilTemperature,
-      soilWaterIndex: swi,
       source: source,
     );
   }
